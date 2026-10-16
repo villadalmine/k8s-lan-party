@@ -1,0 +1,117 @@
+name: Verify
+
+# Adapted from study-cybercirujas (verify.yml). Two required checks (names matter: the ruleset in
+# .github/rulesets/main.json requires them by name):
+#   verify    - the repo's own checks: labels as code, unit tests of the gates, no secrets
+#   pr-format - the PR description: sections, scope, provenance, DCO, the cited CI run
+# plus where-it-ran, a comment with the line to paste under "Evidence -> Where it ran".
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited, labeled, unlabeled]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # A newer push makes the older run irrelevant; cancel it rather than queue.
+  # A description edit or a label must not cancel a code run on the same ref (same rule as study).
+  group: verify-${{ github.ref }}-${{ contains(fromJSON('["edited","labeled","unlabeled"]'), github.event.action) && 'meta' || 'code' }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    # `edited`/`labeled`/`unlabeled` only re-run pr-format: the code did not change.
+    if: ${{ !contains(fromJSON('["edited","labeled","unlabeled"]'), github.event.action) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -q pyyaml
+      - name: Verify
+        run: make verify-ci
+      - name: Secrets
+        run: |
+          # Key-shaped strings are refused (same shapes as scripts/pr_check.py).
+          if git grep -nE '\b(sk-[A-Za-z0-9_-]{20,}|sk-or-v1-[A-Za-z0-9]{32,}|AIza[A-Za-z0-9_-]{30,}|gh[pousr]_[A-Za-z0-9]{30,}|-----BEGIN [A-Z ]*PRIVATE KEY-----)' -- . ':!.github/workflows/verify.yml' ':!scripts/pr_check.py'; then
+            echo "::error::key-shaped string in the tree"; exit 1
+          fi
+
+  pr-format:
+    # The PR description is part of the change: required sections, a Conventional Commit title, a
+    # declared scope, declared provenance and a DCO sign-off on every commit. Offline, no model.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: read          # the cited run and its jobs (needed because the repository is private)
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Check the PR description
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          # Labels read live, not from the payload: "Re-run jobs" replays the original event,
+          # which may predate a waiver label.
+          gh api "repos/${{ github.repository }}/issues/${PR_NUMBER}/labels" \
+            --jq '.[].name' > labels.txt || rm -f labels.txt
+          python3 scripts/check_pr.py --event "$GITHUB_EVENT_PATH" --labels-file labels.txt \
+            --base "origin/${BASE_REF}" --runs-file cited-runs.txt
+      - name: Check the run cited under "Where it ran"
+        # check_pr.py stays offline; this step is its one networked mode, with the job's own token.
+        # At least one cited run must be of this repository, on the PR's current head commit, from
+        # verify.yml on a pull_request event, with its `verify` job green. pr-format runs from the PR
+        # branch, so a PR that edits .github/ is still read by the maintainer (CODEOWNERS).
+        if: always() && hashFiles('cited-runs.txt') != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          python3 scripts/check_pr.py --verify-runs cited-runs.txt \
+            --repo "${{ github.repository }}" --head "$HEAD_SHA"
+
+  where-it-ran:
+    # After verify passes on a new head, post (or update) one comment with the exact line for the
+    # description's "Where it ran" subsection. Our own Actions token, no external bot.
+    if: ${{ github.event_name == 'pull_request' && !contains(fromJSON('["edited","labeled","unlabeled"]'), github.event.action) }}
+    needs: [verify]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    continue-on-error: true      # a fork's token cannot comment; the check still works
+    permissions:
+      pull-requests: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          RUN: ${{ github.run_id }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          marker='<!-- where-it-ran -->'
+          body="$marker
+          **Where it ran** - paste this into the description, under *Evidence -> Where it ran*:
+
+          \`\`\`
+          - CI: https://github.com/$REPO/actions/runs/$RUN - verify green on head \`${SHA:0:7}\`
+          \`\`\`"
+          id="$(gh api "repos/$REPO/issues/$PR/comments" --paginate \
+                --jq ".[] | select(.user.login == \"github-actions[bot]\") | select(.body | startswith(\"$marker\")) | .id" | head -1)"
+          if [ -n "$id" ]; then
+            gh api -X PATCH "repos/$REPO/issues/comments/$id" -f body="$body" >/dev/null
+          else
+            gh api -X POST "repos/$REPO/issues/$PR/comments" -f body="$body" >/dev/null
+          fi

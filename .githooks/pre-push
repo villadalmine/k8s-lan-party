@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+#
+# Optional pre-push hook: run `make pr-check` before every `git push`.
+#
+# It is inert by default. It only runs in a clone where YOU switched it on with
+# `make install-hooks` (which sets `pr-check.prepush true` in .git/config, local
+# to that clone). `make uninstall-hooks` switches it off. Skip once:
+# `git push --no-verify`.
+
+[ "$(git config --bool pr-check.prepush 2>/dev/null)" = "true" ] || exit 0
+cd "$(git rev-parse --show-toplevel)" && exec make pr-check

@@ -1,0 +1,16 @@
+tipo: stack
+id: edge-mesh-lab
+version: 0.0.1
+fecha_alta: 2026-10-16
+fecha_ultimo_cambio: 2026-10-16
+categoria: plataforma
+dueno_agente: casa-orquestador
+tags: [k3s, nebula, edge, mesh, seguridad, colaborativo]
+estado: diseno (privado)
+pieza: edge-mesh-lab
+meta: meta.yml
+depende_de: [repo-colaborativo, study-cybercirujas]
+lo_usan: []
+docs: [README.md, CONTRIBUTING.md, docs/DESIGN.md, docs/AUTOMATION-AND-CREDENTIALS.md]
+scripts: [scripts/check_pr.py, scripts/check_labels.py, scripts/pr_check.py]
+runbooks: [docs/runbooks/github-proteger-main.md, docs/runbooks/github-app-releases.md]

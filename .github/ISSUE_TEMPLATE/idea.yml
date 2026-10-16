@@ -1,0 +1,19 @@
+name: Idea
+description: A feature or an improvement that is not a rule change (for rule changes use "Proposal (RFC)")
+labels: ["type:feature", "triage:needed"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve, and for whom?
+    validations: {required: true}
+  - type: textarea
+    id: idea
+    attributes:
+      label: The idea
+    validations: {required: true}
+  - type: textarea
+    id: security
+    attributes:
+      label: Does it change who can do what? (trust, tokens, certificates, node access)
+      description: "If yes, say how: this project treats every node as hostile (docs/DESIGN.md)."

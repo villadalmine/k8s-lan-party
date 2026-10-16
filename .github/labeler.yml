@@ -1,0 +1,13 @@
+# Labels by path, applied by .github/workflows/labeler.yml (actions/labeler).
+"type:docs":
+  - changed-files:
+      - any-glob-to-any-file: ['*.md', 'docs/**']
+"type:code":
+  - changed-files:
+      - any-glob-to-any-file: ['scripts/**', 'tests/**', 'deploy/**', 'Makefile']
+"type:ci":
+  - changed-files:
+      - any-glob-to-any-file: ['.github/**']
+"area:security":
+  - changed-files:
+      - any-glob-to-any-file: ['docs/DESIGN.md', 'docs/THREAT-MODEL.md', 'docs/runbooks/**']
