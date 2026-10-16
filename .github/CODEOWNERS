@@ -1,0 +1,9 @@
+# Who is asked to review what. Today one maintainer owns everything.
+*       @villadalmine
+# CI and its checks run from the PR branch: a PR that edits them is read by
+# the maintainer on purpose. Keep this line even when areas get other owners.
+/.github/      @villadalmine
+/scripts/      @villadalmine
+# The security design and threat model are the maintainer's call.
+/docs/DESIGN.md      @villadalmine
+/docs/THREAT-MODEL.md @villadalmine

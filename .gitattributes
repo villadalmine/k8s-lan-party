@@ -1,0 +1,2 @@
+# Hashes and checks are computed with LF on every OS.
+* text=auto eol=lf
