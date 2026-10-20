@@ -1,9 +1,9 @@
 ---
 tipo: doc
 id: edge-mesh-lab-golden-rules
-version: 0.1.0
+version: 0.2.0
 fecha_alta: 2026-10-16
-fecha_ultimo_cambio: 2026-10-16
+fecha_ultimo_cambio: 2026-10-19
 categoria: plataforma
 dueno_agente: casa-orquestador
 pieza: edge-mesh-lab
@@ -20,6 +20,10 @@ tags: [regla-de-oro, mvp, seguridad]
 
 The non-negotiables. Anything that breaks one of these is a bug in the product, not a trade-off. The reasoning is in
 [DESIGN.md](DESIGN.md).
+
+The purpose is **collaborative labs for learning**, like a LAN party: a host opens a game, friends join over a virtual LAN,
+everyone runs their study labs. It is not a compute marketplace. In that picture the golden rule reads: *the game client runs on
+the player's own PC, so the player can see everything it runs; keep private things on your own machine.*
 
 1. **What runs on someone else's machine can be seen by its owner.** No encryption protects a pod from the owner of
    its node (the keys and the plaintext are in memory on a host where the owner is root). We never claim otherwise,
