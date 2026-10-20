@@ -1,8 +1,8 @@
 # Contributing
 
 Adapted from the collaboration standard of `villadalmine/study-cybercirujas` (skill `repo-colaborativo`).
-The project is in its **design phase** and the repository is private: today contributions are
-design reviews, threat-model attacks on the paper, and the phase 1 lab. See [docs/DESIGN.md](docs/DESIGN.md).
+This is a product in **MVP phase 1** and the repository is private: today contributions are
+design reviews, threat-model attacks on the paper, and the proof of concept (PoC). See [docs/DESIGN.md](docs/DESIGN.md).
 
 ## What you can contribute
 

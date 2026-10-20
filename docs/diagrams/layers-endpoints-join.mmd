@@ -1,0 +1,22 @@
+flowchart TB
+  subgraph Join["Join: one bundle + one command"]
+    bundle["bundle: Nebula cert + config.yml + one-time k3s token (K10hash)"] --> cmd["edge-mesh join"]
+    cmd --> neb["1. Nebula handshake (Noise), cert from our CA"]
+    neb --> tok["2. k3s token over TLS, CA pinned"]
+    tok --> node["3. node Ready, trust label + taint"]
+  end
+  subgraph Layers["Layers, one job each"]
+    L1["Nebula: identity + NAT traversal"]
+    L2["Cilium tunnel (VXLAN/Geneve) over Nebula IPs"]
+    L3["Cilium WireGuard: always on"]
+    L4["Cilium mutual auth: per policy"]
+    L1 --> L2 --> L3 --> L4
+  end
+  subgraph Own["own nodes only"]
+    gw["AI gateway + Cilium LB (BGP to MikroTik, cert-manager TLS)"]
+  end
+  client["Client"] -->|"1 TLS"| gw
+  gw -->|"2 WireGuard (+ mutual auth)"| pods["pods"]
+  pods -.->|"3 Nebula underneath"| L1
+  node --> L1
+  remote["remote nodes: never announce"] -.-x gw

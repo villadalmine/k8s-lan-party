@@ -1,0 +1,14 @@
+flowchart TD
+  sub["Workload submitted"] --> kv{"Kyverno: sensitivity label?"}
+  kv -->|"missing"| def["default: private"]
+  kv -->|"private"| priv["require nodeAffinity owner=workload owner (any trust level it offers others); tolerate only the taints of those nodes; deny nodeName"]
+  kv -->|"shareable"| sh["allow trust in own, friends, public (if its owner opted in); add toleration"]
+  def --> priv
+  priv --> sched["scheduler"]
+  sh --> sched
+  sched --> own["a node its owner runs: own, even if shared as friends"]
+  sched --> fr["someone else's friends or public node, tainted"]
+  reg["Node registers with --node-taint"] --> lab["issuing side labels trust and owner"]
+  lab --> sched
+  net["Cilium: default deny + mutual auth by policy"] -.-> own
+  net -.-> fr

@@ -42,7 +42,7 @@
   description: "Threat model, admission policy, revocation"
 - name: "area:lab"
   color: "bfdadc"
-  description: "The free local lab (kind/k3d in WSL) and its tests"
+  description: "The proof of concept (PoC) and its deterministic tests"
 - name: "priority:high"
   color: "b60205"
   description: "Broken main, security, data loss, blocks the next release"

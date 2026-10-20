@@ -1,0 +1,15 @@
+flowchart LR
+  user["Client"] -->|"TLS"| gw
+  subgraph A["A's own nodes (trust: own)"]
+    gw["gateway"]
+    be["backend (private)"]
+    db[("db (private)")]
+  end
+  subgraph B["B's node (trust: friends)"]
+    fe["frontend (shareable)"]
+    note["B is root here: sees the frontend's memory, keys and plaintext. Holds the frontend's identity. Never sees backend or db data."]
+  end
+  gw --> fe
+  fe -->|"WireGuard + mutual auth"| be
+  be --> db
+  note -.- fe
