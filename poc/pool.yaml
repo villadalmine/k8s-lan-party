@@ -1,9 +1,19 @@
-# Capacity pool of the public demo: the one file with the numbers (DESIGN.md section 8).
-slots: 1                    # at most N participant nodes (PoC: 1; the demo decides)
+# Capacity pool of the public demo: the one file with the numbers (DESIGN.md section 8, docs/ADMISSION.md).
+# The maintainer's rules (2026-10-27), as we read them; docs/ADMISSION.md "Parameters" says who decides each value:
+#   two places at a time, one hour each; whoever comes next waits in a FIFO list; when an hour ends the place is freed
+#   and the next one in the list may enter; at most two leases a day per person, so it is not always the same one,
+#   and a pause between two leases of the same person.
+# "Person" = an identity: the client IP normalized (IPv4 address or its /24, IPv6 /64) or the name if there is no IP.
+slots: 2                    # places at the same time (participant nodes); 0 = admission closed (the abuse switch)
 namespaces: 1               # at most M demo namespaces
-lease_seconds: 3600         # 1 hour, hard
-cooldown_seconds: 3600      # an IP waits this long after its lease ends
-rate_window_seconds: 600    # per-IP invite rate limit: rate_max_requests per window
+lease_seconds: 3600         # 1 hour, hard: the certificate expires then and `mesh host reap` expels at the end
+cooldown_seconds: 3600      # an identity waits this long after its lease ends before the next one
+daily_leases_per_identity: 2   # at most this many leases per identity in any 24 h (rolling window, not the calendar day)
+identity_ipv4_prefix: 32    # 32 = one IPv4 address is one identity; 24 = a whole /24 (stricter, for the public opening)
+identity_ipv6_prefix: 64    # an IPv6 /64 is one identity (one customer usually holds at least a /64)
+identity_retention_seconds: 90000   # 25 h: an identity (an IP) is forgotten this long after its lease or request closed; never
+                                    # less than the 24 h window or the cooldown (the code takes the larger). Names and times stay
+rate_window_seconds: 600    # per-identity request rate limit: rate_max_requests per window (automatic pool, option B)
 rate_max_requests: 5
-idle_kick_seconds: 900      # NotReady or no workload for this long: evicted early
+idle_kick_seconds: 900      # NotReady or no workload for this long: evicted early (not built yet, issue #11)
 trusted_proxies: [127.0.0.1, 172.31.0.1]   # only these may set X-Forwarded-For (Caddy)

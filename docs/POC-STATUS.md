@@ -26,6 +26,7 @@ flowchart LR
 | **B3** two CAs (`poc-ca`, 13 checks) | PASS x2 | not run | n/a |
 | **Lighthouse on a separate public server** (`poc-lighthouse`, 23 checks): prepare / sign / deploy are idempotent, its key is made on the server, its metrics answer, a player joins through it, `revoke` reaches it; `mesh host refresh` leaves an unchanged machine alone (P12c), brings the API and the node back after a change that restarts Nebula (P12d) and reloads without a restart otherwise (P12e) | PASS (2026-10-27, one run with 21 checks and one with the 23 on the merged tree) | not run | n/a |
 | **C** trust-based placement with Kyverno (`poc-placement`, 30 checks, 14 of them negative, 2 more stay Pending by design) | PASS x2 | PASS (1 run) | n/a |
+| **Admission with manual approval** (`poc-admission`, 31 checks, [ADMISSION.md](ADMISSION.md)): request, approve, join, `reap` burns the join token and a second machine presenting it is refused, a non-cooperative copy of a bundle is refused by the node guard and cut with the lease, another guest's issued name is refused by its node password, a name whose node password k3s dropped leaves the guard, places full, the lease ends, `reap` expels, the next one in line enters, `reap --all` | PASS (2026-10-27: the 31-check version once, in its own Incus project; earlier versions of the suite 7 times) | not run | n/a |
 
 "x2" = two runs whose `diff` is empty. **Last full run, 2026-10-26, Dell Incus VMs, after the agent supervision (one run each, all PASS):** `vm/run-all.sh` = join 17, host 11,
 weakness 8 (W00-W06 and W03b), CAs 13, revoke 10, placement 30 (89 PASS); `vm/poc-vm.sh` (Cilium + WireGuard + SPIRE) 24 PASS; `vm/poc-placement.sh` (Cilium) 30 PASS.
@@ -110,7 +111,7 @@ Choices and limits:
 | Cilium tunnel + WireGuard, MTU once, mutual auth by policy (#8) | `poc-vm` V01-V97 on Dell VMs; kind; WSL Docker | **partial**: Cilium + WireGuard done; mutual auth proves only the allow half (an authenticated peer passes, V92), and nothing yet asserts that an unauthenticated peer is dropped; mutual auth is beta, and its one failure mode is fixed (10 of 10 Dell runs) |
 | Per-namespace RBAC and user kubeconfig (#9) | none | **missing** (big: issue #9) |
 | Trust levels + Kyverno placement (#10) | `poc-placement` L01-L53, Dell VMs and WSL Docker: private never on friends/public even with toleration or nodeSelector or `nodeName`; shareable may; a node cannot raise its own label with its kubelet credential (L52); the Kyverno denial message (matrix row 10) | **done** |
-| Free 1 h pool and per-IP limits (#11) | `pool.py` unit tests; the pool CA (`poc-ca`) | **partial**: decision logic and the CA only; reaper, quotas, idle kick, page missing (issue #11) |
+| Free 1 h pool and per-IP limits (#11) | `pool.py` and `admission.py` unit tests; the pool CA (`poc-ca`); `poc-admission` A01-A31 | **partial**: option A, admission with manual approval, is built and tested (2 places, 1 h leases, FIFO list, cooldown and daily cap per identity, `reap` expels at lease end, [ADMISSION.md](ADMISSION.md)); option B (page, automatic approval, anti-bot) is design only; quotas, LimitRange and the idle kick are missing (issue #11 stays open) |
 | Signed-PR participants with cosign (#12) | none | **missing** (big: issue #12); the persistent CA it would feed exists |
 | Gateway and BGP on own nodes only (#13) | none | **missing** (issue #13) |
 | PoC matrix: VM, privileged Docker, WSL2 (#14) | VM (Dell), privileged Docker on WSL2, kind; `edge-mesh` refuses without `/dev/net/tun` (exit 4) | **partial**: VM (Dell, many runs), privileged Docker on WSL2 and kind are covered; native WSL2 as a node, macOS and bare metal are **not run** (a first attempt showed that a WSL2 distro cannot send UDP to the Docker bridge containers, so a native node needs a control plane on a routable address; the script was written and parked). The refusals are in `edge-mesh` (exit 3 no golden rule, 4 no `/dev/net/tun`, 5 no lighthouse, 6 not root, 7 token rejected) and are listed in JOIN.md; only exits 5 and 7 have automated checks |
@@ -147,6 +148,15 @@ with a clear message); no `kubectl` and no workload examples (added `poc/kc`, `p
 
 ## Notes
 
+- **The join token was not one-time (found 2026-10-27 in the review of the admission change):** a k3s bootstrap token authenticates any number of
+  machines until it expires or is deleted, and nothing in the flow deleted it; `J14` passed only because the check deleted the token itself. Now the
+  issuing side burns it once the node registered (`mesh host burn`, run by `reap`, `players` and `revoke`), the docs say "valid until the node
+  registers or it expires", `J14` only lists the players (no manual delete) and `poc-admission` A11-A12 refuse a second machine with a burned token
+  (both PASS on the Dell VMs, 2026-10-27, one run each).
+- **Node names belong to bundles (2026-10-27, reviews of the admission change):** the node guard (a ValidatingAdmissionPolicy keyed on the issued
+  bundle names and their Nebula IPs) and a node password per bundle (pre-made by the host in k3s's own secret) stop a copy of a bundle from
+  registering under its own name or another guest's. With both in place `poc-join` 17, `poc-host` 11, `poc-revoke` 10 and `poc-placement` 30 PASS
+  on the Dell VMs (one run each, Incus, flannel), and `poc-admission` 30 PASS; the same `poc-admission` on the code before them fails 7 checks.
 - **VM clock skew:** a VM clock about 1 s behind made a fresh Nebula cert "not yet valid". `vm/lib-vm.sh` sets the clock before pushing a bundle.
 - **Repo hygiene found on the way:** scripts must stay LF (a CRLF `lib.sh` made every step print `command not found` while the suite still
   said `RESULT PASS`); the suites should refuse to print PASS when no step ran (open).

@@ -34,7 +34,7 @@ the player's own PC, so the player can see everything it runs; keep private thin
 3. **One job per layer.** Nebula: join and connectivity. Cilium tunnel: the CNI. Cilium WireGuard: transit
    encryption, always on. Cilium mutual auth: identity, per policy. Kyverno: placement.
 4. **Joining is one bundle and one command**, and credentials travel encrypted: Nebula handshake, then the k3s token
-   over TLS with the CA pinned. Tokens are one-time (burned server-side once the node is Ready), per node, and expire. The shared `K3S_TOKEN` is never handed out.
+   over TLS with the CA pinned. Tokens are per node, expire, and are burned server-side once the node registers (a k3s token is not one-time by itself). The shared `K3S_TOKEN` is never handed out.
 5. **Revocation is one command** and is hard: certificate on the Nebula blocklist, node deleted, token dead.
 6. **The Kubernetes API is never public.** It is reachable only over Nebula.
 7. **The maintainer's endpoints run only on the maintainer's own nodes**: the AI gateway and the LoadBalancer with BGP. Remote nodes

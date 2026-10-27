@@ -1,7 +1,7 @@
 ---
 tipo: runbook
 id: edge-mesh-lab-demo
-version: 0.1.0
+version: 0.2.0
 fecha_alta: 2026-10-21
 fecha_ultimo_cambio: 2026-10-27
 categoria: plataforma
@@ -10,21 +10,24 @@ pieza: edge-mesh-lab
 meta: ../meta.yml
 depende_de: [docs/DESIGN.md, docs/HOST-YOUR-OWN.md, poc/pool.yaml]
 lo_usan: [README.md]
-docs: [docs/GOLDEN-RULES.md, docs/POC-STATUS.md]
-scripts: [poc/pool.py, poc/pool.yaml, poc/issue.sh, poc/revoke.sh]
+docs: [docs/GOLDEN-RULES.md, docs/POC-STATUS.md, docs/ADMISSION.md]
+scripts: [poc/pool.py, poc/pool.yaml, poc/admission.py, poc/issue.sh, poc/revoke.sh]
 runbooks: []
 tags: [demo, publico, pool, diseno]
 ---
 
 # The public demo (lighthouse and control plane applied; admission, pool and opening not built)
 
-**Status (2026-10-27): the lighthouse and the control plane are up; the admission page, the pool's cluster side and the public opening are not.**
+**Status (2026-10-27): the lighthouse and the control plane are up; admission with manual approval is built and tested ([ADMISSION.md](ADMISSION.md)); the
+admission page, the automatic pool, the pool's cluster side and the public opening are not.**
 Applied on the maintainer's own machines: steps 1 and 2 below (a lighthouse on a small public server with its public name) and a persistent control plane
 at home, reachable from the internet through that lighthouse. A visitor on a network that is not the maintainer's reached the control plane's API over
 Nebula (a test run from outside on 2026-10-27; the home router keeps the UDP source port, so hole punching works
-without a relay). **Not built:** the demo page, admission, the reaper that expels at lease end, quotas (issue #11) and the relay for symmetric NAT (issue #15).
-So nobody can join the pool yet, and this repository is still private: making it public needs the maintainer's explicit "open it". The PoC itself runs
-locally and on the maintainer's lab VMs.
+without a relay). **Built in the repository, not applied to the demo yet:** admission with manual approval (`mesh host request / approve / reap`: 2 places,
+1 h leases, a FIFO waiting list, a daily cap and a cooldown per identity, the reaper that expels at lease end), tested on Incus VMs,
+[ADMISSION.md](ADMISSION.md). **Not built:** the demo page, automatic approval, quotas and the idle kick (issue #11) and the relay for symmetric NAT
+(issue #15). So a stranger can join only if the maintainer approves them by hand, and this repository is still private: making it public needs the
+maintainer's explicit "open it". The PoC itself runs locally and on the maintainer's lab VMs.
 
 The idea in one picture: a small public server with a few slots that rotate. Anyone can try the mesh for one hour, with a fixed number of
 slots, no persistence, and no way to reach anything of the host's.
@@ -33,7 +36,7 @@ slots, no persistence, and no way to reach anything of the host's.
 flowchart LR
   V["visitor"] -->|"HTTPS: demo page, slot status, request an invite"| E["border / reverse proxy"]
   E --> A["demo app: admission + pool logic (pool.py)"]
-  A -->|"signs with the POOL CA (online key, group public only)"| B["bundle, 1 h certificate, one-time token"]
+  A -->|"signs with the POOL CA (online key, group public only)"| B["bundle, 1 h certificate, join token burned on registration"]
   V -->|"Nebula UDP 4242"| L["lighthouse (public address)"]
   V -.->|"inside the mesh only"| C["control plane (API on its Nebula IP, never public)"]
   A --> R["reaper: at lease end kick, blocklist, free the slot"]
@@ -59,10 +62,12 @@ Kubernetes API over Nebula, where a credential is still required. Running it as 
 
 | Setting | PoC value | Meaning |
 | :--- | :--- | :--- |
-| `slots` | 1 | at most N participant nodes; a join over capacity goes to a FIFO waiting list |
+| `slots` | 2 | at most N participant nodes; a join over capacity goes to a FIFO waiting list |
 | `namespaces` | 1 | at most M demo namespaces |
 | `lease_seconds` | 3600 | the 1 h lease; the Nebula certificate has the same expiry |
-| `cooldown_seconds` | 3600 | an IP waits this long after its lease |
+| `cooldown_seconds` | 3600 | an identity waits this long after its lease |
+| `daily_leases_per_identity` | 2 | at most this many leases per identity in any 24 h (rolling window) |
+| `identity_ipv4_prefix` / `identity_ipv6_prefix` | 32 / 64 | what counts as one person: an IPv4 address (or its /24) and an IPv6 /64 |
 | `rate_window_seconds` / `rate_max_requests` | 600 / 5 | per-IP invite rate limit |
 | `idle_kick_seconds` | 900 | NotReady or no workload for this long: evicted early |
 | `trusted_proxies` | the reverse proxy | only this address may set `X-Forwarded-For` |
@@ -71,8 +76,9 @@ Also in the design: ResourceQuota and LimitRange per demo namespace (no LoadBala
 per source IP. IP limits are weak (carrier NAT hurts honest users, a VPN bypasses them): they stop casual abuse. An optional GitHub-OAuth lane
 would limit per account.
 
-**What exists today:** the decision logic (`pool.py`, unit tests: the 1 h lease, per-IP rules, the FIFO list) and the CA split. **What does not:**
-the cluster side (reaper, quotas, idle kick, the page), the admission service, and the relay for symmetric NAT (issues #11 and #15). The demo needs these built and
+**What exists today:** the decision logic (`pool.py`, unit tests: the 1 h lease, per-identity rules, the daily cap, the FIFO list), the CA split, and
+admission with manual approval with its reaper (`admission.py`, `make poc-admission`, [ADMISSION.md](ADMISSION.md)). **What does not:** quotas, the idle kick,
+the page, automatic approval and its anti-bot layers (ADMISSION.md section B), and the relay for symmetric NAT (issues #11 and #15). The demo needs these built and
 tested before the checklist below can pass.
 
 ## The runbook (do not run without the OK)
@@ -97,9 +103,10 @@ maintainer's OK: the home border.* Rollback: remove the route; the page disappea
 lighthouse. Only the lighthouse (UDP 4242) is public. If the lighthouse is at home instead of a VPS, forwarding UDP 4242 through NAT is the single
 change to the edge and needs the OK. Rollback: remove the forward.
 
-**5. Switch on admission** (slots 1 to start, lease 1 h). Watch the page and `mesh host players`. Rollback: set `slots` to 0 and `mesh host kick` the active leases.
+**5. Switch on admission** (`slots: 2`, lease 1 h; today by hand: `mesh host request / approve` and a timer running `mesh host reap`, [ADMISSION.md](ADMISSION.md)). Watch
+`mesh host admission-status` and `mesh host players`. Rollback: set `slots` to 0 and `mesh host reap --all`.
 
-**6. Abuse switch.** One command kicks everyone and stops new invites: `slots: 0` plus `./revoke.sh <name>` per node. Practise it before announcing.
+**6. Abuse switch.** `slots: 0` stops new approvals and `mesh host reap --all` kicks every active lease. Practise it before announcing.
 
 ## Limits and honest warnings
 

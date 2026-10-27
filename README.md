@@ -28,7 +28,7 @@ flowchart LR
 | a game on a server | a lab cluster the host opens |
 | server address and password | one bundle and one command |
 | Hamachi / ZeroTier | Nebula, self-hosted |
-| a public server with limited slots | the free pool (coming soon) |
+| a public server with limited slots | admission with manual approval: 2 places, 1 h each, a waiting list ([ADMISSION.md](docs/ADMISSION.md)); the automatic public pool later |
 
 **The golden rule, in game terms:** *the game runs on your own PC, so you can see what runs on your own PC; keep private things
 on your own machine.* Precisely: **what runs on someone else's machine can be seen by its owner**, so placement is by trust.
@@ -43,7 +43,8 @@ See [GOLDEN-RULES.md](docs/GOLDEN-RULES.md).
 4. [docs/JOIN.md](docs/JOIN.md): join with one bundle and one command, then verify.
 5. [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md): every problem the PoC hit, with symptom, cause, fix and the command that diagnoses it.
 6. [docs/POC-STATUS.md](docs/POC-STATUS.md): what is proven and in which environment, the phase-1 gap table, what is still relaxed.
-7. [docs/DEMO.md](docs/DEMO.md): the public demo: what is applied today (a lighthouse on a public server, a persistent control plane) and what is not (admission, the pool's reaper, the opening).
+7. [docs/DEMO.md](docs/DEMO.md): the public demo: what is applied today (a lighthouse on a public server, a persistent control plane) and what is not (the automatic pool, the page, the opening).
+8. [docs/ADMISSION.md](docs/ADMISSION.md): how other people get a place: manual approval with a waiting list and limits (built), and the path to an automatic public pool (design).
 
 ## Three ways in
 
@@ -74,7 +75,7 @@ PASS J10    study lab cka/1.1: verify says NOT solved yet, as it must
 PASS J11    study lab cka/1.1: after the reference fix, verify says solved
 PASS J12    the lab pod ran on a joined outside node, not on the control plane
 PASS J13    narrowed Nebula firewall: ICMP and 6443 pass, an unlisted TCP port between hosts is refused
-PASS J14    token already used and deleted: a second machine is refused
+PASS J14    the host lists the players, which burns the used join token: a second machine presenting it is refused
 PASS J15    an expired Nebula certificate is rejected
 PASS J16    lighthouse unreachable (UDP blocked): the join fails clearly and names the port
 PASS J17    revoke in one command: node deleted, cannot reach the lighthouse, does not come back
@@ -87,8 +88,9 @@ RESULT PASS
 You need a **privileged Linux** (a VM, privileged Docker or WSL2), **outbound UDP** to the lighthouse, and the `nebula`
 binary (at `/opt/nebula/nebula`) and `k3s` installed. Today the join command is the script [`poc/edge-mesh`](poc/edge-mesh).
 
-1. **Get a bundle.** For now from the host of the game, privately (it holds your key and a one-time token). Later: the free 1 h
-   pool, or a signed pull request for regulars (*coming soon*, see [DESIGN](docs/DESIGN.md#51-who-may-join-and-how)).
+1. **Get a bundle.** For now from the host of the game, privately (it holds your key and a join token of 8 minutes at most): ask for a place, the host puts you on the
+   waiting list and approves you for one hour ([ADMISSION.md](docs/ADMISSION.md)). Later: the automatic 1 h pool, or a signed pull request for regulars
+   (*coming soon*, see [DESIGN](docs/DESIGN.md#51-who-may-join-and-how)).
 2. **One command:**
    ```bash
    sudo ./poc/edge-mesh join ./bundle --accept-golden-rule
@@ -106,12 +108,15 @@ lighthouse can be reached on **or** (recommended) a cheap VPS for the lighthouse
 
 ```bash
 ./poc/mesh host init                        # your CA, the lighthouse, the control plane (API only on the Nebula IP)
-./poc/mesh host invite alice --ttl 2h           # a bundle: cert + config + a one-time token. Send it privately.
+./poc/mesh host invite alice --ttl 2h           # a bundle: cert + config + an 8 min join token. Send it privately.
 ./poc/mesh host players                     # who is in: node, Ready, when the certificate expires
 ./poc/mesh host kick alice                  # cordon, drain, delete the node, blocklist the certificate
 ./poc/mesh host refresh cp                  # re-apply the Nebula config of a running machine (same certificate)
 ./poc/mesh host down                        # end the game: remove everything
 ```
+
+Letting strangers in one hour at a time, with a waiting list and limits per person (`mesh host request / approve / reap`):
+[docs/ADMISSION.md](docs/ADMISSION.md).
 
 Today `mesh host` runs the host side in Docker or in Incus VMs on your machine (`export RUNTIME=incus` for VMs); a lighthouse on a public
 server is `poc/lighthouse-vps.sh` ([HOST-YOUR-OWN: a public lighthouse](docs/HOST-YOUR-OWN.md#a-public-lighthouse-on-a-separate-server), tested by
@@ -128,7 +133,7 @@ re-issue every player. Try the whole host flow locally first: `make poc-host`.
 | `edge-mesh join` exits 5: "cannot reach the lighthouse ... UDP 4242" | UDP to the lighthouse is blocked (corporate firewall, hotel) | allow outbound UDP 4242, or ask the host for the relay option |
 | The handshake is refused: "certificate is in the block list" | the host kicked or revoked you | ask for a new invite |
 | Nebula refuses your certificate as expired or not yet valid | the invite ran out, or your clock is wrong | check the time (NTP); ask for a new invite |
-| The agent log says `unauthorized` | the one-time token was already used or expired | ask for a new invite |
+| The agent log says `unauthorized` | the join token expired, or a node already registered with it and the host burned it | ask for a new invite |
 | `edge-mesh join` says no `/dev/net/tun` | the machine is not privileged | use a VM, `docker run --privileged`, or WSL2 |
 | Big transfers hang but small ones work | MTU: the pod network is 1250 (Nebula 1300 minus 50) | do not override the MTU |
 | Pods cannot resolve names | CoreDNS is not Ready yet | wait a minute, then `kubectl -n kube-system get pods` |
@@ -139,7 +144,8 @@ More rows (and which ones each step tests) are in the [error matrix](docs/DESIGN
 ## Roadmap
 
 1. **It joins**, 2. **Cilium and WireGuard**, 4. **trust levels and placement by Kyverno**, 6. **mutual auth by policy**: proven in the PoC.
-Still to do: 3. per-namespace access, 5. the free 1 h pool, 7. signed-PR regulars.
+Still to do: 3. per-namespace access, 5. the free 1 h pool (admission with manual approval is built, [ADMISSION.md](docs/ADMISSION.md); the automatic
+pool is design only), 7. signed-PR regulars.
 8. **Public servers** (*coming soon*), after the private game works. Details: [DESIGN.md](docs/DESIGN.md#12-build-order-steps-one-layer-at-a-time).
 
 ## How it differs from other projects

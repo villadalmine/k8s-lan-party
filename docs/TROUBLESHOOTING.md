@@ -83,7 +83,7 @@ it**. `poc/.state/poc.log` has the detail of the last run of any PoC script (`/t
 - **Cause:** when Nebula stops, `nebula1` loses its address; the embedded flannel (the default CNI here, `--flannel-iface nebula1`) panics when it rebuilds the VXLAN device and takes the whole
   k3s agent down. Started with a bare `nohup`, nobody starts it again.
 - **Fix (in the join command since 2026-10-26):** `edge-mesh join` runs the agent in a restart loop (5 s), like a Deployment would. A restart needs no valid token: the agent reuses the
-  credentials it stored at the first join (tested with a bogus token; the invite token lives 10 minutes). Measured: the node is Ready again 20 s after the tunnel returns (`W03b`). If you start
+  credentials it stored at the first join (tested with a bogus token; the invite token lives 8 minutes at most and is burned once the node registers). Measured: the node is Ready again 20 s after the tunnel returns (`W03b`). If you start
   the agent by hand, run it under `systemd` with `Restart=always`. Cilium instead of flannel does not have this panic.
 - **Diagnose:** `tail -20 /var/log/k3s-agent.log` on the node; `pidof k3s` empty means the agent is dead.
 
@@ -177,8 +177,13 @@ it**. `poc/.state/poc.log` has the detail of the last run of any PoC script (`/t
 - **Fix:** `./mesh host kick <name>` frees one, or raise `MAX_VMS` if the host has the RAM.
 
 ### `edge-mesh join` exits 7: the control plane rejected the join token
-- **Cause:** the one-time token lives 10 minutes, or it was already used.
+- **Cause:** the token expired (8 minutes at most, `TOKEN_TTL`), or a node already registered with it and the host burned it (`mesh host burn`, run by `reap`, `players` and `revoke`).
 - **Fix:** ask the host for a new invite under a new name. Diagnose with `tail /var/log/k3s-agent.log` (`failed to retrieve configuration from server: not authorized`).
+
+### `edge-mesh join` exits 7: "refused this node name with this bundle's node password"
+- **Cause:** the host makes a node password for every bundle name (k3s secret `kube-system/<name>.node-password.k3s`); the agent presented another one:
+  `/etc/rancher/node/password` on the machine is not the bundle's `NODE_PASSWORD`, or a node already registered under this name with another password.
+- **Fix:** ask the host for a new invite under a new name. Diagnose with `grep -i 'password rejected' /var/log/k3s-agent.log`.
 
 ### `edge-mesh join` exits 6: not root
 - **Fix:** run it as root (`sudo`). Nebula creates a network device and k3s mounts filesystems.

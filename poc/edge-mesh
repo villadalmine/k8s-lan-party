@@ -30,6 +30,8 @@ case "$cmd" in
 " >"$d/10-cni.toml"
     fi
     taint=""; [ "${TAINT:-no}" = yes ] && taint="--node-taint trust=$TRUST:NoSchedule"
+    # the node password the host made for this name (only this bundle has it): k3s registers this name only with it
+    if [ -n "${NODE_PASSWORD:-}" ]; then mkdir -p /etc/rancher/node && (umask 077 && printf '%s' "$NODE_PASSWORD" >/etc/rancher/node/password); fi
     # shellcheck disable=SC2086
     # supervised: if the agent dies it starts again, like a Deployment would. Measured 2026-10-26: when the tunnel drops, nebula1 loses its address and the
     # embedded flannel (v0.28.4, vxlan reCreateVxlan) panics with "index out of range"; unsupervised, the node stays NotReady for ever after the network is back.
@@ -38,9 +40,10 @@ case "$cmd" in
       --server "$K3S_URL" --token "$K3S_TOKEN" --node-name "$NODE_NAME" --node-ip "$NODE_IP" $cni_flags $taint >/var/log/k3s-agent.log 2>&1 &
     sup=$!
     giveup() { kill "$sup" 2>/dev/null; pkill -f "k3s agent" 2>/dev/null; echo "$1"; exit 7; }   # no supervisor left looping behind a failed join
-    # the agent registers within seconds; a rejected token (used, expired: they live 10 minutes) is only visible in its log, so look for it
+    # the agent registers within seconds; a rejected token (burned by the host once a node registered with it, or expired: it lives 8 minutes at most) is only visible in its log, so look for it
     i=0; until [ -f /var/lib/rancher/k3s/agent/client-kubelet.crt ]; do
-      i=$((i+1)); grep -q "not authorized" /var/log/k3s-agent.log 2>/dev/null && [ $i -gt 15 ] && giveup "refusing to stay: the control plane rejected the join token (already used, or older than 10 minutes). Ask the host for a new invite."
+      i=$((i+1)); grep -q "not authorized" /var/log/k3s-agent.log 2>/dev/null && [ $i -gt 15 ] && giveup "refusing to stay: the control plane rejected the join token (already used by a node, or expired: it lives 8 minutes at most). Ask the host for a new invite."
+      grep -qi "password rejected" /var/log/k3s-agent.log 2>/dev/null && [ $i -gt 15 ] && giveup "refusing to stay: the control plane refused this node name with this bundle's node password. Ask the host for a new invite."
       [ $i -gt 90 ] && giveup "the node did not register within 90 s: see /var/log/k3s-agent.log"; sleep 1
     done
     echo "joined: $NODE_NAME (trust=$TRUST)"

@@ -13,7 +13,7 @@ You can expect a first answer within 3 days and a decision on severity and a fix
 
 ## What is in scope
 
-The join flow (bundles, one-time tokens, Nebula certificates), the blocklist and revocation, the placement policy (trust levels,
+The join flow (bundles, join tokens and their burning, Nebula certificates), the blocklist and revocation, the placement policy (trust levels,
 Kyverno), the PoC scripts, and the CI gates.
 
 ## What is a known, accepted limit (not a vulnerability)

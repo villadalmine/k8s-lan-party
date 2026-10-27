@@ -72,10 +72,13 @@ step J12 "the lab pod ran on a joined outside node, not on the control plane" la
 
 step J13 "narrowed Nebula firewall: ICMP and 6443 pass, an unlisted TCP port between hosts is refused" fw_blocks
 
-tok_reuse() { # the one-time token is deleted once n1 is Ready; a second machine presenting it is refused
-  local used tid
-  used=$(. "$STATE/bundles/n1/join.env"; echo "$K3S_TOKEN"); tid=${used##*::}; tid=${tid%%.*}
-  dx cp k3s token delete "$tid" >/dev/null 2>&1 || true
+tok_reuse() { # a k3s bootstrap token is NOT one-time: the host burns it once the node registered. Here the host only lists the players
+  # (`mesh host players` burns as a side effect; `reap` and `burn` do the same); no token is deleted by hand. A second machine presenting n1's
+  # token is then refused. Before 2026-10-27 this check deleted the token itself, so it never noticed that nothing else did.
+  local used left
+  used=$(. "$STATE/bundles/n1/join.env"; echo "$K3S_TOKEN")
+  "$POC/mesh" host players >/dev/null 2>&1
+  left=$(cpx k3s token list 2>/dev/null | grep -F "$(token_id n1)" || true); [ -z "$left" ] || return 1   # burned, by nobody but the flow
   "$POC/issue.sh" n3 10.77.0.9 friends 24h >/dev/null
   sed -i "s#^K3S_TOKEN=.*#K3S_TOKEN=$used#" "$STATE/bundles/n3/join.env"
   new_container n3 172.31.0.6
@@ -83,7 +86,7 @@ tok_reuse() { # the one-time token is deleted once n1 is Ready; a second machine
   sleep 25
   dx n3 grep -qiE "unauthorized|invalid|token|forbidden|failed" /var/log/k3s-agent.log && ! k get node n3
 }
-step J14 "token already used and deleted: a second machine is refused" tok_reuse
+step J14 "the host lists the players, which burns the used join token: a second machine presenting it is refused" tok_reuse
 machine_rm n3
 
 expired_cert() { # a certificate past its expiry is rejected (a skewed clock looks the same: check NTP)

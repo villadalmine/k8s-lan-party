@@ -1,11 +1,19 @@
 #!/usr/bin/env bash
-# The maintainer side of a join: sign a Nebula cert with the CA, create a one-time k3s token, write the bundle.
+# The maintainer side of a join: sign a Nebula cert with the CA, create a short-lived k3s join token, write the bundle.
 #   issue.sh <name> <nebula-ip> <trust> <cert-duration>      -> .state/bundles/<name>/
+#   (a player's bundle also gets a node password: issue.sh stores its hash in kube-system/<name>.node-password.k3s; poc/node_password.py)
 #   CONFIG_ONLY=1 issue.sh <name> x x x                      rewrite only config.yml of an existing bundle (same certificate): `mesh host refresh`
+#   TOKEN_TTL=5m issue.sh ...                                how long the k3s join token lives: 1 to 8 minutes, default 8m (lib.sh TOKEN_TTL_MAX:
+#                                                            it must die before k3s may drop the node password of a name nobody took). A Kubernetes
+#                                                            bootstrap token is NOT one-time: it authenticates any machine until it expires or is
+#                                                            deleted. The host deletes it once the node registered (`mesh host burn`: reap, players, revoke).
 # PoC fixture: the CA key sits in .state/ca (a real deployment keeps it offline or as a protected secret: DESIGN.md decision 5).
 set -eu
 . "$(dirname "$0")/lib.sh"
 name="$1"; ip="$2"; trust="$3"; dur="$4"
+if [ -z "${CONFIG_ONLY:-}" ] && [ "$name" != lh ] && [ "$name" != cp ]; then
+  ttl_s=$(ttl_seconds "${TOKEN_TTL:-8m}") || { echo "TOKEN_TTL=${TOKEN_TTL:-}: a join token lives 1 to 8 minutes (90s, 5m, 8m); nothing was issued"; exit 2; }
+fi
 B="$STATE/bundles/$name"; mkdir -p "$B" "$STATE/ca"
 NC="$CACHE/nebula-cert"
 if [ -z "${CONFIG_ONLY:-}" ]; then
@@ -69,10 +77,15 @@ firewall:
   inbound: $INBOUND
 EOF
 if [ -z "${CONFIG_ONLY:-}" ] && [ "$name" != lh ] && [ "$name" != cp ]; then
-  tok="$(cpx k3s token create --ttl 10m)"
+  tok="$(cpx k3s token create --ttl "${ttl_s}s")"
+  # The node password of this name, made here (poc/node_password.py): k3s accepts a registration under this name only with this password,
+  # so another visitor with a valid token of his own cannot take the name, even at its Nebula IP. Only the bundle carries the password.
+  npw="$(python3 "$POC/node_password.py" new)"
+  printf '%s' "$npw" | python3 "$POC/node_password.py" secret "$name" | k create -f - >/dev/null
   cat >"$B/join.env" <<EOF
 K3S_URL=https://$CP_NEB:6443
 K3S_TOKEN=$tok
+NODE_PASSWORD=$npw
 NODE_NAME=$name
 NODE_IP=$ip
 TRUST=$trust

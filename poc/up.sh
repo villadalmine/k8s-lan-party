@@ -60,7 +60,7 @@ wait_for 90 docker exec cp kubectl get node cp   # the API answers before the no
 k label node cp node-restriction.kubernetes.io/trust=own --overwrite >/dev/null
 
 [ "${HOST_ONLY:-0}" = 1 ] && { echo "host up"; exit 0; }
-# 2. outside nodes: issue the bundle (cert + config + one-time token), then ONE command on the node
+# 2. outside nodes: issue the bundle (cert + config + join token), then ONE command on the node
 "$POC/issue.sh" n1 "$N1_NEB" friends 24h
 "$POC/issue.sh" n2 "$N2_NEB" public 1h
 node n1 172.31.0.4; node n2 172.31.0.5

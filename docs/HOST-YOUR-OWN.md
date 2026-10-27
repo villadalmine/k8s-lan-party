@@ -1,17 +1,17 @@
 ---
 tipo: runbook
 id: edge-mesh-lab-host-your-own
-version: 0.2.0
+version: 0.3.0
 fecha_alta: 2026-10-21
 fecha_ultimo_cambio: 2026-10-27
 categoria: plataforma
 dueno_agente: casa-orquestador
 pieza: edge-mesh-lab
 meta: ../meta.yml
-depende_de: [docs/REQUIREMENTS.md, docs/DESIGN.md, poc/mesh, poc/issue.sh]
+depende_de: [docs/REQUIREMENTS.md, docs/DESIGN.md, poc/mesh, poc/issue.sh, poc/admission.py, poc/pool.yaml]
 lo_usan: [README.md, docs/JOIN.md, docs/DEMO.md]
-docs: [docs/TROUBLESHOOTING.md, docs/GOLDEN-RULES.md]
-scripts: [poc/mesh, poc/kc, poc/issue.sh, poc/revoke.sh, poc/install-placement.sh, poc/up.sh, poc/vm/up.sh, poc/poc-host.sh, poc/poc-ca.sh, poc/poc-revoke.sh, poc/poc-placement.sh]
+docs: [docs/TROUBLESHOOTING.md, docs/GOLDEN-RULES.md, docs/ADMISSION.md]
+scripts: [poc/admission.py, poc/poc-admission.sh, poc/mesh, poc/kc, poc/issue.sh, poc/revoke.sh, poc/install-placement.sh, poc/up.sh, poc/vm/up.sh, poc/poc-host.sh, poc/poc-ca.sh, poc/poc-revoke.sh, poc/poc-placement.sh]
 runbooks: []
 tags: [host, lan-party, ca, invite, revoke]
 ---
@@ -36,7 +36,7 @@ Read [REQUIREMENTS.md](REQUIREMENTS.md) first. Every command below runs from the
 flowchart LR
   H["you (host)"] -->|"mesh host init"| LH["lighthouse"]
   H --> CP["control plane, API on the Nebula IP only"]
-  H -->|"mesh host invite"| B["bundle: cert + config + one-time token"]
+  H -->|"mesh host invite"| B["bundle: cert + config + join token"]
   B -->|"sent privately"| P["friend: edge-mesh join"]
   P -->|"Nebula UDP 4242"| LH
   P --> CP
@@ -95,8 +95,25 @@ Look at the CAs:
 ```
 
 The output names the bundle directory (`.state/bundles/alice`). It holds the player's Nebula key and certificate, the CA bundle (both CAs), a `config.yml`
-with the narrowed firewall, and `join.env` with a **one-time k3s token that is valid for 10 minutes**. Send it privately; the friend has to run the join
-inside those 10 minutes (or you invite again under a **new name**: a name can be used once, even after a kick). The shared `K3S_TOKEN` is never given out.
+with the narrowed firewall, and `join.env` with a **k3s join token valid for 8 minutes** (`TOKEN_TTL=5m ./mesh host invite ...` makes it shorter; longer
+than 8 minutes is refused, see ADMISSION.md "the life of a name"). A k3s
+token is **not one-time** by itself: any machine holding it can register until it expires or is deleted, so once the node registered the host burns it
+(`./mesh host burn`; `players`, `reap` and `revoke` do it too). `join.env` also carries the node's **node password**: the host stores its hash in
+`kube-system/<name>.node-password.k3s` when it invites, so only this bundle can register this node name. Send it privately; the friend has to run the join
+inside those 8 minutes (or you invite again under a **new name**: a name can be used once, even after a kick). The shared `K3S_TOKEN` is never given out.
+
+**While an invite is open, rewrite the node guard every minute** (a security requirement, not a convenience): k3s drops the node password of a name
+nobody took 10 minutes after the invite, and only a guard rewrite between the token's death (8 minutes at most) and then keeps somebody else's token
+from taking the name. `reap` (and `burn`, `players`, `invite`, `revoke`) rewrite it. From a timer, on the machine that holds the state:
+
+```bash
+# crontab -e   (every minute; RUNTIME as in section 0)
+* * * * * cd /path/to/edge-mesh-lab/poc && RUNTIME=incus ./mesh host reap >/dev/null 2>&1
+```
+
+`invite` prints a note when nothing rewrote the guard in the last 90 seconds. Without the timer the gap is known and small: it needs a name issued but
+not joined for over 10 minutes, another visitor holding a token that still works at that moment, and no `mesh host` command in between
+([ADMISSION.md](ADMISSION.md), "the life of a name").
 
 `--ttl` is the certificate lifetime (days for friends, `1h` for a demo). `--trust` accepts `friends` or `public`; `own` is for your own machines and is issued
 by hand (`./issue.sh <name> <ip> own 24h`).
@@ -114,7 +131,7 @@ Tested [dell]: a separate VM set up by hand from JOIN.md alone joined and showed
 
 ## 3. Open a pool slot (pool CA)
 
-A pool participant is `public`: admitted by your automatic admission, short lease, nothing persistent.
+A pool participant is `public`: admitted by your admission (by hand today, below), short lease, nothing persistent.
 
 ```bash
 ./mesh host invite pat --ttl 1h --trust public
@@ -127,8 +144,30 @@ own proof, which builds a cluster of its own (run it **after** `./mesh host down
 ./poc-ca.sh                 # 13 checks: the pool CA cannot mint own/friends certs; removing the pool CA cuts only the pool
 ```
 
-**Not built:** the pool's cluster side (reaper, per-IP limits, FIFO waiting list, quotas, kick at lease end): issue #11. Today a "1 h slot" is a 1 h
-certificate: when it expires Nebula closes the tunnel (`disconnect_invalid: true`) and the node goes NotReady.
+### Strangers, one hour at a time: admission with manual approval
+
+To let people you do not know in, without handing out bundles one by one by feel, use the waiting list. Its limits are in `pool.yaml` (2 places, 1 h
+each, a pause of 1 h and at most 2 leases a day per person); [ADMISSION.md](ADMISSION.md) explains every rule and how it would become automatic.
+
+```bash
+./mesh host request alice --ip 198.51.100.10 --note "from the chat"   # alice: waiting, position 1 of 1 [added]
+./mesh host waitlist                    # the list in order; "deferred" = in cooldown or over the daily cap, with the time
+./mesh host approve                     # the first eligible one: a public bundle that lives exactly the lease, an 8 min join token
+# approved alice (public) until 2026-10-27T16:02:11Z; bundle: .../.state/bundles/alice
+./mesh host leases                      # who has a place and how long is left
+./mesh host admission-status            # one line: slots 1/2 used | 0 in the list | next to end: alice in 59m40s
+./mesh host reap                        # expel every lease that ended (kick + blocklist) and free its place; again: "reaped 0"
+./mesh host reject bob --reason "..."   # take a request off the list
+```
+
+Run `reap` from a timer **every minute** (the crontab line of section 2): it frees the place of an hour that ended even when you are away, and it is
+the node guard's refresh, which is a security requirement while a name waits to join. `approve` refuses with exit 5 when both places
+are taken (it says which lease ends next) and with exit 4 when nobody in the list is eligible yet. To close admission: `slots: 0` in `pool.yaml` and
+`./mesh host reap --all`. `./poc-admission.sh` proves the whole cycle on Incus VMs (31 checks, among them a second machine refused with a burned token, a non-cooperative copy of a bundle refused by the node guard, and another guest's name refused by its node password; [dell]); it builds its own cluster, so run it after
+`./mesh host down`.
+
+**Not built:** the pool's cluster side (quotas, LimitRange, idle kick), the page and automatic approval: issue #11 and ADMISSION.md section B. Without
+`reap`, a "1 h slot" is still a 1 h certificate: when it expires Nebula closes the tunnel (`disconnect_invalid: true`) and the node goes NotReady.
 
 ## 4. Who is in, and the one command that revokes
 
@@ -272,5 +311,5 @@ only introduces hosts could run with `tun: {disabled: true}`; that is a later ha
 
 ## What this guide does not cover yet
 
-Signed-PR admission with cosign (issue #12), per-namespace RBAC and user kubeconfigs (issue #9), the public pool's cluster side (issue #11),
+Signed-PR admission with cosign (issue #12), per-namespace RBAC and user kubeconfigs (issue #9), the public pool's cluster side and automatic admission (issue #11),
 the relay for symmetric NAT (issue #15), and the LoadBalancer/BGP on own nodes (issue #13). See the gap table in [POC-STATUS.md](POC-STATUS.md).

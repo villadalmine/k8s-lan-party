@@ -54,7 +54,7 @@ edge-mesh join /path/to/bundle --accept-golden-rule        # as root, [dell] [do
 ```
 
 What it does, in order: shows the golden rule and refuses without `--accept-golden-rule`; checks `/dev/net/tun`; copies the files to
-`/etc/nebula`; starts Nebula and waits (30 s) for the lighthouse; starts the k3s agent with `--node-ip <your Nebula IP>`, using the one-time
+`/etc/nebula`; starts Nebula and waits (30 s) for the lighthouse; starts the k3s agent with `--node-ip <your Nebula IP>`, using the join
 token over the Nebula tunnel (the k3s token travels over TLS with the CA pinned). Output: `joined: <name> (trust=<level>)`.
 
 Exit codes you can meet:
@@ -66,7 +66,7 @@ Exit codes you can meet:
 | 4 | no `/dev/net/tun` | use a VM, `docker run --privileged`, or WSL2 |
 | 5 | cannot reach the lighthouse | UDP 4242 to the host must be allowed; ask the host for the relay option (not built yet) |
 | 6 | not running as root | run it with `sudo` |
-| 7 | the control plane rejected the token, or the node did not register in 90 s | the token is one-time and valid 10 minutes: ask the host for a new invite (under a new name) |
+| 7 | the control plane rejected the token, or the node did not register in 90 s | the token works until a node registered with it (the host then burns it) or 8 minutes pass: ask the host for a new invite (under a new name) |
 
 ### In a VM [dell]
 
