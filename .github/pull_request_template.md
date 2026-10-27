@@ -40,7 +40,7 @@ make pr-check   # CI's PR checks, locally (CONTRIBUTING -> Check before you push
 
 ### Where it ran
 
-<!-- The CI run on this PR's HEAD commit, green: github.com/villadalmine/edge-mesh-lab/actions/runs/<id>.
+<!-- The CI run on this PR's HEAD commit, green: github.com/villadalmine/k8s-lan-party/actions/runs/<id>.
      CI posts a 'where-it-ran' comment with this line ready to paste after each push; a new push
      makes the old link stale and pr-format fails until it is updated. Add the machine or local
      environment too if you ran anything there. -->
@@ -73,7 +73,7 @@ make pr-check   # CI's PR checks, locally (CONTRIBUTING -> Check before you push
 ## How to test it from a clean clone
 
 ```bash
-git clone https://github.com/villadalmine/edge-mesh-lab.git && cd edge-mesh-lab
+git clone https://github.com/villadalmine/k8s-lan-party.git && cd k8s-lan-party
 git fetch origin pull/<N>/head:pr && git checkout pr
 make pr-check
 ```

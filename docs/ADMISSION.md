@@ -1,12 +1,12 @@
 ---
 tipo: runbook
-id: edge-mesh-lab-admission
+id: k8s-lan-party-admission
 version: 0.2.0
 fecha_alta: 2026-10-27
 fecha_ultimo_cambio: 2026-10-27
 categoria: plataforma
 dueno_agente: casa-orquestador
-pieza: edge-mesh-lab
+pieza: k8s-lan-party
 meta: ../meta.yml
 estado: opcion A y fase B1 (pool automatico) construidas y probadas (VMs Incus); B2 y B3 solo diseno
 depende_de: [docs/DESIGN.md, poc/pool.yaml, poc/pool.py, poc/admission.py, poc/mesh]

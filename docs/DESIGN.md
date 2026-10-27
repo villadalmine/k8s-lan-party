@@ -1,12 +1,12 @@
 ---
 tipo: doc
-id: edge-mesh-lab-design
+id: k8s-lan-party-design
 version: 0.4.0
 fecha_alta: 2026-10-16
 fecha_ultimo_cambio: 2026-10-27
 categoria: plataforma
 dueno_agente: casa-orquestador
-pieza: edge-mesh-lab
+pieza: k8s-lan-party
 meta: meta.yml
 estado: MVP fase 1 (decisiones del maintainer 2026-10-16; abiertas al final)
 depende_de: []
@@ -213,7 +213,7 @@ The PoC measures all three. The command shows the golden rule and refuses to con
 3. **CI verifies, deterministically**: `cosign verify-blob` with `--certificate-identity-regexp` bound to the PR author's repository
    and `--certificate-oidc-issuer https://token.actions.githubusercontent.com`. The participant signs from **a GitHub Actions workflow in
    their own fork** (`.github/workflows/sign.yml`), so the certificate identity is that workflow's URL, which contains their GitHub
-   login: `^https://github.com/<pr-author>/edge-mesh-lab/.github/workflows/sign.yml@refs/heads/.*$`. (Signing interactively with
+   login: `^https://github.com/<pr-author>/k8s-lan-party/.github/workflows/sign.yml@refs/heads/.*$`. (Signing interactively with
    the GitHub OAuth issuer would put the signer's *email* in the certificate, which CI cannot map to the PR author, so a file signed
    by anybody for somebody else's name would pass.); the YAML schema; the
    node name is unique; the requested trust level is allowed. Anything above `public` happens only when the
@@ -350,7 +350,7 @@ will be used **only in the PoC fixture, marked as such**, and the real flow will
 
 | # | Decision | Notes |
 | :--- | :--- | :--- |
-| 1 | **Name** | `edge-mesh-lab` is a working name; a product name is needed before going public |
+| 1 | **Name** | `k8s-lan-party` is a working name; a product name is needed before going public |
 | 2 | **Licence** | Apache-2.0 is a placeholder; alternatives AGPL-3.0, MPL-2.0 |
 | 3 | **When it goes public** | private until the maintainer says so (it holds a security design) |
 | 4 | **Lighthouse location** | small VPS (stable public UDP) vs the home edge (NAT/CGNAT dependent) |

@@ -1,12 +1,12 @@
 ---
 tipo: doc
-id: edge-mesh-lab-golden-rules
+id: k8s-lan-party-golden-rules
 version: 0.2.0
 fecha_alta: 2026-10-16
 fecha_ultimo_cambio: 2026-10-19
 categoria: plataforma
 dueno_agente: casa-orquestador
-pieza: edge-mesh-lab
+pieza: k8s-lan-party
 meta: meta.yml
 depende_de: [docs/DESIGN.md]
 lo_usan: [README.md]

@@ -1,12 +1,12 @@
 ---
 tipo: doc
-id: edge-mesh-lab-requirements
+id: k8s-lan-party-requirements
 version: 0.1.0
 fecha_alta: 2026-10-21
 fecha_ultimo_cambio: 2026-10-21
 categoria: plataforma
 dueno_agente: casa-orquestador
-pieza: edge-mesh-lab
+pieza: k8s-lan-party
 meta: ../meta.yml
 depende_de: [docs/DESIGN.md, poc/stack.env]
 lo_usan: [README.md, docs/HOST-YOUR-OWN.md, docs/JOIN.md]

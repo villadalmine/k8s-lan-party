@@ -1,4 +1,4 @@
-# edge-mesh-lab - shortcuts. The checks CI runs are the ones `make pr-check` runs locally.
+# k8s-lan-party - shortcuts. The checks CI runs are the ones `make pr-check` runs locally.
 #   make pr-check                       # everything CI's verify job runs
 #   make pr-check BASE=origin/main PR_BODY=body.md PR_TITLE="docs: x"
 

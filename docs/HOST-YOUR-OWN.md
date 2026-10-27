@@ -1,12 +1,12 @@
 ---
 tipo: runbook
-id: edge-mesh-lab-host-your-own
+id: k8s-lan-party-host-your-own
 version: 0.4.0
 fecha_alta: 2026-10-21
 fecha_ultimo_cambio: 2026-10-27
 categoria: plataforma
 dueno_agente: casa-orquestador
-pieza: edge-mesh-lab
+pieza: k8s-lan-party
 meta: ../meta.yml
 depende_de: [docs/REQUIREMENTS.md, docs/DESIGN.md, poc/mesh, poc/issue.sh, poc/admission.py, poc/pool.yaml]
 lo_usan: [README.md, docs/JOIN.md, docs/DEMO.md]
@@ -108,7 +108,7 @@ from taking the name. `reap` (and `burn`, `players`, `invite`, `revoke`) rewrite
 
 ```bash
 # crontab -e   (every minute; RUNTIME as in section 0)
-* * * * * cd /path/to/edge-mesh-lab/poc && RUNTIME=incus ./mesh host reap >/dev/null 2>&1
+* * * * * cd /path/to/k8s-lan-party/poc && RUNTIME=incus ./mesh host reap >/dev/null 2>&1
 ```
 
 `invite` prints a note when nothing rewrote the guard in the last 90 seconds. Without the timer the gap is known and small: it needs a name issued but

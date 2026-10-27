@@ -1,5 +1,5 @@
 tipo: stack
-id: edge-mesh-lab
+id: k8s-lan-party
 version: 0.1.0
 fecha_alta: 2026-10-16
 fecha_ultimo_cambio: 2026-10-27
@@ -7,7 +7,7 @@ categoria: plataforma
 dueno_agente: casa-orquestador
 tags: [k3s, nebula, edge, mesh, seguridad, colaborativo]
 estado: MVP fase 1 (privado)
-pieza: edge-mesh-lab
+pieza: k8s-lan-party
 meta: meta.yml
 depende_de: [repo-colaborativo, study-cybercirujas]
 lo_usan: []

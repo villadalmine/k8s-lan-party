@@ -1,4 +1,4 @@
-# edge-mesh-lab
+# k8s-lan-party
 
 **Collaborative Kubernetes labs, like a LAN party: host a game, invite your friends, and everyone runs their study labs on the same virtual network.**
 
@@ -54,7 +54,7 @@ You need **Docker and `make`** (Linux, macOS with Docker Desktop, or WSL2). One 
 control plane and two "outside" nodes, joins them, and runs a real study lab (CKA 1.1) on them:
 
 ```bash
-git clone https://github.com/villadalmine/edge-mesh-lab.git && cd edge-mesh-lab
+git clone https://github.com/villadalmine/k8s-lan-party.git && cd k8s-lan-party
 make poc-join       # PASS or FAIL per step; about 4 minutes
 make poc-down       # remove everything
 ```

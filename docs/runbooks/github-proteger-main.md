@@ -1,12 +1,12 @@
 ---
 tipo: runbook
-id: edge-mesh-lab-github-proteger-main
+id: k8s-lan-party-github-proteger-main
 version: 1.0.0
 fecha_alta: 2026-10-16
 fecha_ultimo_cambio: 2026-10-16
 categoria: repo
 dueno_agente: casa-orquestador
-pieza: edge-mesh-lab
+pieza: k8s-lan-party
 meta: meta.yml
 operacion: configurar
 requires_maintainer_ok: si
@@ -31,14 +31,14 @@ protection on a private repository of a free account. The ruleset is kept as cod
 ## Step 0: backup
 
 ```bash
-gh api repos/villadalmine/edge-mesh-lab > ~/backups/edge-mesh-lab-repo-config-antes.json
-gh api repos/villadalmine/edge-mesh-lab/rulesets > ~/backups/edge-mesh-lab-rulesets-antes.json
+gh api repos/villadalmine/k8s-lan-party > ~/backups/k8s-lan-party-repo-config-antes.json
+gh api repos/villadalmine/k8s-lan-party/rulesets > ~/backups/k8s-lan-party-rulesets-antes.json
 ```
 
 ## Step 1: squash only, PR title as commit, delete the branch on merge, no wiki
 
 ```bash
-gh api -X PATCH repos/villadalmine/edge-mesh-lab -F allow_squash_merge=true -F allow_merge_commit=false \
+gh api -X PATCH repos/villadalmine/k8s-lan-party -F allow_squash_merge=true -F allow_merge_commit=false \
   -F allow_rebase_merge=false -F delete_branch_on_merge=true -F has_wiki=false \
   -f squash_merge_commit_title=PR_TITLE -f squash_merge_commit_message=PR_BODY \
   --jq '.allow_squash_merge,.allow_merge_commit,.allow_rebase_merge,.delete_branch_on_merge'
@@ -49,15 +49,15 @@ Expected: `true false false true`.
 ## Step 2: the ruleset (needs a public repo or Pro)
 
 ```bash
-gh api -X POST repos/villadalmine/edge-mesh-lab/rulesets --input .github/rulesets/main.json --jq '.id,.enforcement'
+gh api -X POST repos/villadalmine/k8s-lan-party/rulesets --input .github/rulesets/main.json --jq '.id,.enforcement'
 ```
 
-Expected: an id and `active`. Verify: `gh api repos/villadalmine/edge-mesh-lab/rulesets --jq '.[].name'` lists `main`.
+Expected: an id and `active`. Verify: `gh api repos/villadalmine/k8s-lan-party/rulesets --jq '.[].name'` lists `main`.
 Admins (repository role 5) may bypass with a pull request, for an emergency.
 
 ## Rollback
 
 ```bash
-gh api -X DELETE repos/villadalmine/edge-mesh-lab/rulesets/<id>
-gh api -X PATCH repos/villadalmine/edge-mesh-lab -F allow_merge_commit=true -F allow_rebase_merge=true -F delete_branch_on_merge=false
+gh api -X DELETE repos/villadalmine/k8s-lan-party/rulesets/<id>
+gh api -X PATCH repos/villadalmine/k8s-lan-party -F allow_merge_commit=true -F allow_rebase_merge=true -F delete_branch_on_merge=false
 ```

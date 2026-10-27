@@ -1,12 +1,12 @@
 ---
 tipo: runbook
-id: edge-mesh-lab-join
+id: k8s-lan-party-join
 version: 0.2.0
 fecha_alta: 2026-10-21
 fecha_ultimo_cambio: 2026-10-21
 categoria: plataforma
 dueno_agente: casa-orquestador
-pieza: edge-mesh-lab
+pieza: k8s-lan-party
 meta: ../meta.yml
 depende_de: [docs/REQUIREMENTS.md, docs/HOST-YOUR-OWN.md, poc/edge-mesh]
 lo_usan: [README.md, docs/DEMO.md]
