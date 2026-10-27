@@ -263,8 +263,9 @@ The free demo must not fill up: a fixed pool that empties itself every hour. Set
   one node per invite.
 - **Per-IP rules**: at most **1 active lease per source IP**; a **cooldown** after a lease ends (default 1 h) before
   the same IP can join again; a **per-IP invite rate limit**; at most `daily_leases_per_identity` (2) leases per identity in any 24 h. The "IP" is an
-  identity: the address normalized (IPv4 or its /24, IPv6 /64). Today a human approves each lease (option A, [ADMISSION.md](ADMISSION.md)), which also
-  has the path to the automatic pool and its anti-bot layers.
+  identity: the address normalized (IPv4 or its /24, IPv6 /64). A human approves each lease (option A) or the automatic tick does, inside the same limits
+  (phase B1: `mesh host auto --once` from the host's timer, with a panic switch); the public request page and its anti-bot layers are B2
+  ([ADMISSION.md](ADMISSION.md)).
 - **Which IP.** The client IP at the edge. Behind an L4 proxy (HAProxy with `send-proxy-v2`) Caddy must read the PROXY protocol
   (`listener_wrappers { proxy_protocol }`, allowing only the proxy's address) to see the real client; otherwise every visitor looks
   like the proxy and the first lease blocks everybody. Caddy then sets `X-Forwarded-For`, and the pool service trusts that header
@@ -340,8 +341,8 @@ and a `ValidatingAdmissionPolicy` that refuses a `friends` or `public` label wit
 instead of deleting a Node that registered without it. Private pods are pinned to `trust=own`, and `spec.nodeName` on a node that is not
 `own` is denied. The `owner=<github-user>` label and the relative trust of section 1 (several owners in one cluster) are not built yet.
 
-**Not built yet** (the phase-1 gap table in POC-STATUS.md has the evidence): the rest of the pool (quotas, idle kick, the page, automatic
-approval; the manual admission and its reaper exist, [ADMISSION.md](ADMISSION.md)), per-namespace RBAC and kubeconfig per user, join by signed PR, relay and NAT tests, the gateway and BGP on own nodes, and
+**Not built yet** (the phase-1 gap table in POC-STATUS.md has the evidence): the rest of the pool (quotas, idle kick, the public request
+page; the manual admission, its reaper and the automatic tick exist, [ADMISSION.md](ADMISSION.md)), per-namespace RBAC and kubeconfig per user, join by signed PR, relay and NAT tests, the gateway and BGP on own nodes, and
 the public opening. The PoC cannot use the real Fulcio offline: when join by PR is built, a local test CA (or `--insecure-ignore-tlog`)
 will be used **only in the PoC fixture, marked as such**, and the real flow will run in CI on the PR.
 

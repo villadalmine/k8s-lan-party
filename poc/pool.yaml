@@ -1,4 +1,5 @@
-# Capacity pool of the public demo: the one file with the numbers (DESIGN.md section 8, docs/ADMISSION.md).
+# Capacity pool of the public demo: the one file with the numbers (DESIGN.md section 8, docs/ADMISSION.md). Read by the manual
+# admission (option A) and by the automatic tick (phase B1, `mesh host auto --once`): the same limits for both.
 # The maintainer's rules (2026-10-27), as we read them; docs/ADMISSION.md "Parameters" says who decides each value:
 #   two places at a time, one hour each; whoever comes next waits in a FIFO list; when an hour ends the place is freed
 #   and the next one in the list may enter; at most two leases a day per person, so it is not always the same one,
@@ -15,5 +16,7 @@ identity_retention_seconds: 90000   # 25 h: an identity (an IP) is forgotten thi
                                     # less than the 24 h window or the cooldown (the code takes the larger). Names and times stay
 rate_window_seconds: 600    # per-identity request rate limit: rate_max_requests per window (automatic pool, option B)
 rate_max_requests: 5
+lease_warning_seconds: 300  # the automatic tick records `expiring` once per lease when this little is left (5 min)
+events_max_lines: 5000      # events.jsonl keeps at most this many lines (the counters of the metrics survive the rotation)
 idle_kick_seconds: 900      # NotReady or no workload for this long: evicted early (not built yet, issue #11)
 trusted_proxies: [127.0.0.1, 172.31.0.1]   # only these may set X-Forwarded-For (Caddy)

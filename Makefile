@@ -7,7 +7,7 @@ BASE     ?= origin/main
 PR_BODY  ?=
 PR_TITLE ?=
 
-.PHONY: poc-lighthouse poc-cilium help labels-check test verify-ci pr-check install-hooks uninstall-hooks poc-join poc-host poc-weakness poc-down poc-ca poc-placement poc-kind poc-vm poc-revoke poc-admission
+.PHONY: poc-lighthouse poc-cilium help labels-check test verify-ci pr-check install-hooks uninstall-hooks poc-join poc-host poc-weakness poc-down poc-ca poc-placement poc-kind poc-vm poc-revoke poc-admission poc-admission-auto
 
 help:
 	@grep -E '^[a-z-]+:.*##' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-14s %s\n", $$1, $$2}'
@@ -73,3 +73,6 @@ poc-revoke: ## issue #7: revocation in one command (mesh host revoke): idempoten
 
 poc-admission: ## admission with manual approval (docs/ADMISSION.md): request, approve, join, the lease ends, reap expels, the next one enters; needs Incus
 	poc/poc-admission.sh
+
+poc-admission-auto: ## the automatic pool (phase B1, docs/ADMISSION.md): one tick approves, expels at lease end and promotes the next; switch, panic, daily cap, notify hook; needs Incus
+	poc/poc-admission-auto.sh

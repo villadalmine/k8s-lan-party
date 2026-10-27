@@ -1,40 +1,56 @@
 #!/usr/bin/env python3
-"""Admission with manual approval (option A, docs/ADMISSION.md): the ledger behind `mesh host request|waitlist|approve|
-reject|leases|reap|admission-status`.
+"""Admission (docs/ADMISSION.md): the ledger behind `mesh host request|waitlist|approve|reject|leases|reap|admission-status`
+(option A, manual approval) and `mesh host auto|panic|bundle|admission-metrics` (phase B1, the automatic pool).
 
-People ask for a place; the host approves them by hand, one at a time, inside the limits of poc/pool.yaml (slots, lease,
-cooldown, daily cap per identity), which pool.py enforces. Approving issues the bundle with the existing `mesh host invite`
-(certificate lifetime = the lease); `reap` first burns the join token of every player whose node registered (`mesh host burn`),
-then expels every lease that ended with the existing `mesh host kick` and frees its place.
+People ask for a place; the host approves them by hand, or the automatic tick (`auto --once`, run by the host's timer) approves the first
+eligible one while a place is free, always inside the limits of poc/pool.yaml (slots, lease, cooldown, daily cap per identity), which
+pool.py enforces. Approving issues the bundle with the existing `mesh host invite` (certificate lifetime = the lease); `reap` and the tick
+first burn the join token of every player whose node registered (`mesh host burn`), then expel every lease that ended with the existing
+`mesh host kick` and free its place.
+
+The tick, in order: burn, expel what ended (always, also with auto off), warn the leases that end within `lease_warning_seconds`, and only
+with auto on and no panic: approve while a place is free and the first eligible request passes the limits. `panic` switches auto off, makes
+the effective slots 0 and expels every active lease. Every fact is a JSON line in <state>/events.jsonl and, when ADMISSION_NOTIFY_CMD is set,
+a call of that command with two arguments, the event type and a short summary (an argument list: no shell ever sees a name or a note).
 
 Retention: before every write the ledger forgets what no rule needs (pool.prune) and blanks the identity and the note of every
-lease and request that closed more than `identity_retention_seconds` ago (the names and times stay: a name is used once).
+lease and request that closed more than `identity_retention_seconds` ago (the names and times stay: a name is used once); the event log
+blanks the identity of every event older than the same retention and keeps at most `events_max_lines` lines.
 
-State: one JSON file, <state>/state.json, read and written under an exclusive lock (<state>/lock: fcntl.flock on Linux and
-macOS, msvcrt.locking on Windows) and replaced atomically (temporary file + fsync + rename), so two commands at the same time
-never lose a request. Time is injectable (`--now <epoch seconds>`): the unit tests simulate a day in no time.
+State: <state>/state.json (the ledger), <state>/auto.json (the switch: auto on or off, panic), <state>/events.jsonl, <state>/last-tick and
+<state>/outbox/<name>.tar.gz, read and written under one exclusive lock (<state>/lock: fcntl.flock on Linux and macOS, msvcrt.locking on
+Windows) and replaced atomically (temporary file + fsync + rename), so two commands at the same time never lose a request and two ticks never
+grant more than the slots. Time is injectable (`--now <epoch seconds>`): the unit tests simulate a day in no time.
 
     admission.py --state DIR --config pool.yaml [--mesh poc/mesh] [--now N] <command> ...
       request <name> [--ip IP] [--peer IP --xff CHAIN] [--note TEXT]
-      waitlist | leases | status
+      waitlist | leases | status | metrics
       approve [<name>] [--trust public|friends]
       reject <name> [--reason TEXT]
       reap [--all | --name NAME]
+      auto --once | auto on | auto off | auto status
+      panic [--clear]
+      bundle <name>
 
-Exit codes: 0 done; 1 the invite failed (nothing recorded), a kick failed (`reap` records the kicks that succeeded and keeps
-the failed lease for the next run) or the ledger file is unreadable (nothing changed); 2 bad input (name, IP); 3 unknown or
-already used name, or a player with that name already exists; 4 nobody eligible; 5 no free place; 6 that identity is not
-eligible yet (cooldown, daily cap, active lease).
+Exit codes: 0 done; 1 the invite failed (nothing recorded), a kick failed (`reap`, the tick and `panic` record the kicks that succeeded and
+keep the failed lease for the next run), the ledger file is unreadable (nothing changed) or the outbox is unsafe; 2 bad input (name, IP,
+arguments); 3 unknown or already used name, a player with that name already exists, or no active lease for `bundle`; 4 nobody eligible;
+5 no free place; 6 that identity is not eligible yet (cooldown, daily cap, active lease), or, with auto on, a request over the daily cap
+(refused, not listed); 7 admission is closed by `panic` (approve, request and `auto on` are refused until `panic --clear`).
 """
 from __future__ import annotations
 
 import argparse
 import contextlib
+import gzip
+import io
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
+import tarfile
 import tempfile
 import time
 import unicodedata
@@ -49,6 +65,12 @@ from pool import Pool, client_ip, identity, load_config  # noqa: E402
 NAME = re.compile(r"[a-z][a-z0-9-]{1,19}")
 RESERVED = {"lh", "cp", "n1", "n2"}   # the lighthouse, the control plane and the PoC's own nodes
 OPEN = ("waiting", "deferred")
+# Every fact the admission records, in the fixed order of the metrics (emesh_admission_events_total{type=...}).
+EVENT_TYPES = ("request", "refused", "approved", "bundle_ready", "expiring", "expelled", "rejected", "kick_failed",
+               "invite_failed", "auto_on", "auto_off", "panic", "panic_cleared")
+AUTO_DEFAULT = {"enabled": False, "panic": False, "changed_at": 0}
+NOTIFY_TIMEOUT = 10   # seconds a notify hook may take; a slow or failing hook never stops the tick
+CLOSED = "admission is closed by panic (mesh host panic --clear reopens it; auto stays off until mesh host auto on)"
 
 
 class AdmissionError(Exception):
@@ -120,12 +142,15 @@ except ImportError:  # Windows
         msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
 
 
-def write_atomic(path: Path, data: dict) -> None:
+def write_atomic(path: Path, data) -> None:
+    """A JSON object (dict) or raw bytes, replaced atomically; the file is created 0600 (mkstemp): it may hold identities."""
     fd, tmp = tempfile.mkstemp(prefix=".state-", dir=path.parent)
     try:
-        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
-            json.dump(data, f, sort_keys=True, indent=1)
-            f.write("\n")
+        with os.fdopen(fd, "wb") as f:
+            if isinstance(data, (bytes, bytearray)):
+                f.write(data)
+            else:
+                f.write((json.dumps(data, sort_keys=True, indent=1) + "\n").encode("utf-8"))
             f.flush()
             os.fsync(f.fileno())
         os.replace(tmp, path)
@@ -142,8 +167,9 @@ def write_atomic(path: Path, data: dict) -> None:
 
 
 @contextlib.contextmanager
-def locked_state(state_dir: str | Path):
-    """Yield the state dict under the lock; written back (atomically) only when the block ends without an exception."""
+def locked_state(state_dir: str | Path, after: list | None = None):
+    """Yield the state dict under the lock; written back (atomically) only when the block ends without an exception. Then, still
+    under the lock, every callable in `after` runs (auto.json, the event log): the order of the log is the order of the commits."""
     d = Path(state_dir)
     d.mkdir(parents=True, exist_ok=True)
     path = d / "state.json"
@@ -161,8 +187,164 @@ def locked_state(state_dir: str | Path):
             yield state
             if json.dumps(state, sort_keys=True) != before:
                 write_atomic(path, state)
+            for fn in after or ():
+                fn()
         finally:
             _unlock(lock)
+
+
+# --- the switch: auto on or off, panic ----------------------------------------------------------------------------------
+
+def read_auto(state_dir: Path) -> dict:
+    """<state>/auto.json; missing = auto off, no panic (the demo is switched on on purpose)."""
+    path = state_dir / "auto.json"
+    if not path.exists():
+        return dict(AUTO_DEFAULT)
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict) or not all(isinstance(data.get(k), bool) for k in ("enabled", "panic")):
+            raise ValueError("not the switch")
+    except (ValueError, UnicodeDecodeError) as e:
+        raise AdmissionError(1, f"the switch {path} is unreadable ({e.__class__.__name__}): fix or delete it (missing = auto off); "
+                                "nothing was changed") from None
+    return {**AUTO_DEFAULT, **data}
+
+
+# --- events: the log and the notify hook --------------------------------------------------------------------------------
+
+class Events:
+    """Collects the facts of one command; they reach events.jsonl only when the ledger is committed (flush_events, under the
+    lock) and the notify hook after the lock is released (notify). The counters live in the ledger, so they survive the
+    log's rotation (Prometheus counters never go down)."""
+
+    def __init__(self, counters: dict, now: int):
+        self.counters, self.now, self.pending = counters, now, []
+
+    def emit(self, kind: str, summary: str, name: str = "", identity: str = "", **extra) -> dict:
+        if kind not in EVENT_TYPES:
+            raise ValueError(f"unknown event type {kind!r}")
+        self.counters["seq"] = self.counters.get("seq", 0) + 1
+        count = self.counters.setdefault("count", {})
+        count[kind] = count.get(kind, 0) + 1
+        ev = {"seq": self.counters["seq"], "ts": self.now, "time": iso(self.now), "type": kind, "name": name,
+              "identity": identity, "summary": clean_text(summary, 160), **extra}
+        self.pending.append(ev)
+        return ev
+
+
+def flush_events(state_dir: Path, pending: list[dict], now: int, retention: int, max_lines: int) -> None:
+    """Append the new events to <state>/events.jsonl, blank the identity of every event older than the retention and keep the
+    last `max_lines` lines. Rewritten atomically, only when something changed."""
+    path = state_dir / "events.jsonl"
+    old = path.read_bytes() if path.exists() else b""
+    events = []
+    for line in old.decode("utf-8", "replace").splitlines():
+        try:
+            ev = json.loads(line)
+        except ValueError:
+            continue   # a torn line (it cannot happen with the atomic rewrite; a hand edit could): dropped
+        if isinstance(ev, dict):
+            events.append(ev)
+    cutoff = now - retention
+    for ev in events:
+        if ev.get("identity") and ev.get("ts", now) <= cutoff:
+            ev["identity"] = ""
+    events = (events + pending)[-max(1, max_lines):]
+    new = "".join(json.dumps(ev, sort_keys=True, ensure_ascii=True) + "\n" for ev in events).encode("ascii")
+    if new != old:
+        write_atomic(path, new)
+
+
+def notify(events: list[dict], env=None) -> int:
+    """Call ADMISSION_NOTIFY_CMD once per event with two arguments: the type and the short summary (plus the identity when
+    ADMISSION_NOTIFY_IP=1). An argument list, never a shell: the command line is the host's own setting, split once with shlex;
+    nothing a visitor typed is ever parsed. The summary holds no note, key, token or bundle content. A hook that fails, hangs or
+    does not exist is reported on stderr and counted; the event is already in the log. Returns the number of failed calls."""
+    env = os.environ if env is None else env
+    cmd = env.get("ADMISSION_NOTIFY_CMD", "").strip()
+    if not cmd or not events:
+        return 0
+    try:
+        argv = shlex.split(cmd)
+    except ValueError as e:
+        print(f"notify: ADMISSION_NOTIFY_CMD cannot be split ({e}); the events are in events.jsonl", file=sys.stderr)
+        return len(events)
+    failed = 0
+    for ev in events:
+        summary = ev["summary"]
+        if env.get("ADMISSION_NOTIFY_IP") == "1" and ev.get("identity"):
+            summary += f" [{ev['identity']}]"
+        try:
+            r = subprocess.run([*argv, ev["type"], summary], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                               stderr=subprocess.PIPE, timeout=NOTIFY_TIMEOUT)
+            ok = r.returncode == 0
+        except (OSError, subprocess.SubprocessError):
+            ok = False
+        if not ok:
+            failed += 1
+    if failed:
+        print(f"notify: the hook failed for {failed} of {len(events)} event(s); they are in events.jsonl", file=sys.stderr)
+    return failed
+
+
+# --- the outbox: the approved bundle as one file ------------------------------------------------------------------------
+
+def _outbox_dir(outbox: Path) -> Path:
+    """The outbox, created 0700; a symbolic link (to anywhere) is refused, so nothing is ever written outside it."""
+    if outbox.is_symlink():
+        raise AdmissionError(1, f"the outbox {outbox} is a symbolic link: refusing to write through it")
+    outbox.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if outbox.is_symlink() or not outbox.is_dir():
+        raise AdmissionError(1, f"the outbox {outbox} is not a directory: refusing")
+    os.chmod(outbox, 0o700)   # also when it existed already with looser modes: it holds private keys
+    return outbox
+
+
+def outbox_path(outbox: Path, name: str) -> Path:
+    check_name(name)   # the name is the file name: [a-z][a-z0-9-], so no '/', no '..'
+    return outbox / f"{name}.tar.gz"
+
+
+def pack_bundle(bundles: Path, outbox: Path, name: str, mtime: int) -> tuple[Path, bool]:
+    """<outbox>/<name>.tar.gz from <bundles>/<name>: regular files only (a symbolic link in the bundle is not followed), under
+    the directory <name>/, mode 0600, fixed owner and times, so the same bundle always gives the same bytes. Returns (path,
+    changed)."""
+    src = bundles / check_name(name)
+    if src.is_symlink() or not src.is_dir():
+        raise AdmissionError(3, f"{name}: no bundle at {src}")
+    target = outbox_path(_outbox_dir(outbox), name)
+    if target.is_symlink():
+        raise AdmissionError(1, f"{target} is a symbolic link: refusing")
+    buf = io.BytesIO()
+    with gzip.GzipFile(filename="", mode="wb", fileobj=buf, mtime=mtime) as gz:
+        with tarfile.open(fileobj=gz, mode="w", format=tarfile.USTAR_FORMAT) as tar:
+            d = tarfile.TarInfo(name)
+            d.type, d.mode, d.mtime = tarfile.DIRTYPE, 0o700, mtime
+            tar.addfile(d)
+            for f in sorted(src.iterdir(), key=lambda x: x.name):
+                if f.is_symlink() or not f.is_file():
+                    continue
+                data = f.read_bytes()
+                info = tarfile.TarInfo(f"{name}/{f.name}")
+                info.size, info.mode, info.mtime = len(data), 0o600, mtime
+                tar.addfile(info, io.BytesIO(data))
+    data = buf.getvalue()
+    if target.is_file() and target.read_bytes() == data:
+        return target, False
+    write_atomic(target, data)
+    return target, True
+
+
+def remove_outbox(outbox: Path, name: str) -> bool:
+    path = outbox_path(outbox, name)
+    if outbox.is_dir() and not outbox.is_symlink() and (path.exists() or path.is_symlink()):
+        path.unlink()
+        return True
+    return False
+
+
+def join_line(name: str) -> str:
+    return f"tar xzf {name}.tar.gz && sudo edge-mesh join ./{name} --accept-golden-rule"
 
 
 # --- the ledger -------------------------------------------------------------------------------------------------------
@@ -170,13 +352,15 @@ def locked_state(state_dir: str | Path):
 class Ledger:
     """Requests (FIFO), active leases (kept by pool.py, with the name and trust) and the history that feeds the caps."""
 
-    def __init__(self, cfg: dict, state: dict, now: int, bundles: str | Path | None = None):
-        self.cfg, self.now = cfg, now
+    def __init__(self, cfg: dict, state: dict, now: int, bundles: str | Path | None = None, closed: bool = False):
+        self.cfg, self.now, self.closed = cfg, now, closed   # closed: panic is on, nothing new is approved
         self.bundles = Path(bundles) if bundles else None   # <state>/bundles: a name with a bundle is taken
         self.pool = Pool(cfg, state.get("pool"))
         self.requests: list[dict] = state.get("requests", [])
         self.history: list[dict] = state.get("history", [])
         self.next_request: int = state.get("next_request", 1)
+        self.counters: dict = state.get("events", {"seq": 0, "count": {}})
+        self.events = Events(self.counters, now)
         self._refresh()
 
     def prune(self) -> None:
@@ -195,16 +379,17 @@ class Ledger:
     def dump(self) -> dict:
         self.prune()
         return {"version": 1, "pool": self.pool.dump(), "requests": self.requests, "history": self.history,
-                "next_request": self.next_request}
+                "next_request": self.next_request, "events": self.counters}
 
     def _refresh(self) -> None:
-        """waiting <-> deferred, from the identity's eligibility right now."""
+        """waiting <-> deferred, from the identity's eligibility right now. A request that stays waiting keeps the time it
+        became eligible, so a run that changes nothing writes nothing (a tick every minute is a no-op until something happens)."""
         for r in self.open():
             when, why = self.pool.eligible_at(r["identity"], self.now)
             if when > self.now:
                 r.update(state="deferred", eligible_at=when, why=why)
-            else:
-                r.update(state="waiting", eligible_at=self.now, why="")
+            elif r["state"] != "waiting" or r.get("why"):
+                r.update(state="waiting", eligible_at=min(r.get("eligible_at", self.now), self.now), why="")
 
     def open(self) -> list[dict]:
         return [r for r in self.requests if r["state"] in OPEN]
@@ -255,6 +440,8 @@ class Ledger:
                 raise AdmissionError(3, f"{name}: not in the list (see: mesh host waitlist)")
             if self.taken(name):
                 raise AdmissionError(3, f"{name}: a player with that name already exists; reject the request")
+        if self.closed:
+            raise AdmissionError(7, CLOSED)
         if self.pool.slots_free() <= 0:
             raise AdmissionError(5, f"no free place ({len(self.pool.leases)}/{self.cfg['slots']} used); {self._next_end()}")
         if name:
@@ -272,6 +459,13 @@ class Ledger:
         """invite(name, ttl_seconds, trust) -> bundle path, or raises. Nothing is recorded if it fails."""
         if trust not in ("public", "friends"):
             raise AdmissionError(2, "trust must be public or friends")
+        if self.closed:
+            raise AdmissionError(7, CLOSED)
+        when, why = self.pool.eligible_at(req["identity"], self.now)   # the limits, checked again where the lease is made
+        if when > self.now:
+            raise AdmissionError(6, f"{req['name']}: not eligible until {iso(when)} ({why})")
+        if self.pool.slots_free() <= 0:
+            raise AdmissionError(5, f"no free place ({len(self.pool.leases)}/{self.cfg['slots']} used); {self._next_end()}")
         bundle = invite(req["name"], self.cfg["lease_seconds"], trust)
         lease = self.pool.grant(req["identity"], self.now, {"name": req["name"], "trust": trust, "request": req["id"],
                                                              "bundle": bundle})
@@ -298,15 +492,17 @@ class Ledger:
             return mine
         return leases if everyone else [l for l in leases if l["end"] <= self.now]
 
-    def finish(self, lease: dict) -> None:
-        """The lease is over (its node already kicked): cooldown, place freed, request expired, history kept."""
+    def finish(self, lease: dict, how: str | None = None) -> str:
+        """The lease is over (its node already kicked): cooldown, place freed, request expired, history kept. Returns how it
+        ended: expired, ended early, or what the caller says (panic)."""
         self.pool.reap(lease["id"], self.now)
-        how = "expired" if lease["end"] <= self.now else "ended early"
+        how = how or ("expired" if lease["end"] <= self.now else "ended early")
         for r in self.requests:
             if r.get("lease") == lease["id"]:
                 r.update(state="expired", ended_at=self.now)
         self.history.append({"name": lease.get("name"), "identity": lease["ip"], "trust": lease.get("trust"),
                              "start": lease["start"], "end": lease["end"], "ended_at": self.now, "how": how})
+        return how
 
     def status_line(self) -> str:
         used, total = len(self.pool.leases), self.cfg["slots"]
@@ -347,18 +543,150 @@ def mesh_burn(mesh: str):
     return burn
 
 
-def run(a, cfg: dict) -> int:
-    with locked_state(a.state) as state:
-        led = Ledger(cfg, state, a.now, a.bundles or Path(a.state).parent / "bundles")
-        try:
-            code = command(a, cfg, led)
-        finally:
-            state.clear()
-            state.update(led.dump())
+def expel(led: Ledger, lease: dict, kick, outbox: Path, how: str | None = None) -> bool:
+    """Kick one lease's node; on success the lease is finished, its outbox file deleted and `expelled` recorded. A kick that
+    fails keeps the lease and its place (the next run tries again) and records `kick_failed`."""
+    name = lease.get("name", "")
+    if not kick(name):
+        led.events.emit("kick_failed", f"{name}: the kick failed; the lease and its place are kept and the next run tries again",
+                        name, lease["ip"])
+        return False
+    how = led.finish(lease, how)
+    with contextlib.suppress(AdmissionError):   # a name from before the name rule has no outbox file
+        remove_outbox(outbox, name)
+    led.events.emit("expelled", f"{name}: lease {how}, node expelled, place freed", name, lease["ip"], how=how)
+    return True
+
+
+def deliver(led: Ledger, lease: dict, outbox: Path) -> int:
+    """The approved bundle into the outbox, and the `bundle_ready` event with its path. 0, or 1 when it could not be packed
+    (the lease stands; `mesh host bundle <name>` packs it again)."""
+    name = lease["name"]
+    try:
+        path, changed = pack_bundle(led.bundles, outbox, name, lease["start"])
+    except (AdmissionError, OSError) as e:
+        print(f"{name}: the bundle could not be put in the outbox ({e}); run: mesh host bundle {name}", file=sys.stderr)
+        return 1
+    if changed:
+        led.events.emit("bundle_ready", f"{name}: bundle ready in the outbox ({name}.tar.gz), lease until {iso(lease['end'])}",
+                        name, lease["ip"], path=str(path), end=lease["end"])
+    return 0
+
+
+def tick(a, cfg: dict, led: Ledger, auto: dict, outbox: Path) -> int:
+    """One pass of the automatic pool, idempotent: burn, expel what ended (always; in panic: everything), warn what ends soon,
+    then, only with auto on, approve the first eligible request while a place is free. 0, or 1 when a kick, an invite or a
+    bundle failed (everything else of the pass is recorded)."""
+    code, expelled, approved = 0, 0, 0
+    mesh_burn(a.mesh)()
+    kick = mesh_kick(a.mesh)
+    for lease in led.due(everyone=auto["panic"]):
+        if expel(led, lease, kick, outbox, "panic" if auto["panic"] else None):
+            expelled += 1
+        else:
+            code = 1
+    led._refresh()
+    warn = cfg.get("lease_warning_seconds", 300)
+    for lease in led.due(everyone=True):
+        if not lease.get("warned") and lease["end"] - led.now <= warn:
+            lease["warned"] = True
+            led.events.emit("expiring", f"{lease.get('name')}: the lease ends at {iso(lease['end'])} "
+                                        f"(in {left(lease['end'] - led.now)})", lease.get("name", ""), lease["ip"], end=lease["end"])
+    ttl_ok = True
+    if auto["enabled"] and not auto["panic"]:
+        try:   # a TOKEN_TTL longer than 8 minutes stops approvals, never the expulsions above
+            token_ttl_seconds(os.environ.get("TOKEN_TTL", "8m"))
+        except AdmissionError as e:
+            print(f"{e}; this tick approves nobody", file=sys.stderr)
+            code, ttl_ok = 2, False
+    if auto["enabled"] and not auto["panic"] and ttl_ok:
+        invite = mesh_invite(a.mesh)
+        while led.pool.slots_free() > 0:
+            try:
+                req = led.pick()
+            except AdmissionError as e:
+                if e.code == 4:      # nobody eligible now: the rest of the list waits for its time
+                    break
+                raise
+            try:
+                lease = led.approve(req, "public", invite)
+            except AdmissionError as e:
+                if e.code == 1:
+                    led.events.emit("invite_failed", f"{req['name']}: the automatic invite failed; the next tick tries again",
+                                    req["name"], req["identity"])
+                    code = 1
+                break
+            approved += 1
+            led.events.emit("approved", f"{req['name']}: approved automatically (public) until {iso(lease['end'])}",
+                            req["name"], req["identity"], by="auto", end=lease["end"])
+            code = max(code, deliver(led, lease, outbox))
+        led._refresh()
+    mode = "on" if auto["enabled"] else ("off (panic)" if auto["panic"] else "off")
+    waiting = [r for r in led.open() if r["state"] == "waiting"]
+    print(f"tick: auto {mode} | expelled {expelled} | approved {approved} | slots {len(led.pool.leases)}/{cfg['slots']} used | "
+          f"{len(led.open())} in the list ({len(waiting)} eligible now)")
     return code
 
 
-def command(a, cfg: dict, led: Ledger) -> int:
+def last_tick(state_dir: Path) -> int:
+    try:
+        return int((state_dir / "last-tick").read_text().strip())
+    except (OSError, ValueError):
+        return 0
+
+
+def metrics(cfg: dict, led: Ledger, auto: dict, state_dir: Path) -> str:
+    """Prometheus textfile format: fixed order, no identity and no name. The host publishes it (node_exporter's textfile
+    collector, or a file a scraper reads); this only prints it."""
+    out: list[str] = []
+
+    def metric(name: str, kind: str, help_: str, *samples) -> None:
+        out.extend([f"# HELP emesh_admission_{name} {help_}", f"# TYPE emesh_admission_{name} {kind}"])
+        out.extend(f"emesh_admission_{name}{labels} {value}" for labels, value in samples)
+
+    leases = led.pool.leases
+    remaining = min((max(0, l["end"] - led.now) for l in leases), default=0)
+    count = led.counters.get("count", {})
+    metric("slots_total", "gauge", "Places at the same time (0 while panic is on).", ("", cfg["slots"]))
+    metric("slots_used", "gauge", "Places taken by an active lease.", ("", len(leases)))
+    metric("waiting", "gauge", "Requests in the list (waiting or deferred).", ("", len(led.open())))
+    metric("leases_active", "gauge", "Active leases.", ("", len(leases)))
+    metric("lease_seconds_remaining_min", "gauge", "Seconds left of the lease that ends first (0 with no lease).", ("", remaining))
+    metric("auto_enabled", "gauge", "1 when the automatic tick approves requests.", ("", int(auto["enabled"])))
+    metric("panic", "gauge", "1 while panic is on (admission closed).", ("", int(auto["panic"])))
+    metric("events_total", "counter", "Admission events recorded, by type.",
+           *((f'{{type="{t}"}}', count.get(t, 0)) for t in EVENT_TYPES))
+    metric("last_tick_timestamp_seconds", "gauge", "When the last tick ran (epoch seconds; 0 = never).", ("", last_tick(state_dir)))
+    return "\n".join(out)
+
+
+def run(a, cfg: dict) -> int:
+    d = Path(a.state)
+    after: list = []
+    with locked_state(d, after) as state:
+        auto = read_auto(d)
+        saved = dict(auto)
+        eff = dict(cfg, slots=0) if auto["panic"] else cfg   # panic: no place at all, whatever pool.yaml says
+        led = Ledger(eff, state, a.now, a.bundles or d.parent / "bundles", closed=auto["panic"])
+        try:
+            code = command(a, eff, led, auto, d)
+        finally:
+            state.clear()
+            state.update(led.dump())
+
+        def commit() -> None:   # under the lock, right after state.json: the switch, the log, the heartbeat
+            if auto != saved:
+                write_atomic(d / "auto.json", auto)
+            flush_events(d, led.events.pending, led.now, led.pool.retention(), cfg.get("events_max_lines", 5000))
+            if a.cmd == "auto" and a.once and last_tick(d) != led.now:
+                write_atomic(d / "last-tick", f"{led.now}\n".encode())
+        after.append(commit)
+    notify(led.events.pending)   # after the lock: a slow hook never holds up another command
+    return code
+
+
+def command(a, cfg: dict, led: Ledger, auto: dict, state_dir: Path) -> int:
+    outbox = Path(a.outbox) if a.outbox else state_dir / "outbox"
     if a.cmd == "request":
         ip = a.ip
         if a.peer:
@@ -367,12 +695,27 @@ def command(a, cfg: dict, led: Ledger) -> int:
             ident = identity(ip, a.name, cfg.get("identity_ipv4_prefix", 32), cfg.get("identity_ipv6_prefix", 64))
         except ValueError:
             raise AdmissionError(2, f"not an IP address: {ip!r}")
+        check_name(a.name)
+        if led.closed:
+            raise AdmissionError(7, CLOSED)
+        mine = led.find(a.name)
+        if auto["enabled"] and not (mine and mine["state"] in OPEN):
+            when, why = led.pool.eligible_at(ident, led.now)
+            if why == "daily-cap":   # automatic mode: over the cap is a no, not a place in the list for tomorrow
+                led.events.emit("refused", f"{a.name}: refused, daily cap reached; eligible again at {iso(when)}", a.name, ident,
+                                why=why, retry_at=when)
+                print(f"{a.name}: refused: the daily cap ({cfg.get('daily_leases_per_identity', 2)} leases in 24 h) is reached; "
+                      f"eligible again at {iso(when)} [not added]")
+                return 6
         req, what = led.request(a.name, ident, a.note or "")
         where = f"position {led.position(req)} of {len(led.open())}"
         if req["state"] == "deferred":
-            print(f"{req['name']}: deferred until {iso(req['eligible_at'])} ({req['why']}), {where} [{what}]")
+            line = f"{req['name']}: deferred until {iso(req['eligible_at'])} ({req['why']}), {where}"
         else:
-            print(f"{req['name']}: waiting, {where} [{what}]")
+            line = f"{req['name']}: waiting, {where}"
+        if what == "added":
+            led.events.emit("request", line, req["name"], req["identity"])
+        print(f"{line} [{what}]")
     elif a.cmd == "waitlist":
         print(f"{'POS':<4} {'NAME':<20} {'STATE':<9} {'ELIGIBLE':<21} {'IDENTITY':<24} NOTE")
         for i, r in enumerate(led.open(), 1):
@@ -382,11 +725,16 @@ def command(a, cfg: dict, led: Ledger) -> int:
         ttl = token_ttl_seconds(os.environ.get("TOKEN_TTL", "8m"))
         req = led.pick(a.name)
         lease = led.approve(req, a.trust, mesh_invite(a.mesh))
+        led.events.emit("approved", f"{req['name']}: approved by the host ({a.trust}) until {iso(lease['end'])}", req["name"],
+                        req["identity"], by="host", end=lease["end"])
         print(f"approved {req['name']} ({a.trust}) until {iso(lease['end'])}; bundle: {lease['bundle']}")
         print(f"send the bundle privately; its join token lives {ttl // 60}m{ttl % 60:02d}s, or until the node registers "
               "and the next reap burns it")
     elif a.cmd == "reject":
-        print(led.reject(check_name(a.name), a.reason or ""))
+        msg = led.reject(check_name(a.name), a.reason or "")
+        if msg.endswith(": rejected"):
+            led.events.emit("rejected", f"{a.name}: request rejected by the host", a.name, led.find(a.name)["identity"])
+        print(msg)
     elif a.cmd == "leases":
         print(f"{'NAME':<20} {'TRUST':<8} {'ENDS':<21} {'LEFT':<9} IDENTITY")
         for l in led.due(everyone=True):
@@ -395,8 +743,7 @@ def command(a, cfg: dict, led: Ledger) -> int:
         mesh_burn(a.mesh)()   # a registered node needs its join token no more: delete it before anything else
         kick, n, failed = mesh_kick(a.mesh), 0, []
         for lease in led.due(a.all, a.name):
-            if kick(lease.get("name", "")):
-                led.finish(lease)
+            if expel(led, lease, kick, outbox):
                 n += 1
                 print(f"reaped {lease.get('name')}: kicked, place freed")
             else:
@@ -405,17 +752,83 @@ def command(a, cfg: dict, led: Ledger) -> int:
         if failed:
             print(f"could not kick: {' '.join(failed)} (their leases are kept; the others are recorded; run reap again)")
             return 1
+    elif a.cmd == "auto":
+        if bool(a.once) == bool(a.action):
+            raise AdmissionError(2, "auto takes --once (one tick, for the host's timer) or one of on, off, status; "
+                                    "there is no loop: the host's timer runs `mesh host auto --once`")
+        if a.once:
+            return tick(a, cfg, led, auto, outbox)
+        if a.action == "on":
+            if auto["panic"]:
+                raise AdmissionError(7, CLOSED)
+            if not auto["enabled"]:
+                auto.update(enabled=True, changed_at=led.now)
+                led.events.emit("auto_on", "automatic approval switched on")
+            print("auto: on")
+        elif a.action == "off":
+            if auto["enabled"]:
+                auto.update(enabled=False, changed_at=led.now)
+                led.events.emit("auto_off", "automatic approval switched off (ended leases are still expelled)")
+            print("auto: off")
+        else:
+            t = last_tick(state_dir)
+            waiting = [r for r in led.open() if r["state"] == "waiting"]
+            print(f"auto: {'on' if auto['enabled'] else 'off'} | panic: {'on' if auto['panic'] else 'off'} | slots "
+                  f"{len(led.pool.leases)}/{cfg['slots']} used | {len(led.open())} in the list ({len(waiting)} eligible now) | "
+                  f"last tick: {iso(t) if t else 'never'}")
+    elif a.cmd == "panic":
+        if a.clear:
+            if auto["panic"]:
+                auto.update(panic=False, changed_at=led.now)
+                led.events.emit("panic_cleared", "panic cleared: the slots of pool.yaml apply again; auto stays off")
+                print("panic: cleared; the slots of pool.yaml apply again; auto stays off (mesh host auto on)")
+            else:
+                print("panic: was not on")
+            return 0
+        first = not auto["panic"]
+        if first:
+            auto.update(enabled=False, panic=True, changed_at=led.now)
+            led.closed = True
+            led.events.emit("panic", "panic: admission closed, auto off, every active lease expelled")
+        mesh_burn(a.mesh)()
+        kick, n, code = mesh_kick(a.mesh), 0, 0
+        for lease in led.due(everyone=True):
+            if expel(led, lease, kick, outbox, "panic"):
+                n += 1
+            else:
+                code = 1
+        if outbox.is_dir() and not outbox.is_symlink():   # no bundle waits for delivery while admission is closed
+            for f in outbox.iterdir():
+                if f.name.endswith(".tar.gz") and (f.is_file() or f.is_symlink()):
+                    f.unlink()
+        print(f"panic: on{'' if first else ' (already)'} | expelled {n} | auto off | slots 0"
+              + (" | some kicks failed: run mesh host panic again" if code else ""))
+        return code
+    elif a.cmd == "bundle":
+        name = check_name(a.name)
+        lease = next((l for l in led.pool.leases if l.get("name") == name), None)
+        if not lease:
+            raise AdmissionError(3, f"{name}: has no active lease; only an approved bundle goes to the outbox")
+        path, changed = pack_bundle(led.bundles, outbox, name, lease["start"])
+        if changed:
+            led.events.emit("bundle_ready", f"{name}: bundle ready in the outbox ({name}.tar.gz), lease until {iso(lease['end'])}",
+                            name, lease["ip"], path=str(path), end=lease["end"])
+        print(f"bundle: {path} ({'written' if changed else 'unchanged'}); deliver it privately, it holds the node's key")
+        print(f"join: {join_line(name)}")
+    elif a.cmd == "metrics":
+        print(metrics(cfg, led, auto, state_dir))
     else:
         print(led.status_line())
     return 0
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description="manual admission ledger (docs/ADMISSION.md)")
+    ap = argparse.ArgumentParser(description="admission ledger and automatic pool (docs/ADMISSION.md)")
     ap.add_argument("--state", required=True, help="directory of state.json")
     ap.add_argument("--config", required=True, help="pool.yaml")
     ap.add_argument("--mesh", default=str(Path(__file__).resolve().parent / "mesh"))
     ap.add_argument("--bundles", help="the players' bundle directory (default: <state>/../bundles)")
+    ap.add_argument("--outbox", help="where approved bundles are packed (default: <state>/outbox)")
     ap.add_argument("--now", type=int, default=None, help="epoch seconds (tests); default: the clock")
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("request")
@@ -434,9 +847,17 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("leases")
     p = sub.add_parser("reap")
     g = p.add_mutually_exclusive_group()
-    g.add_argument("--all", action="store_true", help="end every lease now (the abuse switch, with slots: 0)")
+    g.add_argument("--all", action="store_true", help="end every lease now")
     g.add_argument("--name", help="end this one lease now")
     sub.add_parser("status")
+    p = sub.add_parser("auto")
+    p.add_argument("action", nargs="?", choices=["on", "off", "status"])
+    p.add_argument("--once", action="store_true", help="one tick (the host's timer runs it every minute)")
+    p = sub.add_parser("panic")
+    p.add_argument("--clear", action="store_true", help="reopen admission (auto stays off)")
+    p = sub.add_parser("bundle")
+    p.add_argument("name")
+    sub.add_parser("metrics")
     a = ap.parse_args(argv)
     a.now = int(time.time()) if a.now is None else a.now
     try:

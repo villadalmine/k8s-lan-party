@@ -28,7 +28,7 @@ flowchart LR
 | a game on a server | a lab cluster the host opens |
 | server address and password | one bundle and one command |
 | Hamachi / ZeroTier | Nebula, self-hosted |
-| a public server with limited slots | admission with manual approval: 2 places, 1 h each, a waiting list ([ADMISSION.md](docs/ADMISSION.md)); the automatic public pool later |
+| a public server with limited slots | admission: 2 places, 1 h each, a waiting list, approved by hand or by an automatic tick the host's timer runs ([ADMISSION.md](docs/ADMISSION.md)); the public request page later |
 
 **The golden rule, in game terms:** *the game runs on your own PC, so you can see what runs on your own PC; keep private things
 on your own machine.* Precisely: **what runs on someone else's machine can be seen by its owner**, so placement is by trust.
@@ -44,7 +44,7 @@ See [GOLDEN-RULES.md](docs/GOLDEN-RULES.md).
 5. [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md): every problem the PoC hit, with symptom, cause, fix and the command that diagnoses it.
 6. [docs/POC-STATUS.md](docs/POC-STATUS.md): what is proven and in which environment, the phase-1 gap table, what is still relaxed.
 7. [docs/DEMO.md](docs/DEMO.md): the public demo: what is applied today (a lighthouse on a public server, a persistent control plane) and what is not (the automatic pool, the page, the opening).
-8. [docs/ADMISSION.md](docs/ADMISSION.md): how other people get a place: manual approval with a waiting list and limits (built), and the path to an automatic public pool (design).
+8. [docs/ADMISSION.md](docs/ADMISSION.md): how other people get a place: manual approval with a waiting list and limits, and the automatic tick with its panic switch, events and metrics (built); the public request page and the opening (design).
 
 ## Three ways in
 
@@ -89,7 +89,8 @@ You need a **privileged Linux** (a VM, privileged Docker or WSL2), **outbound UD
 binary (at `/opt/nebula/nebula`) and `k3s` installed. Today the join command is the script [`poc/edge-mesh`](poc/edge-mesh).
 
 1. **Get a bundle.** For now from the host of the game, privately (it holds your key and a join token of 8 minutes at most): ask for a place, the host puts you on the
-   waiting list and approves you for one hour ([ADMISSION.md](docs/ADMISSION.md)). Later: the automatic 1 h pool, or a signed pull request for regulars
+   waiting list and approves you for one hour, by hand or with the automatic tick ([ADMISSION.md](docs/ADMISSION.md)). Later: a public page to ask for a
+   place, or a signed pull request for regulars
    (*coming soon*, see [DESIGN](docs/DESIGN.md#51-who-may-join-and-how)).
 2. **One command:**
    ```bash
@@ -115,8 +116,8 @@ lighthouse can be reached on **or** (recommended) a cheap VPS for the lighthouse
 ./poc/mesh host down                        # end the game: remove everything
 ```
 
-Letting strangers in one hour at a time, with a waiting list and limits per person (`mesh host request / approve / reap`):
-[docs/ADMISSION.md](docs/ADMISSION.md).
+Letting strangers in one hour at a time, with a waiting list and limits per person (`mesh host request / approve / reap`), or automatically from a
+timer (`mesh host auto on`, then `mesh host auto --once` every minute; `mesh host panic` to stop it all): [docs/ADMISSION.md](docs/ADMISSION.md).
 
 Today `mesh host` runs the host side in Docker or in Incus VMs on your machine (`export RUNTIME=incus` for VMs); a lighthouse on a public
 server is `poc/lighthouse-vps.sh` ([HOST-YOUR-OWN: a public lighthouse](docs/HOST-YOUR-OWN.md#a-public-lighthouse-on-a-separate-server), tested by
@@ -144,8 +145,8 @@ More rows (and which ones each step tests) are in the [error matrix](docs/DESIGN
 ## Roadmap
 
 1. **It joins**, 2. **Cilium and WireGuard**, 4. **trust levels and placement by Kyverno**, 6. **mutual auth by policy**: proven in the PoC.
-Still to do: 3. per-namespace access, 5. the free 1 h pool (admission with manual approval is built, [ADMISSION.md](docs/ADMISSION.md); the automatic
-pool is design only), 7. signed-PR regulars.
+Still to do: 3. per-namespace access, 5. the free 1 h pool (admission with manual approval and the automatic tick are built, [ADMISSION.md](docs/ADMISSION.md);
+the public request page and the opening are design only), 7. signed-PR regulars.
 8. **Public servers** (*coming soon*), after the private game works. Details: [DESIGN.md](docs/DESIGN.md#12-build-order-steps-one-layer-at-a-time).
 
 ## How it differs from other projects

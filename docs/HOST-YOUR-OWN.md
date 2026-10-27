@@ -1,7 +1,7 @@
 ---
 tipo: runbook
 id: edge-mesh-lab-host-your-own
-version: 0.3.0
+version: 0.4.0
 fecha_alta: 2026-10-21
 fecha_ultimo_cambio: 2026-10-27
 categoria: plataforma
@@ -11,7 +11,7 @@ meta: ../meta.yml
 depende_de: [docs/REQUIREMENTS.md, docs/DESIGN.md, poc/mesh, poc/issue.sh, poc/admission.py, poc/pool.yaml]
 lo_usan: [README.md, docs/JOIN.md, docs/DEMO.md]
 docs: [docs/TROUBLESHOOTING.md, docs/GOLDEN-RULES.md, docs/ADMISSION.md]
-scripts: [poc/admission.py, poc/poc-admission.sh, poc/mesh, poc/kc, poc/issue.sh, poc/revoke.sh, poc/install-placement.sh, poc/up.sh, poc/vm/up.sh, poc/poc-host.sh, poc/poc-ca.sh, poc/poc-revoke.sh, poc/poc-placement.sh]
+scripts: [poc/admission.py, poc/poc-admission.sh, poc/poc-admission-auto.sh, poc/mesh, poc/kc, poc/issue.sh, poc/revoke.sh, poc/install-placement.sh, poc/up.sh, poc/vm/up.sh, poc/poc-host.sh, poc/poc-ca.sh, poc/poc-revoke.sh, poc/poc-placement.sh]
 runbooks: []
 tags: [host, lan-party, ca, invite, revoke]
 ---
@@ -147,7 +147,7 @@ own proof, which builds a cluster of its own (run it **after** `./mesh host down
 ### Strangers, one hour at a time: admission with manual approval
 
 To let people you do not know in, without handing out bundles one by one by feel, use the waiting list. Its limits are in `pool.yaml` (2 places, 1 h
-each, a pause of 1 h and at most 2 leases a day per person); [ADMISSION.md](ADMISSION.md) explains every rule and how it would become automatic.
+each, a pause of 1 h and at most 2 leases a day per person); [ADMISSION.md](ADMISSION.md) explains every rule; the automatic version is below.
 
 ```bash
 ./mesh host request alice --ip 198.51.100.10 --note "from the chat"   # alice: waiting, position 1 of 1 [added]
@@ -166,7 +166,62 @@ are taken (it says which lease ends next) and with exit 4 when nobody in the lis
 `./mesh host reap --all`. `./poc-admission.sh` proves the whole cycle on Incus VMs (31 checks, among them a second machine refused with a burned token, a non-cooperative copy of a bundle refused by the node guard, and another guest's name refused by its node password; [dell]); it builds its own cluster, so run it after
 `./mesh host down`.
 
-**Not built:** the pool's cluster side (quotas, LimitRange, idle kick), the page and automatic approval: issue #11 and ADMISSION.md section B. Without
+### The automatic pool (B1): your timer runs it
+
+The same list and the same limits, without you approving each place: a **tick** approves the first eligible requests while a place is free, puts each
+bundle in an outbox, warns 5 minutes before the end, expels at the end and promotes the next one. Requests are still yours to enter (`mesh host request`,
+by hand or from your own bot) and the bundle is still yours to deliver: the public page that does both is B2, not built ([ADMISSION.md](ADMISSION.md)).
+
+```bash
+./mesh host auto status                 # auto: off | panic: off | slots 0/2 used | 0 in the list ... (off by default)
+./mesh host auto on                     # from now on the tick approves; `auto off` stops approvals, expiry always runs
+./mesh host auto --once                 # one tick (your timer runs this every minute): tick: auto on | expelled 0 | approved 1 | ...
+./mesh host bundle alice                # .state/admission/outbox/alice.tar.gz (0600) and the join line to send with it
+./mesh host admission-metrics           # Prometheus textfile: slots, leases, the list, events per type, the last tick
+./mesh host panic                       # abuse: auto off, slots 0, every lease expelled now; `panic --clear` reopens (auto stays off)
+tail -f .state/admission/events.jsonl   # every fact, one JSON line: request, approved, bundle_ready, expiring, expelled, panic ...
+```
+
+**Your bot hears every event** if you point `ADMISSION_NOTIFY_CMD` at a command of yours: it is called with two arguments, the type and a short summary
+(`approved "alice: approved automatically (public) until 2026-10-27T16:02:11Z"`), never through a shell, without IPs (`ADMISSION_NOTIFY_IP=1` adds
+them), keys or tokens. If it fails the tick goes on; the event stays in the log. The repository knows no chat service: the command is yours.
+
+**The timer** (the repository has no loop of its own). Every tick starts with `mesh host burn`, which rewrites the node guard, so this one timer
+every minute is also the guard refresh of section 2, with auto on, off or in panic (no separate `reap` timer is needed while it runs). A tick that
+cannot read its ledger or its switch exits 1 before the burn: alert on `emesh_admission_last_tick_timestamp_seconds`, or keep the `reap` line too. A systemd unit and timer, every minute, as
+the user that owns the clone:
+
+```ini
+# /etc/systemd/system/emesh-admission.service
+[Unit]
+Description=edge-mesh admission tick (mesh host auto --once)
+[Service]
+Type=oneshot
+User=<your user>
+WorkingDirectory=<the clone>/poc
+Environment=RUNTIME=incus
+Environment=ADMISSION_NOTIFY_CMD=<your notify command>
+ExecStart=<the clone>/poc/mesh host auto --once
+ExecStopPost=/bin/sh -c './mesh host admission-metrics > /var/lib/node_exporter/textfile/emesh_admission.prom.tmp && mv /var/lib/node_exporter/textfile/emesh_admission.prom.tmp /var/lib/node_exporter/textfile/emesh_admission.prom'
+
+# /etc/systemd/system/emesh-admission.timer
+[Unit]
+Description=edge-mesh admission tick, every minute
+[Timer]
+OnCalendar=*-*-* *:*:00
+AccuracySec=5s
+Persistent=true
+[Install]
+WantedBy=timers.target
+```
+
+`sudo systemctl daemon-reload && sudo systemctl enable --now emesh-admission.timer`; `journalctl -u emesh-admission` shows each tick's line. Or cron:
+`* * * * * cd <the clone>/poc && RUNTIME=incus ADMISSION_NOTIFY_CMD=<your command> ./mesh host auto --once >>/var/log/emesh-admission.log 2>&1`.
+Two ticks at the same moment are safe (one lock). Alert on `emesh_admission_last_tick_timestamp_seconds` older than a few minutes: without the tick
+nothing expels at the hour (the certificate still expires). `./poc-admission-auto.sh` proves the whole automatic cycle on Incus VMs (37 checks; [dell]);
+like the other suites it builds its own cluster, so run it after `./mesh host down`.
+
+**Not built:** the pool's cluster side (quotas, LimitRange, idle kick) and the public page: issue #11 and ADMISSION.md sections B2 and B3. Without
 `reap`, a "1 h slot" is still a 1 h certificate: when it expires Nebula closes the tunnel (`disconnect_invalid: true`) and the node goes NotReady.
 
 ## 4. Who is in, and the one command that revokes
@@ -311,5 +366,5 @@ only introduces hosts could run with `tun: {disabled: true}`; that is a later ha
 
 ## What this guide does not cover yet
 
-Signed-PR admission with cosign (issue #12), per-namespace RBAC and user kubeconfigs (issue #9), the public pool's cluster side and automatic admission (issue #11),
+Signed-PR admission with cosign (issue #12), per-namespace RBAC and user kubeconfigs (issue #9), the public pool's cluster side and its public page (issue #11; the automatic tick is built),
 the relay for symmetric NAT (issue #15), and the LoadBalancer/BGP on own nodes (issue #13). See the gap table in [POC-STATUS.md](POC-STATUS.md).

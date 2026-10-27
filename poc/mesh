@@ -18,10 +18,18 @@
 #   mesh host leases                       active leases and the time left
 #   mesh host reap [--all | --name N]      burn, then kick every lease that ended (or all / one now) and free its place; again: "reaped 0"
 #   mesh host admission-status             one line: places used, waiting, next to end
+# The automatic pool (phase B1, docs/ADMISSION.md); the host's timer runs the tick, there is no loop of its own:
+#   mesh host auto --once                  one tick: burn, expel what ended (always), warn at 5 min, and with auto on approve the first
+#                                          eligible ones while a place is free (public bundle into the outbox); idempotent
+#   mesh host auto on|off|status           the switch (state: admission/auto.json; off by default)
+#   mesh host panic [--clear]              the abuse switch: auto off, effective slots 0, every active lease expelled; --clear reopens
+#   mesh host bundle <name>                the approved bundle as admission/outbox/<name>.tar.gz (0600) and the one-line join command
+#   mesh host admission-metrics            Prometheus textfile metrics (no identities)
+#   events: admission/events.jsonl; ADMISSION_NOTIFY_CMD="<command>" is called with <type> <summary> for each one (no shell)
 # The CA key lives in .state/ca/ca.key: back it up; if you lose it you must re-issue every player.
 set -eu
 . "$(dirname "$0")/lib.sh"
-usage() { sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
+usage() { sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
 [ $# -ge 1 ] || usage
 
 next_ip() { # first free Nebula IP from .5 up (1 lighthouse, 2 control plane, 3 and 4 are the PoC players)
@@ -83,8 +91,8 @@ case "$1 ${2:-}" in
       nebula_restart "$name" && echo "refresh $name: config applied (nebula restarted: stats or listen changed)"
     fi ;;
   "host down") "$POC/down.sh" ;;
-  "host request"|"host waitlist"|"host approve"|"host reject"|"host leases"|"host reap"|"host admission-status")
-    sub="$2"; shift 2; [ "$sub" = admission-status ] && sub=status
+  "host request"|"host waitlist"|"host approve"|"host reject"|"host leases"|"host reap"|"host admission-status"|"host auto"|"host panic"|"host bundle"|"host admission-metrics")
+    sub="$2"; shift 2; case "$sub" in admission-status) sub=status ;; admission-metrics) sub=metrics ;; esac
     exec python3 "$POC/admission.py" --state "$STATE/admission" --config "${POOL_CONFIG:-$POC/pool.yaml}" --mesh "$POC/mesh" "$sub" "$@" ;;
   "play "*)
     name="$2"; [ -d "$STATE/bundles/$name" ] || { echo "no bundle for $name: run mesh host invite $name"; exit 3; }

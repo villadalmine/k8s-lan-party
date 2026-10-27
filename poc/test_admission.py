@@ -378,7 +378,7 @@ class CliTest(unittest.TestCase):
         self.cli("request", "ana", "--ip", "10.1.1.1")
         data = json.loads((self.state / "state.json").read_text())
         self.assertEqual(data["requests"][0]["name"], "ana")
-        self.assertEqual(sorted(p.name for p in self.state.iterdir()), ["lock", "state.json"])
+        self.assertEqual(sorted(p.name for p in self.state.iterdir()), ["events.jsonl", "lock", "state.json"])   # B1: the event log
 
     def test_an_exception_inside_the_lock_writes_nothing(self):
         self.cli("request", "ana", "--ip", "10.1.1.1")
