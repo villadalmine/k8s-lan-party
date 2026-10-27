@@ -48,8 +48,8 @@ anyone can set.
 
 ### Security reports
 
-Do not open a public issue for a vulnerability. Until a `SECURITY.md` exists, send a private message to the
-maintainer (GitHub: @villadalmine). A security report gets a reply within 48 hours.
+Do not open a public issue for a vulnerability. How to report one, and when you get an answer, is in
+[SECURITY.md](SECURITY.md).
 
 ## Check before you push
 
@@ -121,7 +121,7 @@ Best effort by one maintainer, not a contract; written down so nobody has to won
 | First reply to an issue or a pull request from outside the project | 3 working days |
 | Decision: accepted, `triage:needs-info`, or closed with the reason | 7 days |
 | Review of an outside pull request with green CI | 7 days |
-| A security report | 48 hours |
+| A security report | as in [SECURITY.md](SECURITY.md) (first answer within 3 days) |
 | An issue marked `triage:needs-info`: how long the author has to answer | 14 days |
 
 **The queue.** An issue or a pull request from outside the project carries `triage:needed` from the moment it

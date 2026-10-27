@@ -4,8 +4,9 @@ This project is an MVP (phase 1) and handles identities and join credentials, so
 
 ## Reporting a vulnerability
 
-**Do not open a public issue for a vulnerability.** Use GitHub's private reporting: the **Security** tab of this repository,
-then **Report a vulnerability** (a private advisory only the maintainer sees). Include what you found, how to reproduce it, and
+**Do not open a public issue for a vulnerability.** Use GitHub's private vulnerability reporting:
+[**Report a vulnerability**](https://github.com/villadalmine/k8s-lan-party/security/advisories/new) (also under the **Security** tab of this
+repository; it opens a private advisory only the maintainer sees). Include what you found, how to reproduce it, and
 what it lets an attacker do. If the Security tab is not available, open an issue that says only "security contact please"
 and nothing else, and the maintainer will reach out.
 
