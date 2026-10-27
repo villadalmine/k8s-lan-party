@@ -234,7 +234,7 @@ class TickTest(Base):
         self.assertIn("approved 1", self.ok("auto", "--once", now=3601))   # default TOKEN_TTL again: caro
 
     def test_every_tick_burns_first_with_auto_off_on_and_in_panic(self):
-        """`mesh host burn` also rewrites #22's node guard: the tick's timer is that every-minute refresh only if every tick burns,
+        """`mesh host burn` also rewrites the node guard of the manual-admission change: the tick's timer is that every-minute refresh only if every tick burns,
         whatever the switch says, and before anything else."""
         def first_call_of_each_tick(*runs):
             for args in runs:

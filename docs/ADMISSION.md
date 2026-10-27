@@ -347,7 +347,7 @@ goes down). Practise it before announcing.
 
 All of these, each the maintainer's explicit decision:
 
-- [ ] the repository is public (the maintainer's "open it");
+- [x] the repository is public (2026-10-27, not announced; see DESIGN.md, open decision 3); announcing it is the maintainer's "open it";
 - [ ] B2 built and tested (the page, the anti-bot layers, the visitor's own key);
 - [ ] issue #9: per-namespace RBAC and a kubeconfig per visitor (today a visitor has a node, not a namespace);
 - [ ] issue #12: signed-PR participants, so the regulars are not in the free pool;

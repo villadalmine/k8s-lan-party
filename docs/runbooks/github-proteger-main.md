@@ -3,7 +3,7 @@ tipo: runbook
 id: k8s-lan-party-github-proteger-main
 version: 1.0.0
 fecha_alta: 2026-10-16
-fecha_ultimo_cambio: 2026-10-16
+fecha_ultimo_cambio: 2026-10-27
 categoria: repo
 dueno_agente: casa-orquestador
 pieza: k8s-lan-party
@@ -21,12 +21,11 @@ tags: [github, ruleset, squash, main]
 
 **Where to stand:** the maintainer's PC, Git Bash, `gh` logged in as `villadalmine`.
 
-**Status (2026-10-16): step 1 is applied; step 2 is NOT.** GitHub answers
+**Status (2026-10-27): both steps are applied.** On 2026-10-16 step 2 was not: GitHub answers
 `403 Upgrade to GitHub Pro or make this repository public to enable this feature` to a ruleset or branch
-protection on a private repository of a free account. The ruleset is kept as code in
-[`.github/rulesets/main.json`](../../.github/rulesets/main.json) and is applied the day the repository is public
-(the maintainer's OK) or the account has Pro. Until then the rules are followed by hand: PR only, `verify` and
-`pr-format` green, squash, no force push.
+protection on a private repository of a free account. The repository became public on 2026-10-27 and the ruleset,
+kept as code in [`.github/rulesets/main.json`](../../.github/rulesets/main.json), is `active` since then
+(`gh api repos/villadalmine/k8s-lan-party/rulesets` lists `main`).
 
 ## Step 0: backup
 

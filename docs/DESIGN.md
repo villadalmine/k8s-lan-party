@@ -19,7 +19,7 @@ tags: [diseno, nebula, k3s, cilium, wireguard, kyverno, seguridad, mvp, regla-de
 
 # Design: MVP phase 1 (collaborative labs for learning)
 
-Status: **MVP phase 1, 2026-10-16, private repository.** This is a product, not a study lab. The architecture below
+Status: **MVP phase 1, 2026-10-16; public repository since 2026-10-27, early stage, not announced yet.** This is a product, not a study lab. The architecture below
 was decided by the maintainer on 2026-10-16; what is still open is listed in section 11. Versions are not pinned
 here: they are looked up live and pinned in the PoC's `stack.env`. Claims marked **(prove in the PoC)** are the
 ones the proof of concept must confirm or kill. The non-negotiables are in [GOLDEN-RULES.md](GOLDEN-RULES.md).
@@ -350,9 +350,9 @@ will be used **only in the PoC fixture, marked as such**, and the real flow will
 
 | # | Decision | Notes |
 | :--- | :--- | :--- |
-| 1 | **Name** | `k8s-lan-party` is a working name; a product name is needed before going public |
+| 1 | **Name** | `k8s-lan-party`, the repository's name since 2026-10-27; it may still change before the project is announced |
 | 2 | **Licence** | Apache-2.0 is a placeholder; alternatives AGPL-3.0, MPL-2.0 |
-| 3 | **When it goes public** | private until the maintainer says so (it holds a security design) |
+| 3 | **When it goes public** | **Decided 2026-10-27: the repository is public, not announced.** Why: on a free account GitHub enforces branch protection and rulesets only on a public repository (or with a paid plan), and the PR-only `main` with required checks had to be enforced, not followed by hand. Before it went public, the tree and the history passed a privacy gate. Announcing it and opening the demo (B3 in [ADMISSION.md](ADMISSION.md), issue #16) stay the maintainer's explicit decision |
 | 4 | **Lighthouse location** | small VPS (stable public UDP) vs the home edge (NAT/CGNAT dependent) |
 | 5 | **CA custody** | the automatic demo needs an **online** CA key, so one offline CA cannot do both jobs. Proposal: **two CAs** in `pki.ca`: an offline one for persistent participants (hand-signed after a merge) and an online one for the `public` demo only, whose certificates carry the `public` group and nothing else |
 | 6 | **Keycloak or Dex** | login for people (OIDC); Keycloak heavier and complete, Dex lighter |

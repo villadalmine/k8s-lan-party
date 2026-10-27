@@ -2,7 +2,7 @@
 
 **Collaborative Kubernetes labs, like a LAN party: host a game, invite your friends, and everyone runs their study labs on the same virtual network.**
 
-`MVP · phase 1: join` &nbsp;·&nbsp; private while it is being built &nbsp;·&nbsp; Apache-2.0 (placeholder, see [DESIGN](docs/DESIGN.md#11-open-decisions))
+`MVP · phase 1: join` &nbsp;·&nbsp; public but early and not announced yet: no support promised &nbsp;·&nbsp; Apache-2.0 (placeholder, see [DESIGN](docs/DESIGN.md#11-open-decisions))
 
 This is a way to **learn together**, not a compute marketplace and not a token. One person (the **host**) opens a lab cluster,
 friends **join with one bundle and one command**, and everyone runs the labs from

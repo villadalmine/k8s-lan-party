@@ -1,7 +1,8 @@
 # Contributing
 
 Adapted from the collaboration standard of `villadalmine/study-cybercirujas` (skill `repo-colaborativo`).
-This is a product in **MVP phase 1** and the repository is private: today contributions are
+This is a product in **MVP phase 1**. The repository is public since 2026-10-27, at an early stage and not announced
+yet, so nothing here promises support or response times beyond the best effort below. Today contributions are
 design reviews, threat-model attacks on the paper, and the proof of concept (PoC). See [docs/DESIGN.md](docs/DESIGN.md).
 
 ## What you can contribute
@@ -155,9 +156,8 @@ re-point the next one to `main` and rebase with `--onto origin/main <old parent>
 
 `main` is protected by a ruleset ([`.github/rulesets/main.json`](.github/rulesets/main.json), runbook
 [`docs/runbooks/github-proteger-main.md`](docs/runbooks/github-proteger-main.md)): PR required, checks `verify`
-and `pr-format`, linear history, no force push, no deletion. GitHub does not enforce rulesets on private
-repositories of a free account, so until the repository is public (or the account is upgraded) the same rules
-are followed by hand.
+and `pr-format`, linear history, no force push, no deletion. GitHub enforces it since the repository became public
+on 2026-10-27 (on a free account rulesets need a public repository).
 
 ## Licence
 

@@ -117,7 +117,7 @@ Choices and limits:
 | Gateway and BGP on own nodes only (#13) | none | **missing** (issue #13) |
 | PoC matrix: VM, privileged Docker, WSL2 (#14) | VM (Dell), privileged Docker on WSL2, kind; `edge-mesh` refuses without `/dev/net/tun` (exit 4) | **partial**: VM (Dell, many runs), privileged Docker on WSL2 and kind are covered; native WSL2 as a node, macOS and bare metal are **not run** (a first attempt showed that a WSL2 distro cannot send UDP to the Docker bridge containers, so a native node needs a control plane on a routable address; the script was written and parked). The refusals are in `edge-mesh` (exit 3 no golden rule, 4 no `/dev/net/tun`, 5 no lighthouse, 6 not root, 7 token rejected) and are listed in JOIN.md; only exits 5 and 7 have automated checks |
 | Relay and NAT tests (#15) | none | **missing** (issue #15) |
-| The public opening (#16) | `docs/DEMO.md` (design and runbook only) | **missing by design**: needs the maintainer's explicit OK for each edge change and "open it" for the repo |
+| The public opening (#16) | `docs/DEMO.md` (design and runbook only) | **missing by design**: needs the maintainer's explicit OK for each edge change and "open it" to announce the repo (public since 2026-10-27, not announced) |
 
 Beyond the issue list, this round also closed: the narrowed Nebula firewall (A2), SPIRE non-root and persistent (B1, B2), two CAs (B3).
 Small gaps found and left as follow-ups: the revocation negative test (#7), an automated check of the join refusal without `/dev/net/tun` (#14),

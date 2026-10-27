@@ -50,7 +50,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
-      actions: read          # the cited run and its jobs (needed because the repository is private)
+      actions: read          # the cited run and its jobs (a permissions block grants nothing it does not list)
     steps:
       - uses: actions/checkout@v4
         with:

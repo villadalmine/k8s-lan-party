@@ -13,7 +13,7 @@ Two checks, both offline and deterministic:
    in workflow scripts, any `prefix:value` token with one of our prefixes (`type:` `area:` ...)
    in the workflows and in scripts/check_pr.py, and the `*_LABEL` constants of check_pr.py.
 
-It exists because the issue forms named four labels that did not exist (issue #75): GitHub
+It exists because the issue forms named four labels that did not exist (study-cybercirujas issue #75): GitHub
 silently drops an unknown label from a form, so nothing ever failed.
 """
 from __future__ import annotations

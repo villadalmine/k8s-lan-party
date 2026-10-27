@@ -27,8 +27,8 @@ without a relay). **Built in the repository, not applied to the demo yet:** admi
 1 h leases, a FIFO waiting list, a daily cap and a cooldown per identity, the reaper that expels at lease end) and the automatic tick of phase B1
 (`mesh host auto --once` from the host's timer: approves inside the same limits, expels at the end and promotes the next one, `mesh host panic`, events,
 a notify hook and metrics), tested on Incus VMs, [ADMISSION.md](ADMISSION.md). **Not built:** the public request page (B2), quotas and the idle kick (issue #11) and the relay for symmetric NAT
-(issue #15). So a stranger can join only through a request the host (or the host's own bot) enters, and this repository is still private: making it public needs the
-maintainer's explicit "open it". The PoC itself runs locally and on the maintainer's lab VMs.
+(issue #15). So a stranger can join only through a request the host (or the host's own bot) enters. The repository is public since 2026-10-27 but not announced: announcing it and
+opening the demo need the maintainer's explicit "open it". The PoC itself runs locally and on the maintainer's lab VMs.
 
 The idea in one picture: a small public server with a few slots that rotate. Anyone can try the mesh for one hour, with a fixed number of
 slots, no persistence, and no way to reach anything of the host's.
