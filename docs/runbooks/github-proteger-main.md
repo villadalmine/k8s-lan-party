@@ -11,7 +11,7 @@ meta: meta.yml
 operacion: configurar
 requires_maintainer_ok: si
 riesgo: "bajo (solo configuracion del repo; se deshace igual)"
-desde_donde: "PC del mantenedor, Git Bash, gh logueado como villadalmine"
+desde_donde: "the maintainer's PC, Git Bash, gh logged in as villadalmine"
 depende_de: [gh CLI]
 docs: [CONTRIBUTING.md]
 tags: [github, ruleset, squash, main]
@@ -49,7 +49,7 @@ Expected: `true false false true`.
 ## Step 2: the ruleset (needs a public repo or Pro)
 
 ```bash
-gh api -X POST repos/villadalmine/edge-mesh-lab/rulesets --input <repo-root>/.github/rulesets/main.json --jq '.id,.enforcement'
+gh api -X POST repos/villadalmine/edge-mesh-lab/rulesets --input .github/rulesets/main.json --jq '.id,.enforcement'
 ```
 
 Expected: an id and `active`. Verify: `gh api repos/villadalmine/edge-mesh-lab/rulesets --jq '.[].name'` lists `main`.

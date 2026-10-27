@@ -10,7 +10,7 @@ pieza: edge-mesh-lab
 meta: meta.yml
 operacion: mantenimiento
 requires_maintainer_ok: si
-riesgo: "An App with Contents and Pull requests write can write to the repo: if its private key leaks, anyone holding it can open PRs and tags. So: installed on this repo only, no Workflows or Administration permission, the key lives only as a repo secret (never in Nextcloud or chat) and is rotated."
+riesgo: "An App with Contents and Pull requests write can write to the repo: if its private key leaks, anyone holding it can open PRs and tags. So: installed on this repo only, no Workflows or Administration permission, the key lives only as a repo secret (never in cloud storage or chat) and is rotated."
 desde_donde: "the maintainer's PC: browser with the villadalmine GitHub session, and Git Bash"
 depende_de: [gh CLI]
 docs: [docs/AUTOMATION-AND-CREDENTIALS.md]
@@ -38,11 +38,11 @@ later PR, opened once this runbook is done.
    nothing else; no account or organisation permissions; installable *Only on this account*. Note the **App ID**
    (a number, not a secret).
 3. **Private key.** *Private keys* -> *Generate a private key*. A `.pem` lands in Downloads: the only copy; not
-   to Nextcloud, not to a chat.
+   to cloud storage, not to a chat.
 4. **Install on this repo only.** *Install App* -> villadalmine -> *Only select repositories* -> `edge-mesh-lab`.
 5. **Store as repo secrets** (gh does not print values):
    `gh secret set RELEASE_APP_ID -R villadalmine/edge-mesh-lab --body '<App ID>'`
-   `gh secret set RELEASE_APP_PRIVATE_KEY -R villadalmine/edge-mesh-lab < <path-to-the>.pem`
+   `gh secret set RELEASE_APP_PRIVATE_KEY -R villadalmine/edge-mesh-lab < ~/Downloads/<the>.pem`
 6. **Keep and delete the `.pem`.** Attach it to a KeePassXC entry `edge-mesh-lab-releases (GitHub App)`, then delete the file.
 7. **Verify.** `gh secret list -R villadalmine/edge-mesh-lab` shows both names with a date. Tell the main session.
 

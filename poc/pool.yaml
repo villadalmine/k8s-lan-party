@@ -1,0 +1,9 @@
+# Capacity pool of the public demo: the one file with the numbers (DESIGN.md section 8).
+slots: 1                    # at most N participant nodes (PoC: 1; the demo decides)
+namespaces: 1               # at most M demo namespaces
+lease_seconds: 3600         # 1 hour, hard
+cooldown_seconds: 3600      # an IP waits this long after its lease ends
+rate_window_seconds: 600    # per-IP invite rate limit: rate_max_requests per window
+rate_max_requests: 5
+idle_kick_seconds: 900      # NotReady or no workload for this long: evicted early
+trusted_proxies: [127.0.0.1, 172.31.0.1]   # only these may set X-Forwarded-For (Caddy)

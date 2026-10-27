@@ -1,0 +1,49 @@
+#!/bin/sh
+# edge-mesh: the participant-side command. POSIX sh, runs on the joining machine (here: inside a container).
+#   edge-mesh join <bundle-dir> [--accept-golden-rule]
+# The bundle holds: ca.crt host.crt host.key config.yml join.env (K3S_URL, K3S_TOKEN, NODE_NAME, NODE_IP, TRUST).
+set -eu
+cmd="${1:-}"; bundle="${2:-}"; accept="${3:-}"
+case "$cmd" in
+  join)
+    [ -d "$bundle" ] || { echo "usage: edge-mesh join <bundle-dir> --accept-golden-rule"; exit 2; }
+    echo "Golden rule: what runs on someone else's machine can be seen by its owner."
+    [ "$accept" = "--accept-golden-rule" ] || { echo "refusing to join: golden rule not accepted"; exit 3; }
+    . "$bundle/join.env"
+    [ "$(id -u)" = 0 ] || { echo "refusing to join: run as root (sudo edge-mesh join ...): Nebula and k3s need to create a network device and mounts"; exit 6; }
+    [ -c /dev/net/tun ] || { echo "refusing to join: no /dev/net/tun (needs a privileged Linux: VM, privileged Docker or WSL2)"; exit 4; }
+    mkdir -p /etc/nebula; cp "$bundle/ca.crt" "$bundle/host.crt" "$bundle/host.key" "$bundle/config.yml" /etc/nebula/
+    nohup /opt/nebula/nebula -config /etc/nebula/config.yml >/var/log/nebula.log 2>&1 &
+    i=0; until ping -c1 -W1 "$LH_NEB" >/dev/null 2>&1; do i=$((i+1)); [ $i -gt 30 ] && { echo "nebula: cannot reach the lighthouse. UDP 4242 to it must be allowed (corporate firewall?); ask for the relay option"; exit 5; }; sleep 1; done
+    # host TCP over the Cilium WireGuard: keep the MSS under the WireGuard device MTU (docs/TROUBLESHOOTING.md, "mutual auth stalls")
+    [ "${CNI:-flannel}" = cilium ] && ip route replace "${LH_NEB%.*}.0/24" dev nebula1 scope link advmss "${HOST_MSS:-860}"
+    # the k3s token travels over TLS with the CA pinned (K10<hash>...) and only inside the Nebula tunnel
+    cni_flags="--flannel-iface nebula1"
+    if [ "${CNI:-flannel}" = cilium ]; then
+      # the server runs flannel-less (the agent has no such flag): k3s then leaves containerd on its defaults (/etc/cni/net.d, /opt/cni/bin) where Cilium writes; keep the
+      # k3s bundled plugins (loopback) on the search path too
+      cni_flags=""
+      d=/var/lib/rancher/k3s/agent/etc/containerd/config-v3.toml.d; mkdir -p "$d"
+      printf "[plugins.'io.containerd.cri.v1.runtime'.cni]
+  conf_dir = '/etc/cni/net.d'
+  bin_dirs = ['/opt/cni/bin', '/var/lib/rancher/k3s/data/cni']
+" >"$d/10-cni.toml"
+    fi
+    taint=""; [ "${TAINT:-no}" = yes ] && taint="--node-taint trust=$TRUST:NoSchedule"
+    # shellcheck disable=SC2086
+    # supervised: if the agent dies it starts again, like a Deployment would. Measured 2026-10-26: when the tunnel drops, nebula1 loses its address and the
+    # embedded flannel (v0.28.4, vxlan reCreateVxlan) panics with "index out of range"; unsupervised, the node stays NotReady for ever after the network is back.
+    # A restart needs no valid token: the agent reuses the credentials it stored at the first join (tested with a bogus token).
+    nohup sh -c 'while :; do k3s agent "$@"; echo "k3s agent exited with $?, starting it again in 5 s"; sleep 5; done' sh \
+      --server "$K3S_URL" --token "$K3S_TOKEN" --node-name "$NODE_NAME" --node-ip "$NODE_IP" $cni_flags $taint >/var/log/k3s-agent.log 2>&1 &
+    sup=$!
+    giveup() { kill "$sup" 2>/dev/null; pkill -f "k3s agent" 2>/dev/null; echo "$1"; exit 7; }   # no supervisor left looping behind a failed join
+    # the agent registers within seconds; a rejected token (used, expired: they live 10 minutes) is only visible in its log, so look for it
+    i=0; until [ -f /var/lib/rancher/k3s/agent/client-kubelet.crt ]; do
+      i=$((i+1)); grep -q "not authorized" /var/log/k3s-agent.log 2>/dev/null && [ $i -gt 15 ] && giveup "refusing to stay: the control plane rejected the join token (already used, or older than 10 minutes). Ask the host for a new invite."
+      [ $i -gt 90 ] && giveup "the node did not register within 90 s: see /var/log/k3s-agent.log"; sleep 1
+    done
+    echo "joined: $NODE_NAME (trust=$TRUST)"
+    ;;
+  *) echo "usage: edge-mesh join <bundle-dir> --accept-golden-rule"; exit 2 ;;
+esac

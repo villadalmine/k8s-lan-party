@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# kc: kubectl against the PoC control plane, whatever the runtime (Docker containers or Incus VMs; set RUNTIME=incus for the VMs).
+#   ./kc get nodes -o wide       ./kc label node alice node-restriction.kubernetes.io/trust=friends
+# Reads manifests from stdin too:  ./kc apply -f - < pod.yaml
+. "$(dirname "$0")/lib.sh"
+k "$@"
