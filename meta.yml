@@ -11,6 +11,6 @@ pieza: k8s-lan-party
 meta: meta.yml
 depende_de: [repo-colaborativo, study-cybercirujas]
 lo_usan: []
-docs: [docs/REFERENCES.md, poc/README.md, SECURITY.md, README.md, CONTRIBUTING.md, docs/DESIGN.md, docs/GOLDEN-RULES.md, docs/AUTOMATION-AND-CREDENTIALS.md, docs/POC-STATUS.md, docs/DEMO.md, docs/HOST-YOUR-OWN.md, docs/JOIN.md, docs/TROUBLESHOOTING.md, docs/REQUIREMENTS.md, docs/ADMISSION.md]
+docs: [docs/REFERENCES.md, poc/README.md, SECURITY.md, README.md, CONTRIBUTING.md, docs/DESIGN.md, docs/GOLDEN-RULES.md, docs/AUTOMATION-AND-CREDENTIALS.md, docs/POC-STATUS.md, docs/DEMO.md, docs/HOST-YOUR-OWN.md, docs/JOIN.md, docs/TROUBLESHOOTING.md, docs/REQUIREMENTS.md, docs/ADMISSION.md, docs/TRY-IT.md]
 scripts: [scripts/check_pr.py, scripts/check_labels.py, scripts/pr_check.py, poc/poc-join.sh, poc/poc-host.sh, poc/poc-weakness.sh, poc/poc-ca.sh, poc/poc-revoke.sh, poc/poc-placement.sh, poc/poc-cilium.sh, poc/poc-lighthouse.sh, poc/kind-cilium.sh, poc/vm/poc-vm.sh, poc/vm/poc-placement.sh, poc/vm/run-all.sh, poc/vm/up.sh, poc/vm/down.sh, poc/vm/lib-vm.sh, poc/up.sh, poc/down.sh, poc/lib.sh, poc/issue.sh, poc/revoke.sh, poc/lighthouse-vps.sh, poc/install-placement.sh, poc/kc, poc/cilium.sh, poc/checks-cilium.sh, poc/spire-args.sh, poc/mesh, poc/edge-mesh, poc/pool.py, poc/admission.py, poc/poc-admission.sh, poc/poc-admission-auto.sh, poc/nodes_sweep.py, poc/node-guard.yaml, poc/node_password.py]
 runbooks: [docs/runbooks/github-proteger-main.md, docs/runbooks/github-app-releases.md]
