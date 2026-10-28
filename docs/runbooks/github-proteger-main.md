@@ -71,10 +71,12 @@ Expected: `["users.noreply.github.com", "github.com"]` (the committer is `GitHub
 another address. If it fails, the address is already public in the history (no force push on `main`): turn the setting on
 before the next merge, and say so in the next release notes.
 
-## Step 4: update the ruleset after a change to `main.json` (2026-10-28: the checks `participants` and `participants-offline`)
+## Step 4 (not yet): require the participants checks
 
-Apply it **after** the pull request that adds `.github/workflows/participants.yml` is merged: a required check that no workflow on `main`
-reports would block every pull request. Backup first (step 0), then:
+**Not before** the `participants` check has verified one real participant's file signed from a fork with `sign.yml` (issue #12): until
+then that path has never run live, and a required check on a never-executed path is a trap. When it has: add
+`{"context": "participants"}, {"context": "participants-live"}, {"context": "participants-offline"}` to `required_status_checks` in
+`.github/rulesets/main.json` by a pull request, merge it, back up (step 0), then:
 
 ```bash
 id=$(gh api repos/villadalmine/k8s-lan-party/rulesets --jq '.[] | select(.name == "main") | .id')
@@ -82,7 +84,7 @@ gh api -X PUT "repos/villadalmine/k8s-lan-party/rulesets/$id" --input .github/ru
   --jq '[.rules[] | select(.type == "required_status_checks") | .parameters.required_status_checks[].context] | join(",")'
 ```
 
-Expected: `verify,pr-format,participants,participants-offline`. Undo: the same `PUT` with the backup's version of `main.json`.
+Expected: the list ends with `participants,participants-live,participants-offline`. Undo: the same `PUT` with the backup's `main.json`.
 
 ## Rollback
 

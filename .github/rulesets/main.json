@@ -17,7 +17,6 @@
       "allowed_merge_methods": ["squash"]}},
     {"type": "required_status_checks", "parameters": {
       "strict_required_status_checks_policy": false,
-      "required_status_checks": [{"context": "verify"}, {"context": "pr-format"},
-                                 {"context": "participants"}, {"context": "participants-offline"}]}}
+      "required_status_checks": [{"context": "verify"}, {"context": "pr-format"}]}}
   ]
 }

@@ -320,15 +320,20 @@ class Verifier:
         what = f"{DIR}/{login}.yaml"
         if bundle_bytes is None:
             return [f"{what}: not signed: {DIR}/{login}.sigstore.json is missing (run the 'Sign my participant file' workflow in your fork)"]
+        return self.verify_identity(identity_regexp(login, self.fork_name), login, github_id, blob, bundle_bytes,
+                                    what, f"{DIR}/{login}.sigstore.json")
+
+    def verify_identity(self, rx: str, who: str, github_id: int, blob: bytes, bundle_bytes: bytes, what: str, sig: str) -> list[str]:
+        """cosign verify-blob for the identity regexp `rx`, then the same certificate's issuer and owner account id. __call__ uses it
+        with the signing workflow of a participant's fork; the live smoke test of participants.yml with its own workflow."""
         if len(bundle_bytes) > MAX_BUNDLE:
-            return [f"{DIR}/{login}.sigstore.json: larger than {MAX_BUNDLE} bytes"]
+            return [f"{sig}: larger than {MAX_BUNDLE} bytes"]
         try:
             der = leaf_certificate(json.loads(bundle_bytes))
         except Refused as e:
-            return [f"{DIR}/{login}.sigstore.json: {e}"]
+            return [f"{sig}: {e}"]
         except ValueError:
-            return [f"{DIR}/{login}.sigstore.json: not JSON"]
-        rx = identity_regexp(login, self.fork_name)
+            return [f"{sig}: not JSON"]
         with tempfile.TemporaryDirectory() as t:
             (Path(t) / "blob").write_bytes(blob)
             (Path(t) / "bundle.json").write_bytes(bundle_bytes)
@@ -342,14 +347,14 @@ class Verifier:
                 return [f"{what}: cosign did not run ({e})"]
         if r.returncode != 0:
             err = [ln for ln in r.stderr.splitlines() if ln.startswith("Error:")]
-            return [f"{what}: the signature does not verify for {login}: {(err[-1][7:] if err else r.stderr.strip()[-300:])}"]
+            return [f"{what}: the signature does not verify for {who}: {(err[-1][7:] if err else r.stderr.strip()[-300:])}"]
         try:
             c = certificate_claims(der)
         except ValueError as e:
             return [f"{what}: the certificate cannot be read ({e})"]
         problems = []
         if len(c["uris"]) != 1 or not re.fullmatch(rx[1:-1], c["uris"][0]):
-            problems.append(f"{what}: the certificate names {c['uris']}, not the signing workflow of {login}'s fork")
+            problems.append(f"{what}: the certificate names {c['uris']}, not the signing workflow of {who}")
         if c["issuer"] != OIDC_ISSUER:
             problems.append(f"{what}: the certificate's OIDC issuer is {c['issuer']!r}, not GitHub Actions")
         if c["owner_id"] != str(github_id):
