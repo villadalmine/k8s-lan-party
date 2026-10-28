@@ -1,4 +1,4 @@
-# PoC status (2026-10-27)
+# PoC status (2026-10-28)
 
 Where the proof of concept stands, what was proven, and what is still open.
 the maintainer's rule for this phase: make it work first, write down every place where security was relaxed, then harden it. Phases A, B and C
@@ -29,6 +29,9 @@ flowchart LR
 | **Admission with manual approval** (`poc-admission`, 31 checks, [ADMISSION.md](ADMISSION.md)): request, approve, join, `reap` burns the join token and a second machine presenting it is refused, a non-cooperative copy of a bundle is refused by the node guard and cut with the lease, another guest's issued name is refused by its node password, a name whose node password k3s dropped leaves the guard, places full, the lease ends, `reap` expels, the next one in line enters, `reap --all` | PASS (2026-10-27: the 31-check version once, in its own Incus project; earlier versions of the suite 7 times) | not run | n/a |
 | **Automatic pool, phase B1** (`poc-admission-auto`, 37 checks, [ADMISSION.md](ADMISSION.md)): `auto on`, one tick approves two and the third waits, the outbox bundle (0600, the same files), both join, a copy of a bundle refused by the node guard, the tick burns the tokens, `expiring` once, one tick expels at the end (no stray Node left) and only then promotes, the copy's tunnel cut, a burned token refused, auto off only warns and expels, the daily cap refuses a third request of one identity, `panic` (idempotent, exit 7 while on, `--clear`), the notify hook got every event in order, the metrics | PASS (2026-10-27: the 37-check version three times in its own Incus project, the last two (node passwords, 8-minute tokens) with identical output; the 36-check version once, project default, before the node guard) | not run | n/a |
 
+| **Relay and NAT** (`poc-nat`, 25 checks, issue #15): two routers (nftables), the control plane behind one and a player behind the other; port-preserving NAT gives a direct tunnel and the lighthouse carries none of the data (N09-N10); symmetric NAT on both sides and no relay: no path at all (N15, the negative); `lighthouse-vps.sh sign --relay`: the player reaches the control plane through the lighthouse, which carries the bytes (about 2.35 times the payload, N20) and does not bypass the far end's firewall (N21); a real player joins through it, Ready, the API reaches its kubelet (N22-N24); revoke cuts it, relay included (N25). Numbers in DESIGN.md 15.1 | PASS x2 (2026-10-28, the final script, identical output; four earlier green runs while it was written) | not possible (the suite builds its NATs with Incus) | n/a |
+| **Join refusals** (`tests/test_join_refusal.py`, issue #14): the golden rule not accepted (exit 3), not root (exit 6), root in a plain Docker container without `/dev/net/tun` (exit 4, nothing started), and the positive control (the same container with the device passes that check) | n/a | PASS (WSL2 Docker, 2026-10-28) | CI runs it on every pull request (it fails instead of skipping when CI has no Docker) |
+| **Native WSL2 as a node** (issue #14, by hand, [JOIN.md](JOIN.md) "In WSL2"): a fresh Ubuntu 24.04 distro joined through the relay, Ready in seconds, a pod ran on it, `kubectl exec` reached it, revoke cut it. In a distro with Docker Desktop's integration the kubelet cannot start (its mount table, TROUBLESHOOTING.md): the join now exits 7 and says so (before, it printed `joined`). The join that waits for the Node passed `poc-join` (17) on Incus VMs on 2026-10-28 (one run) | n/a | the distro itself, not Docker: PASS twice (2026-10-28: once against the `poc-nat` lab, once in the mixed run of issue #25); the refusal (exit 7) once | n/a |
 "x2" = two runs whose `diff` is empty. **Last full run, 2026-10-26, Dell Incus VMs, after the agent supervision (one run each, all PASS):** `vm/run-all.sh` = join 17, host 11,
 weakness 8 (W00-W06 and W03b), CAs 13, revoke 10, placement 30 (89 PASS); `vm/poc-vm.sh` (Cilium + WireGuard + SPIRE) 24 PASS; `vm/poc-placement.sh` (Cilium) 30 PASS.
 The earlier pairs of runs were identical; the 2026-10-26 runs have not been repeated, so they are single runs, not "x2".
@@ -99,7 +102,7 @@ Choices and limits:
 
 ## Phase-1 gap check (issues #4-#17, the "MVP phase 1" milestone)
 
-**Verdict (2026-10-26): phase 1 is not complete.** Of the 13 goals (#4-#16): **5 done** (#4, #5, #6, #7, #10), **3 partial** (#8: the deny half of mutual auth has no check; #11, #14), **5 missing** (#9, #12, #13, #15 and #16, which is missing by design). What is done is the technical core; what is missing is what turns it into an open service (RBAC and kubeconfig per user, the pool's reaper and quotas, signed-PR participants, relay/NAT tests, the public opening).
+**Verdict (2026-10-26): phase 1 is not complete.** Of the 13 goals (#4-#16): **5 done** (#4, #5, #6, #7, #10), **3 partial** (#8: the deny half of mutual auth has no check; #11, #14), **5 missing** (#9, #12, #13, #15 and #16, which is missing by design). **Update 2026-10-28:** #14 (the host matrix) and #15 (relay and NAT) are done; the counts in this paragraph are those of 2026-10-26. What is done is the technical core; what is missing is what turns it into an open service (RBAC and kubeconfig per user, the pool's reaper and quotas, signed-PR participants, relay/NAT tests, the public opening).
 
 | Goal (issue) | Evidence | Status |
 | :--- | :--- | :--- |
@@ -115,12 +118,12 @@ Choices and limits:
 | Free 1 h pool and per-IP limits (#11) | `pool.py` and `admission.py` unit tests; the pool CA (`poc-ca`); `poc-admission` A01-A31; `test_admission_auto.py` and `poc-admission-auto` AA01-AA37 | **partial**: option A, admission with manual approval, is built and tested (2 places, 1 h leases, FIFO list, cooldown and daily cap per identity, `reap` expels at lease end, [ADMISSION.md](ADMISSION.md)); phase B1, the automatic tick (approve inside the limits, expel at the end, promote the next, panic, events, notify hook, metrics), is built and tested; B2 (the public request page, anti-bot) and B3 (the opening) are design only; quotas, LimitRange and the idle kick are missing (issue #11 stays open) |
 | Signed-PR participants with cosign (#12) | none | **missing** (big: issue #12); the persistent CA it would feed exists |
 | Gateway and BGP on own nodes only (#13) | none | **missing** (issue #13) |
-| PoC matrix: VM, privileged Docker, WSL2 (#14) | VM (Dell), privileged Docker on WSL2, kind; `edge-mesh` refuses without `/dev/net/tun` (exit 4) | **partial**: VM (Dell, many runs), privileged Docker on WSL2 and kind are covered; native WSL2 as a node, macOS and bare metal are **not run** (a first attempt showed that a WSL2 distro cannot send UDP to the Docker bridge containers, so a native node needs a control plane on a routable address; the script was written and parked). The refusals are in `edge-mesh` (exit 3 no golden rule, 4 no `/dev/net/tun`, 5 no lighthouse, 6 not root, 7 token rejected) and are listed in JOIN.md; only exits 5 and 7 have automated checks |
-| Relay and NAT tests (#15) | none | **missing** (issue #15) |
+| PoC matrix: VM, privileged Docker, WSL2 (#14) | the matrix in [REQUIREMENTS.md](REQUIREMENTS.md) ("Host kind against step": VM, privileged Docker, native WSL2, a cloud VM, kind, macOS, bare metal, each step PASS / FAIL / not possible / not run with the reason); the privileges a joiner needs, each with its refusal; `tests/test_join_refusal.py` (exits 3, 4 and 6, in CI) and J16 / J14 (exits 5 and 7) | **done** (2026-10-28): native WSL2 joined (a distro without Docker Desktop's integration; with it the kubelet cannot start, and the join now says so with exit 7 instead of printing `joined`); a cloud VM (AWS) joined on 2026-10-28; macOS **not run** (no Mac available) and bare metal **not run**, both said so in the matrix |
+| Relay and NAT tests (#15) | `poc-nat` N01-N25 on Incus VMs: symmetric NAT on both sides (nftables `masquerade fully-random`) has no path without a relay and connects through the lighthouse with it; a player joins through it; bandwidth, latency and the relay's cost in DESIGN.md 15.1 | **done in the repository** (2026-10-28, PASS x2): `lighthouse-vps.sh sign --relay`. Not applied to the public demo's lighthouse yet (the maintainer's step); the bandwidth on a real VPS is not measured (the lab numbers are one host) |
 | The public opening (#16) | `docs/DEMO.md` (design and runbook only) | **missing by design**: needs the maintainer's explicit OK for each edge change and "open it" to announce the repo (public since 2026-10-27, not announced) |
 
 Beyond the issue list, this round also closed: the narrowed Nebula firewall (A2), SPIRE non-root and persistent (B1, B2), two CAs (B3).
-Small gaps found and left as follow-ups: the revocation negative test (#7), an automated check of the join refusal without `/dev/net/tun` (#14),
+Small gaps found and left as follow-ups: the revocation negative test (#7),
 the suites printing `RESULT PASS` when no step ran (CRLF case).
 
 ## Stranger test of the guides (2026-10-21)
@@ -143,7 +146,8 @@ with a clear message); no `kubectl` and no workload examples (added `poc/kc`, `p
 
 ## Still to test
 
-- macOS Docker Desktop, bare-metal Linux, Killercoda.
+- macOS Docker Desktop (no Mac available; REQUIREMENTS.md, the host matrix), bare-metal Linux, Killercoda.
+- The relay on the real public lighthouse and its bandwidth there (`poc-nat` measures it on one host).
 - Kyverno with a failing admission controller (what a user sees), user DaemonSets, policy exceptions for the maintainer's own gateway pods.
 - The `participants/` signed-PR flow (cosign) feeding the persistent CA.
 
