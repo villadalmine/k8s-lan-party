@@ -1,9 +1,9 @@
 ---
 tipo: doc
 id: k8s-lan-party-design
-version: 0.4.0
+version: 0.5.0
 fecha_alta: 2026-10-16
-fecha_ultimo_cambio: 2026-10-27
+fecha_ultimo_cambio: 2026-10-28
 categoria: plataforma
 dueno_agente: casa-orquestador
 pieza: k8s-lan-party
@@ -205,8 +205,9 @@ The PoC measures all three. The command shows the golden rule and refuses to con
 
 **Join by PR** (decided 2026-10-16: "apruebo por PR, sé quién es; validan el PR con cosign").
 
-1. The participant adds `participants/<github-user>.yaml`: node name, resources, requested trust level, and their
-   **Nebula public key** (a certificate *request*; they keep the private key).
+1. The participant adds `participants/<github-user>.yaml`: node name, resources, requested trust level, their numeric GitHub account id,
+   their **Nebula public key** (a certificate *request*; they keep the private key) and the **public key the bundle is encrypted to** (age or
+   ssh-ed25519). The schema and the steps are in [participants/README.md](../participants/README.md).
 2. They sign the file with **cosign keyless** (GitHub Actions OIDC through Fulcio, with the Rekor transparency log):
    `cosign sign-blob --bundle participants/<user>.sigstore.json participants/<user>.yaml` run by that workflow. Commits carry the DCO
    sign-off.
@@ -215,14 +216,28 @@ The PoC measures all three. The command shows the golden rule and refuses to con
    their own fork** (`.github/workflows/sign.yml`), so the certificate identity is that workflow's URL, which contains their GitHub
    login: `^https://github.com/<pr-author>/k8s-lan-party/.github/workflows/sign.yml@refs/heads/.*$`. (Signing interactively with
    the GitHub OAuth issuer would put the signer's *email* in the certificate, which CI cannot map to the PR author, so a file signed
-   by anybody for somebody else's name would pass.); the YAML schema; the
-   node name is unique; the requested trust level is allowed. Anything above `public` happens only when the
-   maintainer merges, and CODEOWNERS for `participants/` is the maintainer.
-4. **The maintainer approves by merging.** The issuing workflow then signs the Nebula certificate with the CA (the
-   CA key is an offline step or a protected secret: decision 5), creates a short-lived k3s join token, **signs the bundle
-   with cosign** so the participant can verify it came from the maintainer, and delivers it **privately, never in
-   the public repo** (mechanism: decision 9).
-5. **Removal** is a PR that deletes their file; merging triggers the cleanup and the Nebula blocklist (section 9).
+   by anybody for somebody else's name would pass.) The login part of the identity is matched case-insensitively and the ref must be a
+   branch; the certificate's **owner account id** (Fulcio extension `1.3.6.1.4.1.57264.1.17`) must equal the file's `github_id` and the PR
+   author's id, so a renamed login re-registered by somebody else inherits nothing. Then: the YAML schema (strict: unknown or duplicated keys
+   are refused); the node name, the Nebula key and the recipient are unique; the requested trust level is at most the ceiling of
+   `participants/policy.yaml` **read from the base branch** (`friends`; more only by a maintainer's grant merged first); the PR author is the
+   file's login; a join PR touches nothing else. The checker itself is taken from the base branch, so a PR cannot loosen it. Anything
+   above `public` happens only when the maintainer merges, and CODEOWNERS for `participants/` is the maintainer.
+4. **The maintainer approves by merging.** The **issuing side runs on the maintainer's host, never on GitHub** (`participants.py sync`
+   from a timer): **the Nebula CA and the issuer's signing key are never a GitHub secret and never in an Actions step**. It reads main,
+   **verifies every new or changed file again** (it does not trust the CI result), signs the participant's own public key with the
+   persistent CA (no private key is made for them), creates a short-lived k3s join token, **signs the bundle with the issuer's cosign key**
+   (its public half published as `participants/issuer.pub`) so the participant can verify it came from the maintainer, and **encrypts it to
+   the recipient declared in the signed file**, so it can travel by any private channel (e-mail, a direct message) and is useless to anybody
+   else; never a PR or issue comment, never an Actions artifact (decision 9, proposed).
+5. **Removal** is a PR that deletes their file; the next sync after the merge revokes the certificate (`mesh host revoke`: the Nebula
+   blocklist on every host, the node deleted; section 9). A file that stops passing (a grant taken away, a signature that no longer verifies)
+   is revoked the same way, and a node name is never issued twice.
+
+Built as a proof of concept (issue #12): `make poc-participants` (offline, the real cosign against a local TEST CA in place of Fulcio) and
+`make poc-participants-e2e` (a real join and its revocation on Incus VMs); the check against the public Sigstore runs on every pull request
+(`.github/workflows/participants.yml`). Not built yet: a fresh join token on request (the 8-minute token is usually stale by the time an
+e-mailed bundle is used) and renewal under the same node name ([participants/README.md](../participants/README.md), known gaps).
 
 ## 6. Endpoints the maintainer owns
 
@@ -333,7 +348,9 @@ Where each suite passed, how often, and what is still relaxed is in [POC-STATUS.
 | `make poc-cilium` / `poc-vm` / `poc-kind` | step 2: Cilium tunnel + WireGuard over Nebula, encryption on the wire, mutual auth with SPIRE non-root and persistent: an authenticated peer passes (the deny half, an unauthenticated peer dropped, has no check yet) (24 on the Incus VMs) |
 | `make poc-lighthouse` | a lighthouse on a separate public server (a VM plays it): prepare, sign and deploy are idempotent, a player joins through it, `revoke` reaches it; `mesh host refresh` with no change, with a change that restarts Nebula (the API and the node come back) and with one read on reload (23) |
 | `make poc-admission` | admission with manual approval ([ADMISSION.md](ADMISSION.md)): request, approve, join, places full, the lease ends, `reap` expels, the next one in line enters, `reap --all`, a burned join token refused to a second machine, a non-cooperative copy of a bundle refused by the node guard and cut with the lease, another guest's issued name refused by its node password, a name whose node password k3s dropped refused by the guard (31) |
-| `make test` | the pool logic (`poc/pool.py`): fixed slots, 1 h lease, per-identity rules (IP normalized), daily cap, FIFO waitlist; the admission ledger (`poc/admission.py`); the scripts keep their executable bit |
+| `make poc-participants` | join by signed PR (section 5.1), offline: the real cosign against a **local TEST CA** that plays Fulcio (marked TEST ONLY, never committed); a valid signed PR passes; another identity, another account id, another workflow or OIDC issuer, an untrusted CA, an unsigned or tampered file, a replay by another author, a trust above the ceiling (even with a grant in the same PR), a taken or reserved node name, a join PR that touches code: each fails; a key instead of keyless fails; the issuing side re-verifies main, delivers the bundle encrypted and signed, refuses a forged one, and a removal revokes; a broken policy changes nothing (32) |
+| `make poc-participants-e2e` | the same flow on Incus VMs: the participant's keys made on her machine, sync issues, she opens and joins (Ready), her file leaves main, one sync and she reaches neither the lighthouse nor the API, her Node does not come back (11) |
+| `make test` | the pool logic (`poc/pool.py`): fixed slots, 1 h lease, per-identity rules (IP normalized), daily cap, FIFO waitlist; the admission ledger (`poc/admission.py`); the participants' schema, policy, PR gate and issuing plan (`poc/participants.py`); the scripts keep their executable bit |
 
 **What the PoC implements of section 4.** The PoC runs one owner's cluster (the maintainer's), so it implements the single-owner case:
 the node label `node-restriction.kubernetes.io/trust`, set by the issuing side, the `trust=<level>:NoSchedule` taint from registration,
@@ -342,9 +359,10 @@ instead of deleting a Node that registered without it. Private pods are pinned t
 `own` is denied. The `owner=<github-user>` label and the relative trust of section 1 (several owners in one cluster) are not built yet.
 
 **Not built yet** (the phase-1 gap table in POC-STATUS.md has the evidence): the rest of the pool (quotas, idle kick, the public request
-page; the manual admission, its reaper and the automatic tick exist, [ADMISSION.md](ADMISSION.md)), per-namespace RBAC and kubeconfig per user, join by signed PR, relay and NAT tests, the gateway and BGP on own nodes, and
-the public opening. The PoC cannot use the real Fulcio offline: when join by PR is built, a local test CA (or `--insecure-ignore-tlog`)
-will be used **only in the PoC fixture, marked as such**, and the real flow will run in CI on the PR.
+page; the manual admission, its reaper and the automatic tick exist, [ADMISSION.md](ADMISSION.md)), per-namespace RBAC and kubeconfig per user, relay and NAT tests, the gateway and BGP on own nodes, and
+the public opening. Join by signed PR is built; the PoC cannot use the real Fulcio offline, so its fixture uses a local TEST CA with
+`--insecure-ignore-tlog`, **only there and marked as such** (`participants.py --test-root` refuses a trusted root without the TEST marker),
+and the real flow runs in CI on every pull request.
 
 ## 11. Open decisions
 
@@ -358,7 +376,7 @@ will be used **only in the PoC fixture, marked as such**, and the real flow will
 | 6 | **Keycloak or Dex** | login for people (OIDC); Keycloak heavier and complete, Dex lighter |
 | 7 | **Pool numbers** | `N` nodes, `M` namespaces, idle minutes, cooldown for the public demo |
 | 8 | **GitHub OAuth lane** | build it in phase 1 or leave it for later |
-| 9 | **Bundle delivery** | encrypted to the participant's key vs fetched over an authenticated endpoint |
+| 9 | **Bundle delivery** | encrypted to the participant's key vs fetched over an authenticated endpoint. **Proposed and built in the PoC (issue #12), for the maintainer to confirm:** encrypted with age to the recipient (age or ssh-ed25519 public key) declared in the participant's signed file and signed with the issuer's cosign key, handed over by any private channel; never a PR or issue comment, never an Actions artifact |
 
 ## 12. Build order: steps, one layer at a time
 
@@ -374,7 +392,7 @@ The simple idea first: **it joins, and a study lab runs on it.** Security layers
 | **4. Trust levels + Kyverno placement** | sections 4, 1 | `make poc-placement` | built for one owner (#10; section 10) |
 | 5. The 1 h pool and per-IP limits | section 8; `poc/pool.py` has unit tests today, and the pool CA exists (`make poc-ca`) | planned | logic and CA built, cluster side planned (#11) |
 | **6. Mutual auth by policy** | section 3 | `make poc-vm` (V92-V97) | allow half built (an authenticated peer passes); the deny half has no check yet; beta upstream (#8) |
-| 7. Signed-PR participants | section 5.1 | planned | design (#12) |
+| **7. Signed-PR participants** | section 5.1 | `make poc-participants`, `make poc-participants-e2e`, CI `participants` | built as a PoC (#12) |
 | 8. The public opening | the runbook with the go-public checklist ([DEMO.md](DEMO.md)) | planned | design (#16) |
 
 Every step is a milestone epic, so nothing is lost.
