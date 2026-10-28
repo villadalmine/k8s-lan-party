@@ -50,6 +50,8 @@ cp_tcpdump() { # cp_tcpdump <seconds> <tcpdump args...>: a capture in the contro
 fp_of() { "$CACHE/nebula-cert" print -json -path "$STATE/bundles/$1/host.crt" | python3 -c 'import sys,json;print(json.load(sys.stdin)[0]["fingerprint"])'; }
 cleanup() {
   cpx sh -c "[ -f $NEB9/pid ] && kill \$(cat $NEB9/pid) 2>/dev/null; rm -rf $NEB9" >/dev/null 2>&1
+  # forced: a test pod on a node that went NotReady (its certificate expired) would keep the namespace Terminating for ever
+  k -n "$NS" delete pod --all --force --grace-period=0 >/dev/null 2>&1
   k delete namespace "$NS" --wait=false --ignore-not-found >/dev/null 2>&1
 }
 trap cleanup EXIT
@@ -266,6 +268,7 @@ step_g10() { # rule 10: every rule 1-9 had at least one check that ran and passe
 }
 
 ns_gone() { ! k get namespace "$NS" >/dev/null 2>&1; }
+k -n "$NS" delete pod --all --force --grace-period=0 >/dev/null 2>&1   # a run that was killed before its cleanup
 wait_for 180 ns_gone; k create namespace "$NS" >>"$LOG" 2>&1
 check 1 G1.1 "the join refuses without --accept-golden-rule (exit 3) and prints rule 1 first" g1_join_says_it
 check 1 G1.2 "rule 1 is said in GOLDEN-RULES.md, JOIN.md and the README" g1_docs_say_it
