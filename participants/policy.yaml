@@ -1,0 +1,12 @@
+# Who may ask for what when joining by signed pull request (docs/DESIGN.md section 5.1, participants/README.md).
+# The maintainer's file (CODEOWNERS). A pull request is judged by the policy on its BASE branch, never by its own copy:
+# a change here applies to the pull requests checked after it is merged, and only a maintainer's pull request may change it.
+apiVersion: k8s-lan-party/v1
+kind: ParticipantPolicy
+maintainers: [villadalmine]
+self_service_trust: friends     # the only trust a pull request issues: never own (the maintainer's own machines, mesh host init)
+reserved_nodes: [lh, cp, n1, n2]
+cert_duration: 336h             # the Nebula certificate of a participant: two weeks (section 9: short, renewed by a new approved PR)
+fork_name: k8s-lan-party        # the signing workflow runs in <login>/<fork_name>
+nebula_net: 10.77.0             # the participants' Nebula addresses: <nebula_net>.<host>, from the top of nebula_hosts down
+nebula_hosts: [200, 250]
