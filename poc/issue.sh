@@ -53,6 +53,11 @@ ADV=""; [ -n "${ADVERTISE:-}" ] && [ "$name" = cp ] && ADV="  advertise_addrs: [
 # Nebula's own metrics (Prometheus text format), loopback only, on the lighthouse and the control plane: peers, handshakes, drops, certificate TTL.
 # Read by a local Prometheus scrape (whatever monitoring the host runs); nothing listens outside the machine.
 STATS=""; case "$name" in lh|cp) STATS="stats: {type: prometheus, listen: 127.0.0.1:${STATS_PORT:-9110}, path: /metrics, namespace: nebula, interval: 15s}" ;; esac
+# LH_RELAY=yes: the lighthouse is also a Nebula relay (`lighthouse-vps.sh sign --relay` remembers it in .state/lighthouse.env). Two hosts that
+# cannot reach each other directly (symmetric NAT on both sides) then talk through it: every other host names the lighthouse as its relay,
+# and `relay.use_relays` stays at its default (true). The relay forwards Nebula packets it cannot read (end to end encrypted) and the
+# firewall of each end still decides what gets in; but every relayed byte crosses the relay host (DESIGN.md sections 15 and 16).
+RELAY=""; if [ "${LH_RELAY:-no}" = yes ]; then if [ "$name" = lh ]; then RELAY="relay: {am_relay: true}"; else RELAY="relay: {relays: [\"$LH_NEB\"]}"; fi; fi
 BL=""; if [ -s "$STATE/blocklist" ]; then while read -r f; do [ -n "$f" ] && BL="${BL:+$BL, }\"$f\""; done <"$STATE/blocklist"; fi
 cat >"$B/config.yml" <<EOF
 pki:
@@ -67,6 +72,7 @@ lighthouse:
   am_lighthouse: $am_lh
   hosts: [$lh_hosts]
 $ADV
+$RELAY
 listen: {host: 0.0.0.0, port: 4242}
 punchy: {punch: true}
 tun: {dev: nebula1, mtu: 1300}

@@ -84,11 +84,12 @@ case "$1 ${2:-}" in
     old=$(cat "$STATE/bundles/$name/config.yml" 2>/dev/null || true)
     CONFIG_ONLY=1 "$POC/issue.sh" "$name" x x x >/dev/null || exit $?
     if [ "$old" = "$(cat "$STATE/bundles/$name/config.yml")" ]; then echo "refresh $name: unchanged"; exit 0; fi
-    # a changed `stats` or `listen` section needs a restart (on cp: k3s stopped first, started again once nebula1 is back); anything else is read on SIGHUP
-    if [ "$(printf '%s\n' "$old" | grep -E '^(stats|listen):' || true)" = "$(grep -E '^(stats|listen):' "$STATE/bundles/$name/config.yml" || true)" ]; then
+    # a changed `stats`, `listen` or `relay` section needs a restart (on cp: k3s stopped first, started again once nebula1 is back); anything else
+    # is read on SIGHUP. `relay` restarts so that turning the relay on never depends on what Nebula re-reads (lighthouse-vps.sh deploy does the same)
+    if [ "$(printf '%s\n' "$old" | grep -E '^(stats|listen|relay):' || true)" = "$(grep -E '^(stats|listen|relay):' "$STATE/bundles/$name/config.yml" || true)" ]; then
       nebula_reload "$name" && echo "refresh $name: config applied (nebula reloaded)"
     else
-      nebula_restart "$name" && echo "refresh $name: config applied (nebula restarted: stats or listen changed)"
+      nebula_restart "$name" && echo "refresh $name: config applied (nebula restarted: stats, listen or relay changed)"
     fi ;;
   "host down") "$POC/down.sh" ;;
   "host request"|"host waitlist"|"host approve"|"host reject"|"host leases"|"host reap"|"host admission-status"|"host auto"|"host panic"|"host bundle"|"host admission-metrics")
