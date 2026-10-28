@@ -149,8 +149,12 @@ model, "Where it ran" on the head commit, the commit trailers their tool adds, a
 Every PR gets an independent review by the `revisor-pr` agent before merging. **High and medium findings stop
 the merge. Low findings do not become one issue each:** they go to an umbrella issue per area, as sub-issues.
 
-**Merging:** squash merge only, the PR title becomes the single commit on `main` (hence a Conventional Commit),
-the branch is deleted on merge: `gh pr merge N --squash --delete-branch`. Nobody merges their own PR except the
+**Merging:** rebase merge by default: every commit of the PR lands on `main` as it is, with its own author, so
+each one must be a Conventional Commit with its sign-off (squash your fixups locally before asking for review):
+`gh pr merge N --rebase --delete-branch --match-head-commit <sha>`. A squash merge made from the API authors the
+commit with the merging account's email unless that account keeps its email private, which is why it is not the
+default; it stays allowed for a contributor's PR with an untidy history (the PR title becomes the single commit).
+The branch is deleted on merge. Nobody merges their own PR except the
 maintainer for maintenance changes; an agent never merges. Chained PRs: merge without deleting the branch,
 re-point the next one to `main` and rebase with `--onto origin/main <old parent>`.
 

@@ -1,9 +1,9 @@
 ---
 tipo: runbook
 id: k8s-lan-party-github-proteger-main
-version: 1.0.0
+version: 1.1.0
 fecha_alta: 2026-10-16
-fecha_ultimo_cambio: 2026-10-27
+fecha_ultimo_cambio: 2026-10-28
 categoria: repo
 dueno_agente: casa-orquestador
 pieza: k8s-lan-party
@@ -14,10 +14,10 @@ riesgo: "bajo (solo configuracion del repo; se deshace igual)"
 desde_donde: "the maintainer's PC, Git Bash, gh logged in as villadalmine"
 depende_de: [gh CLI]
 docs: [CONTRIBUTING.md]
-tags: [github, ruleset, squash, main]
+tags: [github, ruleset, rebase, squash, main]
 ---
 
-# Protect `main`: squash only, ruleset, delete branches on merge
+# Protect `main`: rebase or squash, ruleset, delete branches on merge
 
 **Where to stand:** the maintainer's PC, Git Bash, `gh` logged in as `villadalmine`.
 
@@ -25,7 +25,9 @@ tags: [github, ruleset, squash, main]
 `403 Upgrade to GitHub Pro or make this repository public to enable this feature` to a ruleset or branch
 protection on a private repository of a free account. The repository became public on 2026-10-27 and the ruleset,
 kept as code in [`.github/rulesets/main.json`](../../.github/rulesets/main.json), is `active` since then
-(`gh api repos/villadalmine/k8s-lan-party/rulesets` lists `main`).
+(`gh api repos/villadalmine/k8s-lan-party/rulesets` lists `main`). On 2026-10-28 rebase merge was allowed next to
+squash: a squash merge made from the API authored the commit with the merging account's email, a rebase merge keeps
+each commit's own (noreply) author.
 
 ## Step 0: backup
 
@@ -34,16 +36,16 @@ gh api repos/villadalmine/k8s-lan-party > ~/backups/k8s-lan-party-repo-config-an
 gh api repos/villadalmine/k8s-lan-party/rulesets > ~/backups/k8s-lan-party-rulesets-antes.json
 ```
 
-## Step 1: squash only, PR title as commit, delete the branch on merge, no wiki
+## Step 1: rebase or squash (PR title as the squash commit), delete the branch on merge, no wiki
 
 ```bash
 gh api -X PATCH repos/villadalmine/k8s-lan-party -F allow_squash_merge=true -F allow_merge_commit=false \
-  -F allow_rebase_merge=false -F delete_branch_on_merge=true -F has_wiki=false \
+  -F allow_rebase_merge=true -F delete_branch_on_merge=true -F has_wiki=false \
   -f squash_merge_commit_title=PR_TITLE -f squash_merge_commit_message=PR_BODY \
   --jq '.allow_squash_merge,.allow_merge_commit,.allow_rebase_merge,.delete_branch_on_merge'
 ```
 
-Expected: `true false false true`.
+Expected: `true false true true`.
 
 ## Step 2: the ruleset (needs a public repo or Pro)
 
