@@ -312,7 +312,7 @@ check 6 G6.2 "outside the mesh the API does not answer; inside it does" g6_not_o
 depends 7 G7.1 "the maintainer's endpoints (AI gateway, LoadBalancer with BGP) run only on own nodes" "#13"
 depends 8 G8.1 "persistent participants join only by a signed PR" "#12"
 check 8 G8.2 "every public certificate comes from the pool CA and lives at most the lease (pool.yaml)" g8_pool_lease
-check 9 G9.1 "every certificate chains to our two CAs and every bundle points at our lighthouse" g9_our_ca
+check 9 G9.1 "every certificate was issued by one of our two CAs and every bundle points at our lighthouse" g9_our_ca
 check 10 G10.1 "every rule 1-9 that is built has a passing check in this run" step_g10
 
 echo "----"
