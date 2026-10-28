@@ -160,7 +160,7 @@ import sys, json, datetime as d
 print(int(d.datetime.fromisoformat(json.load(sys.stdin)[0]["details"]["notAfter"].replace("Z", "+00:00")).timestamp()))') || return 1
   k apply -f - <"$POC/participant-policy.yaml" >/dev/null || return 1
   python3 "$POC/participant.py" manifests "$n" --config "${POOL_CONFIG:-$POC/pool.yaml}" | k create -f - >/dev/null || return 1
-  s=$(( end - $(date +%s) )); [ "$s" -ge 600 ] || { echo "the certificate of $n ends in $s s: a token needs at least 10 minutes"; return 1; }
+  s=$(( end - $(date +%s) )); [ "$s" -ge 600 ] || { echo "the certificate of $n ends in $s s: a token needs at least 10 minutes (mesh host invite asks for --ttl 11m or more)"; return 1; }
   tok=$(k create token user -n "$ns" --duration "${s}s") || return 1
   ca=$(mktemp)
   cpx cat /var/lib/rancher/k3s/server/tls/server-ca.crt >"$ca" &&

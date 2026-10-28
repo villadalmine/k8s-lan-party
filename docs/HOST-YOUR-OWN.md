@@ -222,9 +222,9 @@ nothing expels at the hour (the certificate still expires). `./poc-admission-aut
 like the other suites it builds its own cluster, so run it after `./mesh host down`.
 
 **The pool's cluster side** (issues #9, #11): every invite also makes the player's namespace `play-<name>` (Pod Security restricted, quota and limits
-from pool.yaml) and a kubeconfig in the bundle that works there only, until the invite's `--ttl` ends (so `--ttl` is at least `10m`); `kick` deletes the
+from pool.yaml) and a kubeconfig in the bundle that works there only, until the invite's `--ttl` ends (so `--ttl` is at least `11m`: the token API's minimum is 10 minutes and the invite takes some seconds); `kick` deletes the
 namespace, and the tick expels a lease whose node stays missing, NotReady or without a workload for `idle_kick_seconds`. `./poc-pool.sh` proves it
-(29 checks; [dell]). **Not built:** the public page: ADMISSION.md sections B2 and B3. Without
+(30 checks; [dell]). **Not built:** the public page: ADMISSION.md sections B2 and B3. Without
 `reap`, a "1 h slot" is still a 1 h certificate: when it expires Nebula closes the tunnel (`disconnect_invalid: true`) and the node goes NotReady.
 
 ## 4. Who is in, and the one command that revokes

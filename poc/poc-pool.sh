@@ -93,16 +93,27 @@ who_is_who() { # the user is play-alice's ServiceAccount, not a node; the node's
 works_in_her_namespace() { # a pod with no sensitivity label (private, the default: pinned to her own node, it gets the LimitRange
   # defaults), a ClusterIP Service and a ConfigMap
   pod_yaml web | apply_as_alice && U create configmap notes --from-literal=a=b && U create service clusterip web --tcp=80:80 &&
-  [ "$(U get pod web -o jsonpath='{.spec.containers[0].resources.limits.cpu} {.spec.containers[0].resources.requests.cpu} {.spec.nodeSelector.kubernetes\.io/hostname}')" = "200m 100m alice" ] &&
+  [ "$(U get pod web -o jsonpath='{.spec.containers[0].resources.limits.cpu} {.spec.containers[0].resources.requests.cpu} {.spec.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms[0].matchFields[0].values[0]}')" = "200m 100m alice" ] &&
   wait_for 180 sh -c "incus exec emesh-alice -- edge-mesh kubectl get pod web -o jsonpath='{.spec.nodeName} {.status.phase}' | grep -qx 'alice Running'"; }
-private_stays_home() { # golden rule 2 for players: a private pod aimed at bob's node is refused; a shareable one (its owner opted in,
-  # golden rule 1: bob can see it) may run there; it goes again so that bob stays idle
-  pod_yaml away $'  nodeSelector: {kubernetes.io/hostname: bob}\n' >"$STATE/away.yaml"
-  row 1 "a private pod (not labelled edge-mesh/sensitivity=shareable) runs only on your own node" \
-    sh -c "incus exec emesh-alice -- edge-mesh kubectl apply -f - <'$STATE/away.yaml'" || return 1
-  pod_yaml lent $'  nodeSelector: {kubernetes.io/hostname: bob}\n' ', edge-mesh/sensitivity: shareable' | apply_as_alice &&
-    wait_for 180 sh -c "incus exec emesh-alice -- edge-mesh kubectl get pod lent -o jsonpath='{.spec.nodeName} {.status.phase}' | grep -qx 'bob Running'" &&
-    U delete pod lent --wait=true; }
+private_stays_home() { # golden rule 2 for players. Her private pod is bound to her node BY NAME (a nodeAffinity on metadata.name, which no
+  # kubelet chooses). bob, a stranger, tries what he can with his own kubelet credential: label his node kubernetes.io/hostname=alice (a label
+  # NodeRestriction lets a kubelet set); a pod of hers that selects that label still goes to alice only. A shareable pod, whose owner opted in
+  # (rule 1: bob can read it), may run on his node.
+  local kl=/var/lib/rancher/k3s/agent/kubelet.kubeconfig
+  incus exec emesh-bob -- k3s kubectl --kubeconfig $kl label node bob kubernetes.io/hostname=alice --overwrite 2>&1 | tail -1
+  pod_yaml away $'  nodeSelector: {kubernetes.io/hostname: alice}
+' | apply_as_alice &&
+    wait_for 180 sh -c "incus exec emesh-alice -- edge-mesh kubectl get pod away -o jsonpath='{.spec.nodeName} {.status.phase}' | grep -qx 'alice Running'" || return 1
+  [ "$(U get pod away -o jsonpath='{.spec.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms[0].matchFields[0].values[0]}')" = alice ] || return 1
+  # her own nodeAffinity naming bob is replaced, not honoured
+  pod_yaml pushy $'  affinity: {nodeAffinity: {requiredDuringSchedulingIgnoredDuringExecution: {nodeSelectorTerms: [{matchFields: [{key: metadata.name, operator: In, values: [bob]}]}]}}}
+' | apply_as_alice &&
+    wait_for 180 sh -c "incus exec emesh-alice -- edge-mesh kubectl get pod pushy -o jsonpath='{.spec.nodeName} {.status.phase}' | grep -qx 'alice Running'" || return 1
+  pod_yaml lent $'  affinity: {nodeAffinity: {requiredDuringSchedulingIgnoredDuringExecution: {nodeSelectorTerms: [{matchFields: [{key: metadata.name, operator: In, values: [bob]}]}]}}}
+' ', edge-mesh/sensitivity: shareable' | apply_as_alice &&
+    wait_for 180 sh -c "incus exec emesh-alice -- edge-mesh kubectl get pod lent -o jsonpath='{.spec.nodeName} {.status.phase}' | grep -qx 'bob Running'" || return 1
+  incus exec emesh-bob -- k3s kubectl --kubeconfig $kl label node bob kubernetes.io/hostname=bob --overwrite >/dev/null 2>&1
+  U delete pod away pushy lent --wait=true; }
 isolated() { # the NetworkPolicy: alice's pods reach each other by name (the DNS works), not bob's; the test pods go again
   { pod_yaml srv "" "" "netexec, --http-port=8080" | apply_as_alice && pod_yaml cli "" "" "pause" | apply_as_alice && U expose pod srv --port 8080 &&
     pod_yaml srv "" "" "netexec, --http-port=8080" | incus exec emesh-bob -- edge-mesh kubectl apply -f - && B expose pod srv --port 8080 &&
@@ -159,6 +170,8 @@ nebula_down() { # row 6: Nebula stops on alice's machine; then it starts again a
   incus exec emesh-alice -- sh -c '(nohup /opt/nebula/nebula -config /etc/nebula/config.yml >/var/log/nebula.log 2>&1 &)'
   wait_for 120 U get pods && wait_for 180 ready alice && [ "$r" = 0 ]; }
 deferred_while_active() { out_has "(active-lease), position 2 of 2 [added]" "$MESH" host request alice-2 --ip 198.51.100.10; }
+short_ttl_refused() { # an invite whose kubeconfig token could not be made is refused BEFORE anything is issued: --ttl 10m exits 2, no bundle, no namespace
+  row 2 "needs at least 11m" "$MESH" host invite tiny --ttl 10m && [ ! -e "$STATE/bundles/tiny" ] && ns_gone tiny; }
 rate_limited() { # identity 198.51.100.77: five requests in the window (a repeat counts), the sixth refused and not listed; then taken off the list
   local i; for i in 1 2 3 4 5; do "$MESH" host request eve --ip 198.51.100.77 >/dev/null || return 1; done
   row 6 "eve-2: refused: too many requests from this identity (5 in 600 s)" "$MESH" host request eve-2 --ip 198.51.100.77 &&
@@ -219,7 +232,7 @@ step PL07 "alice joins and is Ready; edge-mesh installed her kubeconfig (0600)" 
 step PL07b "bob joins with his bundle and is Ready" play_ready bob
 step PL08 "alice is a ServiceAccount, not a node; the node's credential cannot act in her namespace; her kubeconfig works over the mesh" who_is_who
 step PL09 "alice runs an unlabelled pod: private, pinned to her own node, LimitRange defaults; a ClusterIP Service and a ConfigMap" works_in_her_namespace
-step PL09b "golden rule 2: her private pod aimed at bob's node is refused; a shareable one may run there (rule 1)" private_stays_home
+step PL09b "golden rule 2: bob labels his node as hers; her private pods (also one with her own affinity naming bob) still run on her node only; a shareable one may run on his (rule 1)" private_stays_home
 step PL10 "row 9: another player's namespace or default: exit 13, 'forbidden (403): you may only work in your namespace'" outside_refused
 step PL11 "no secret (cluster-wide, kube-system, her own) and no node: exit 13" cluster_refused
 step PL12 "she cannot delete her quota, bind herself more rights, mint a token or relabel her namespace: exit 13" own_limits_hold
@@ -229,6 +242,7 @@ step PL14 "a privileged pod, a NodePort, externalIPs and a pod pinned to the con
 step PL15 "row 7: her kubeconfig with another CA: exit 11, 'x509'" other_ca
 step PL16 "row 6: Nebula stopped on her machine: exit 10, 'Nebula is down'; started again, she works again" nebula_down
 step PL17 "a second request from alice's address while her lease is active is deferred (active-lease)" deferred_while_active
+step PL17b "an invite with --ttl 10m is refused up front (exit 2): nothing issued, no namespace" short_ttl_refused
 step PL18 "rate limit: the sixth request of one identity in 10 minutes is refused (exit 6) and not listed" rate_limited
 step PL19 "X-Forwarded-For is believed from the trusted proxy only; from anyone else the socket address counts" xff
 step PL20 "idle kick: bob runs nothing; after $IDLE s one tick expels him (his namespace too), keeps alice, and carol takes the place" idle_then_reuse

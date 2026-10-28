@@ -2,7 +2,7 @@
 # mesh: the host's command line. Thin, deterministic wrappers over nebula-cert, nebula, k3s and kubectl.
 #   mesh host init                         open your game: CA, lighthouse, control plane (API only on the Nebula IP)
 #   mesh host invite <name> [--ttl 2h] [--trust friends|public]   a bundle for one player (cert + config + a join token of 8 min at most)
-#                                          and their namespace play-<name> with a kubeconfig valid for the ttl (at least 10m; poc/participant.py)
+#                                          and their namespace play-<name> with a kubeconfig valid for the ttl (at least 11m; poc/participant.py)
 #   mesh host players                      who is in: node, Ready, certificate time left (and burns the join token of every registered node)
 #   mesh host burn                         delete the join token of every registered player (a k3s token is not one-time) and refresh the node guard (prints burned N)
 #   mesh host revoke <name>                the one command: blocklist the certificate on every host, reload, delete the node (idempotent)
@@ -47,9 +47,9 @@ case "$1 ${2:-}" in
     while [ $# -gt 0 ]; do case "$1" in --ttl) ttl="$2"; shift 2 ;; --trust) trust="$2"; shift 2 ;; *) usage ;; esac; done
     case "$trust" in friends|public) ;; *) echo "trust must be friends or public (own is for your own machines)"; exit 2 ;; esac
     [ ! -d "$STATE/bundles/$name" ] || { echo "a player called $name already exists"; exit 3; }
-    # the player's kubeconfig token lives exactly as long as the certificate (the lease); the TokenRequest API refuses less than 10 minutes
+    # the player's kubeconfig token lives exactly as long as the certificate (the lease); the TokenRequest API refuses less than 10 minutes, and the token is counted from the certificate's end after the invite's own seconds: 11m
     secs=$(python3 "$POC/participant.py" seconds "$ttl" 2>/dev/null) || { echo "invalid --ttl '$ttl': 90s, 15m, 2h, 1h30m"; exit 2; }
-    [ "$secs" -ge 600 ] || { echo "--ttl $ttl is too short: the player's kubeconfig token needs at least 10m (the TokenRequest API minimum)"; exit 2; }
+    [ "$secs" -ge 660 ] || { echo "--ttl $ttl is too short: the player's kubeconfig token needs at least 11m (the TokenRequest API minimum is 10m, and the invite itself takes some seconds)"; exit 2; }
     # a namespace of that name that exists already is not handed over (a leftover, or somebody else's)
     [ -z "$(k get namespace "play-$name" --ignore-not-found -o name 2>/dev/null)" ] || { echo "a namespace play-$name exists already: pick another name"; exit 3; }
     "$POC/issue.sh" "$name" "$(next_ip)" "$trust" "$ttl" || { rm -rf "$STATE/bundles/$name"; echo "invite failed: nothing was kept, fix the error above and run it again"; exit 1; }

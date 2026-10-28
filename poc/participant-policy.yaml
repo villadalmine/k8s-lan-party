@@ -2,8 +2,8 @@
 # top of Pod Security "restricted", the ResourceQuota, the NetworkPolicy and the Role (poc/participant.py). Applied by `mesh host invite`;
 # idempotent.
 #  - golden rule 2 for players: a pod that is not labelled edge-mesh/sensitivity=shareable is private (the default), and a private pod
-#    runs only on the player's own node. The MutatingAdmissionPolicy pins it there (nodeSelector kubernetes.io/hostname=<name>) when it
-#    names no host; the validation refuses any private pod pinned elsewhere (a nodeSelector naming another player's node). "Own" is
+#    runs only on the player's own node. The MutatingAdmissionPolicy binds it there by NAME (a nodeAffinity matchFields metadata.name, which
+#    no kubelet can choose, unlike a label such as kubernetes.io/hostname); the validation refuses any private pod bound otherwise. "Own" is
 #    relative to the player here: the absolute `trust=own` of poc/placement/ is the host's, and skips these namespaces.
 #  - a shareable pod (its owner opted in: golden rule 1, what runs on someone else's machine can be seen by its owner) may run on any
 #    player's node, also one it names; never on the host's control plane (below);
@@ -32,18 +32,20 @@ spec:
       expression: >-
         !has(object.metadata.labels) || !('edge-mesh/sensitivity' in object.metadata.labels) ||
         object.metadata.labels['edge-mesh/sensitivity'] != 'shareable'
-    - name: names-no-host
-      expression: "!has(object.spec.nodeSelector) || !('kubernetes.io/hostname' in object.spec.nodeSelector)"
   mutations:
-    # a JSON patch: nodeSelector is an atomic map, which an apply configuration may not merge into
+    # The pin is a nodeAffinity on the field metadata.name, which no kubelet can choose (a LABEL, even kubernetes.io/hostname, is one a
+    # kubelet may set on its own Node: NodeRestriction allows it, so a stranger could label his node with another player's name). The
+    # player's own nodeAffinity is replaced; a nodeSelector of theirs only narrows it further (both must hold).
     - patchType: JSONPatch
       jsonPatch:
         expression: >-
-          has(object.spec.nodeSelector) ?
-          [JSONPatch{op: "add", path: "/spec/nodeSelector/kubernetes.io~1hostname",
-                     value: namespaceObject.metadata.labels["edge-mesh/participant"]}] :
-          [JSONPatch{op: "add", path: "/spec/nodeSelector",
-                     value: {"kubernetes.io/hostname": namespaceObject.metadata.labels["edge-mesh/participant"]}}]
+          has(object.spec.affinity) ?
+          [JSONPatch{op: "add", path: "/spec/affinity/nodeAffinity",
+                     value: {"requiredDuringSchedulingIgnoredDuringExecution": {"nodeSelectorTerms": [{"matchFields": [
+                       {"key": dyn("metadata.name"), "operator": dyn("In"), "values": dyn([namespaceObject.metadata.labels["edge-mesh/participant"]])}]}]}}}] :
+          [JSONPatch{op: "add", path: "/spec/affinity",
+                     value: {"nodeAffinity": {"requiredDuringSchedulingIgnoredDuringExecution": {"nodeSelectorTerms": [{"matchFields": [
+                       {"key": dyn("metadata.name"), "operator": dyn("In"), "values": dyn([namespaceObject.metadata.labels["edge-mesh/participant"]])}]}]}}}}]
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: MutatingAdmissionPolicyBinding
@@ -76,14 +78,22 @@ spec:
     - expression: >-
         request.resource.resource != 'pods' || request.operation != 'CREATE' || !has(object.spec.nodeName) || object.spec.nodeName == ''
       message: "a participant's pod may not set spec.nodeName: the scheduler places it (edge-mesh participant guard)"
+    # what the mutation above must have left: a private pod is bound to the player's own node by name (checked on the mutated object)
     - expression: >-
         request.resource.resource != 'pods' || request.operation != 'CREATE' ||
         (has(object.metadata.labels) && 'edge-mesh/sensitivity' in object.metadata.labels &&
          object.metadata.labels['edge-mesh/sensitivity'] == 'shareable') ||
-        (has(object.spec.nodeSelector) && 'kubernetes.io/hostname' in object.spec.nodeSelector &&
-         object.spec.nodeSelector['kubernetes.io/hostname'] == namespaceObject.metadata.labels['edge-mesh/participant'])
+        (has(object.spec.affinity) && has(object.spec.affinity.nodeAffinity) &&
+         has(object.spec.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution) &&
+         object.spec.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms.size() == 1 &&
+         object.spec.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms[0].matchFields.size() == 1 &&
+         !has(object.spec.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms[0].matchExpressions) &&
+         object.spec.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms[0].matchFields[0].key == 'metadata.name' &&
+         object.spec.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms[0].matchFields[0].operator == 'In' &&
+         object.spec.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms[0].matchFields[0].values ==
+           [namespaceObject.metadata.labels['edge-mesh/participant']])
       message: >-
-        a private pod (not labelled edge-mesh/sensitivity=shareable) runs only on your own node: no nodeSelector naming another node
+        a private pod (not labelled edge-mesh/sensitivity=shareable) runs only on your own node, bound by name
         (golden rule 2; edge-mesh participant guard)
     - expression: >-
         request.resource.resource != 'pods' || !has(object.spec.tolerations) || !object.spec.tolerations.exists(t,
