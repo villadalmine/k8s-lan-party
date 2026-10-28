@@ -1,17 +1,17 @@
 ---
 tipo: doc
-id: edge-mesh-lab-design
-version: 0.3.0
+id: k8s-lan-party-design
+version: 0.4.0
 fecha_alta: 2026-10-16
-fecha_ultimo_cambio: 2026-10-19
+fecha_ultimo_cambio: 2026-10-27
 categoria: plataforma
 dueno_agente: casa-orquestador
-pieza: edge-mesh-lab
+pieza: k8s-lan-party
 meta: meta.yml
-estado: MVP fase 1 (decisiones del mantenedor 2026-10-16; abiertas al final)
+estado: MVP fase 1 (decisiones del maintainer 2026-10-16; abiertas al final)
 depende_de: []
 lo_usan: [docs/GOLDEN-RULES.md, README.md]
-docs: [README.md, CONTRIBUTING.md, docs/GOLDEN-RULES.md, docs/REFERENCES.md]
+docs: [README.md, CONTRIBUTING.md, docs/GOLDEN-RULES.md, docs/REFERENCES.md, docs/POC-STATUS.md]
 scripts: []
 runbooks: []
 tags: [diseno, nebula, k3s, cilium, wireguard, kyverno, seguridad, mvp, regla-de-oro]
@@ -19,7 +19,7 @@ tags: [diseno, nebula, k3s, cilium, wireguard, kyverno, seguridad, mvp, regla-de
 
 # Design: MVP phase 1 (collaborative labs for learning)
 
-Status: **MVP phase 1, 2026-10-16, private repository.** This is a product, not a study lab. The architecture below
+Status: **MVP phase 1, 2026-10-16; public repository since 2026-10-27, early stage, not announced yet.** This is a product, not a study lab. The architecture below
 was decided by the maintainer on 2026-10-16; what is still open is listed in section 11. Versions are not pinned
 here: they are looked up live and pinned in the PoC's `stack.env`. Claims marked **(prove in the PoC)** are the
 ones the proof of concept must confirm or kill. The non-negotiables are in [GOLDEN-RULES.md](GOLDEN-RULES.md).
@@ -170,7 +170,7 @@ Mechanics (all of them required):
 
 ![The pattern with Kyverno and trust levels](diagrams/placement-kyverno.svg)
 
-*Diagram 2 ([source](diagrams/placement-kyverno.mmd)): the correct pattern.*
+*Diagram 2 ([source](diagrams/placement-kyverno.mmd)): the correct pattern. What the PoC implements of it today (one owner, a ValidatingAdmissionPolicy on Nodes) is in section 10.*
 
 **Node-side credentials.** Whoever owns a node also holds what lives on it outside NodeRestriction: the k3s controller and kube-proxy
 identities (the controller can read pod specs cluster-wide and patch node status) and the CNI's service account. That is accepted,
@@ -183,11 +183,13 @@ the answers are `confidential` nodes (later, optional) or keeping the workload o
 ## 5. Credentials at join
 
 Credentials travel encrypted at every step: the Nebula handshake first, then the k3s token over TLS with the CA
-pinned in the token (`K10<hash>`). Tokens are **one-time, per node and expiring**: the **issuing side** (server-side, where `k3s token delete`
-lives) deletes the token as soon as the node is Ready; the join command, running on the participant's machine, cannot. The shared `K3S_TOKEN` is a master key and is **never** handed to participants.
+pinned in the token (`K10<hash>`). Tokens are **per node and expiring, and burned after use**: a k3s bootstrap token is not one-time by itself (it authenticates
+any number of machines until it expires or is deleted), so the **issuing side** (server-side, where `k3s token delete` lives) deletes it once the
+node registered: `mesh host burn`, run by `reap` (the admission timer, every minute: a security requirement, ADMISSION.md), `players` and `revoke`. Until then, and at most for its TTL (8 minutes at most, so that it dies before k3s may drop the node password of an unused name), a
+second machine with the same bundle could register too; the join command, running on the participant's machine, cannot burn it. The shared `K3S_TOKEN` is a master key and is **never** handed to participants.
 
-**Joining = one bundle + one command.** The bundle holds the Nebula certificate, `config.yml` and a one-time k3s
-token; the command is `edge-mesh join <bundle>`. It requires **privileged Linux**: a VM, privileged Docker or WSL2.
+**Joining = one bundle + one command.** The bundle holds the Nebula certificate, `config.yml` and a short-lived k3s
+join token (burned once the node registers); the command is `edge-mesh join <bundle>`. It requires **privileged Linux**: a VM, privileged Docker or WSL2.
 The PoC measures all three. The command shows the golden rule and refuses to continue until it is accepted.
 
 ![Layers, endpoints and the join flow](diagrams/layers-endpoints-join.svg)
@@ -211,13 +213,13 @@ The PoC measures all three. The command shows the golden rule and refuses to con
 3. **CI verifies, deterministically**: `cosign verify-blob` with `--certificate-identity-regexp` bound to the PR author's repository
    and `--certificate-oidc-issuer https://token.actions.githubusercontent.com`. The participant signs from **a GitHub Actions workflow in
    their own fork** (`.github/workflows/sign.yml`), so the certificate identity is that workflow's URL, which contains their GitHub
-   login: `^https://github.com/<pr-author>/edge-mesh-lab/.github/workflows/sign.yml@refs/heads/.*$`. (Signing interactively with
+   login: `^https://github.com/<pr-author>/k8s-lan-party/.github/workflows/sign.yml@refs/heads/.*$`. (Signing interactively with
    the GitHub OAuth issuer would put the signer's *email* in the certificate, which CI cannot map to the PR author, so a file signed
    by anybody for somebody else's name would pass.); the YAML schema; the
    node name is unique; the requested trust level is allowed. Anything above `public` happens only when the
    maintainer merges, and CODEOWNERS for `participants/` is the maintainer.
 4. **The maintainer approves by merging.** The issuing workflow then signs the Nebula certificate with the CA (the
-   CA key is an offline step or a protected secret: decision 5), creates a one-time k3s token, **signs the bundle
+   CA key is an offline step or a protected secret: decision 5), creates a short-lived k3s join token, **signs the bundle
    with cosign** so the participant can verify it came from the maintainer, and delivers it **privately, never in
    the public repo** (mechanism: decision 9).
 5. **Removal** is a PR that deletes their file; merging triggers the cleanup and the Nebula blocklist (section 9).
@@ -229,6 +231,11 @@ peering policy has a `nodeSelector` for `own` nodes, and the IP pools select Ser
 `serviceSelector`, not a node selector); Services that need the pool run only on the maintainer's own nodes. **Remote nodes never announce.** TLS comes from cert-manager,
 issued automatically. The encryption layers do not conflict because each protects a different stretch: client to
 gateway (TLS), gateway to pods (WireGuard, plus mutual auth where asked), and Nebula underneath everything.
+
+**The public lighthouse** is today a full member of the mesh: it has a `nebula1` address, outbound `any`, and every host accepts `tcp/6443` from any
+member, so a compromised lighthouse server can reach the Kubernetes API over Nebula (authentication still applies). A lighthouse only has to introduce
+hosts; running it with `tun: {disabled: true}` (and checking its liveness with `lighthouse-vps.sh verify` instead of a ping over the mesh) removes that
+reach. Not done yet: tracked as a hardening follow-up (issue #20).
 
 ## 7. Risks to prove in the PoC
 
@@ -247,7 +254,7 @@ The free demo must not fill up: a fixed pool that empties itself every hour. Set
 
 - **Fixed size.** At most `N` participant nodes and `M` demo namespaces. When the pool is full a join does **not**
   get in: the person joins a **FIFO waitlist** and sees their position ("full, try later").
-- **Lease: 1 hour, hard.** The Nebula certificate is issued with the same expiry; the k3s token is one-time. At
+- **Lease: 1 hour, hard.** The Nebula certificate is issued with the same expiry; the k3s join token is burned once the node registers. At
   expiry the **reaper** (CronJob or controller) kicks the node, in the order of section 9: certificate fingerprint on the Nebula
   blocklist first, then cordon, drain and `kubectl delete node`; deletes the participant's namespace and workloads; frees the slot,
   which goes to the head of the waitlist. `kick <node>` is the manual one-command version with the same effect.
@@ -255,7 +262,10 @@ The free demo must not fill up: a fixed pool that empties itself every hour. Set
 - **Quotas.** ResourceQuota and LimitRange per namespace (CPU, RAM, pods; no LoadBalancer, no NodePort); at most
   one node per invite.
 - **Per-IP rules**: at most **1 active lease per source IP**; a **cooldown** after a lease ends (default 1 h) before
-  the same IP can join again; a **per-IP invite rate limit**.
+  the same IP can join again; a **per-IP invite rate limit**; at most `daily_leases_per_identity` (2) leases per identity in any 24 h. The "IP" is an
+  identity: the address normalized (IPv4 or its /24, IPv6 /64). A human approves each lease (option A) or the automatic tick does, inside the same limits
+  (phase B1: `mesh host auto --once` from the host's timer, with a panic switch); the public request page and its anti-bot layers are B2
+  ([ADMISSION.md](ADMISSION.md)).
 - **Which IP.** The client IP at the edge. Behind an L4 proxy (HAProxy with `send-proxy-v2`) Caddy must read the PROXY protocol
   (`listener_wrappers { proxy_protocol }`, allowing only the proxy's address) to see the real client; otherwise every visitor looks
   like the proxy and the first lease blocks everybody. Caddy then sets `X-Forwarded-For`, and the pool service trusts that header
@@ -275,7 +285,7 @@ stateDiagram-v2
   Refused --> [*]
   Requested --> Waitlist: pool full
   Waitlist --> Active: slot freed (FIFO)
-  Requested --> Active: slot free, cert with 1 h TTL, one-time token
+  Requested --> Active: slot free, cert with 1 h TTL, join token burned on registration
   Active --> Reaping: lease expired, kick, idle or NotReady
   Reaping --> Free: cordon, drain, delete node and namespace, blocklist cert
   Free --> Cooldown: IP cooldown starts
@@ -307,31 +317,42 @@ blocklist and records that the node comes back. Expiry of a lease (section 8) ru
 
 ## 10. Proof of concept
 
-The WSL test is a **proof of concept**, not a product claim. The PoC's Nebula firewall is open (inbound any) on purpose: group-based
-firewalling and the isolation between tenants are later steps. It uses k3s in Docker containers (not kind), flannel over the Nebula
-interface, and pinned versions (`poc/stack.env`); every step prints `PASS` or `FAIL`, and the output is byte-identical across runs
-except for the numbers it records separately.
+The PoC is a **proof of concept**, not a product claim. It runs k3s in Docker containers, on Incus VMs and (for step 2) on kind, with
+pinned versions (`poc/stack.env`); every step prints `PASS` or `FAIL`, and the output is byte-identical across runs except for the numbers
+it records separately. The Nebula firewall is narrowed by default (`FW=narrow` in `poc/issue.sh`; `FW=open` gives the old any/any).
+Where each suite passed, how often, and what is still relaxed is in [POC-STATUS.md](POC-STATUS.md); this table is the map.
 
 | Command | What it asserts today |
 | :--- | :--- |
-| `make poc-join` | step 1: join with a bundle and one command, nodes Ready, pod-to-pod and DNS across nodes, MTU, a study lab running on a joined node, token reuse refused, expired certificate refused, blocked UDP gives a clear message, revocation in one command |
-| `make poc-host` | `mesh host init / invite / players / kick / down` |
-| `make poc-weakness` | flapping, tolerance, a lossy link, control plane down |
-| `make test` | the pool logic (`poc/pool.py`): fixed slots, 1 h lease, per-IP rules, FIFO waitlist |
+| `make poc-join` | step 1: join with a bundle and one command, nodes Ready, pod-to-pod and DNS across nodes, MTU, a study lab running on a joined node, narrowed firewall, token reuse refused, expired certificate refused, blocked UDP gives a clear message, revocation in one command (17 checks) |
+| `make poc-host` | `mesh host init / invite / players / kick / down` (11) |
+| `make poc-weakness` | flapping, tolerance, a lossy link, control plane down, the supervised k3s agent (8) |
+| `make poc-ca` | two CAs (persistent and pool); pulling the pool CA cuts only the pool (13) |
+| `make poc-revoke` | `mesh host revoke` is idempotent, the negative test (`kubectl delete node` alone does not revoke), time to loss of access (10) |
+| `make poc-placement` | trust levels and Kyverno placement, the golden rule (30, 14 of them negative) |
+| `make poc-cilium` / `poc-vm` / `poc-kind` | step 2: Cilium tunnel + WireGuard over Nebula, encryption on the wire, mutual auth with SPIRE non-root and persistent: an authenticated peer passes (the deny half, an unauthenticated peer dropped, has no check yet) (24 on the Incus VMs) |
+| `make poc-lighthouse` | a lighthouse on a separate public server (a VM plays it): prepare, sign and deploy are idempotent, a player joins through it, `revoke` reaches it; `mesh host refresh` with no change, with a change that restarts Nebula (the API and the node come back) and with one read on reload (23) |
+| `make poc-admission` | admission with manual approval ([ADMISSION.md](ADMISSION.md)): request, approve, join, places full, the lease ends, `reap` expels, the next one in line enters, `reap --all`, a burned join token refused to a second machine, a non-cooperative copy of a bundle refused by the node guard and cut with the lease, another guest's issued name refused by its node password, a name whose node password k3s dropped refused by the guard (31) |
+| `make test` | the pool logic (`poc/pool.py`): fixed slots, 1 h lease, per-identity rules (IP normalized), daily cap, FIFO waitlist; the admission ledger (`poc/admission.py`); the scripts keep their executable bit |
 
-**Not built yet, and tracked as milestone epics (section 12):** Cilium with WireGuard and `cilium-dbg encrypt status` (a first attempt
-left the Cilium pods in `CreateContainerError` on k3s in Docker), mutual auth by policy, Kyverno placement, the cluster side of the
-pool (reaper, quotas, idle kick), join by signed PR, and the PoC matrix across VM, privileged Docker and WSL2. The PoC cannot use the
-real Fulcio offline: when join by PR is built, a local test CA (or `--insecure-ignore-tlog`) will be used **only in the PoC fixture,
-marked as such**, and the real flow will run in CI on the PR.
+**What the PoC implements of section 4.** The PoC runs one owner's cluster (the maintainer's), so it implements the single-owner case:
+the node label `node-restriction.kubernetes.io/trust`, set by the issuing side, the `trust=<level>:NoSchedule` taint from registration,
+and a `ValidatingAdmissionPolicy` that refuses a `friends` or `public` label without its taint (and the taint's removal while labelled)
+instead of deleting a Node that registered without it. Private pods are pinned to `trust=own`, and `spec.nodeName` on a node that is not
+`own` is denied. The `owner=<github-user>` label and the relative trust of section 1 (several owners in one cluster) are not built yet.
+
+**Not built yet** (the phase-1 gap table in POC-STATUS.md has the evidence): the rest of the pool (quotas, idle kick, the public request
+page; the manual admission, its reaper and the automatic tick exist, [ADMISSION.md](ADMISSION.md)), per-namespace RBAC and kubeconfig per user, join by signed PR, relay and NAT tests, the gateway and BGP on own nodes, and
+the public opening. The PoC cannot use the real Fulcio offline: when join by PR is built, a local test CA (or `--insecure-ignore-tlog`)
+will be used **only in the PoC fixture, marked as such**, and the real flow will run in CI on the PR.
 
 ## 11. Open decisions
 
 | # | Decision | Notes |
 | :--- | :--- | :--- |
-| 1 | **Name** | `edge-mesh-lab` is a working name; a product name is needed before going public |
+| 1 | **Name** | `k8s-lan-party`, the repository's name since 2026-10-27; it may still change before the project is announced |
 | 2 | **Licence** | Apache-2.0 is a placeholder; alternatives AGPL-3.0, MPL-2.0 |
-| 3 | **When it goes public** | private until the maintainer says so (it holds a security design) |
+| 3 | **When it goes public** | **Decided 2026-10-27: the repository is public, not announced.** Why: on a free account GitHub enforces branch protection and rulesets only on a public repository (or with a paid plan), and the PR-only `main` with required checks had to be enforced, not followed by hand. Before it went public, the tree and the history passed a privacy gate. Announcing it and opening the demo (B3 in [ADMISSION.md](ADMISSION.md), issue #16) stay the maintainer's explicit decision |
 | 4 | **Lighthouse location** | small VPS (stable public UDP) vs the home edge (NAT/CGNAT dependent) |
 | 5 | **CA custody** | the automatic demo needs an **online** CA key, so one offline CA cannot do both jobs. Proposal: **two CAs** in `pki.ca`: an offline one for persistent participants (hand-signed after a merge) and an online one for the `public` demo only, whose certificates carry the `public` group and nothing else |
 | 6 | **Keycloak or Dex** | login for people (OIDC); Keycloak heavier and complete, Dex lighter |
@@ -345,16 +366,16 @@ The simple idea first: **it joins, and a study lab runs on it.** Security layers
 
 | Step | What | Test | State |
 | :--- | :--- | :--- | :--- |
-| **1. It joins** | Nebula CA and lighthouse, a one-command bundle, k3s on the Nebula IP, flannel over the Nebula interface, a real study lab (CKA 1.1) running on a joined node | `make poc-join` (16 steps) | built, measured |
-| **1b. Host your own game** | `mesh host init / invite / players / kick / down` | `make poc-host` | built |
-| **1c. Weaknesses of one control plane** | flapping, tolerance tuning, lossy links, control plane down | `make poc-weakness` | built, numbers in section 13 |
-| 2. Cilium + WireGuard | tunnel mode, encryption always on, `cilium-dbg encrypt status` | planned | design (first attempt hit a CNI path problem, see "Lo aprendido" in the PoC README) |
-| 3. Per-namespace RBAC and kubeconfig | user access (section 14) | planned | design |
-| 4. Trust levels + Kyverno placement | sections 4, 1 | planned | design |
-| 5. The 1 h pool and per-IP limits | section 8; `poc/pool.py` has unit tests today | planned | logic built, cluster side planned |
-| 6. Mutual auth by policy | section 3 | planned | design |
-| 7. Signed-PR participants | section 5.1 | planned | design |
-| 8. The public opening | the runbook with the go-public checklist | planned | design |
+| **1. It joins** | Nebula CA and lighthouse, a one-command bundle, k3s on the Nebula IP, flannel over the Nebula interface, a real study lab (CKA 1.1) running on a joined node | `make poc-join` (17 steps) | built, measured (#4) |
+| **1b. Host your own game** | `mesh host init / invite / players / kick / revoke / refresh / down`; a lighthouse on a separate public server | `make poc-host`, `make poc-revoke`, `make poc-lighthouse` | built (#5, #7) |
+| **1c. Weaknesses of one control plane** | flapping, tolerance tuning, lossy links, control plane down | `make poc-weakness` | built, numbers in section 13 (#6) |
+| **2. Cilium + WireGuard** | tunnel mode, encryption always on, `cilium-dbg encrypt status` | `make poc-vm`, `poc-cilium`, `poc-kind` | built (#8) |
+| 3. Per-namespace RBAC and kubeconfig | user access (section 14) | planned | design (#9) |
+| **4. Trust levels + Kyverno placement** | sections 4, 1 | `make poc-placement` | built for one owner (#10; section 10) |
+| 5. The 1 h pool and per-IP limits | section 8; `poc/pool.py` has unit tests today, and the pool CA exists (`make poc-ca`) | planned | logic and CA built, cluster side planned (#11) |
+| **6. Mutual auth by policy** | section 3 | `make poc-vm` (V92-V97) | allow half built (an authenticated peer passes); the deny half has no check yet; beta upstream (#8) |
+| 7. Signed-PR participants | section 5.1 | planned | design (#12) |
+| 8. The public opening | the runbook with the go-public checklist ([DEMO.md](DEMO.md)) | planned | design (#16) |
 
 Every step is a milestone epic, so nothing is lost.
 
@@ -378,11 +399,15 @@ Measured on 2026-10-19 by `make poc-weakness`; the exact numbers vary run to run
 | A node drops (its Nebula tunnel dies): time to NotReady | 44 s (kubelet status interval 10 s; the controller's node-monitor-grace-period defaults to 50 s since Kubernetes 1.32) |
 | Default eviction toleration for not-ready and unreachable | 300 s (asserted) |
 | Pod with tolerationSeconds=20: time until it is evicted after the drop | 70 s |
+| The tunnel comes back: time until the node is Ready again (Dell VMs, 2026-10-26, `W03b`) | 20 s, with nobody touching it, because `edge-mesh join` supervises the k3s agent |
+| Same drop on the Dell VMs (2026-10-26): NotReady / eviction with tolerationSeconds=20 | 50 s / 73 s |
 | Control plane down: kubectl | `The connection to the server 10.77.0.2:6443 was refused - did you specify the right host or port?` |
 | Control plane down: running pods | keep answering over the pod network; nothing can be managed |
 
 What this says: with defaults a dropped node is NotReady after about 40-50 s and its pods are evicted after about five
-minutes; `tolerationSeconds` tunes the second. A lossy intercontinental link works but is slow. If the control plane dies,
+minutes; `tolerationSeconds` tunes the second. One weakness the numbers alone did not show (found on 2026-10-26, when `W05` failed on the
+Dell VMs): when the tunnel drops, `nebula1` loses its address and the embedded flannel of k3s panics, which kills the agent; unsupervised,
+the node stays NotReady for ever after the network is back. The join command now restarts the agent (docs/TROUBLESHOOTING.md). A lossy intercontinental link works but is slow. If the control plane dies,
 running pods keep answering, but **nothing can be managed** until it is back: it is a single point of failure, and the
 host's machine is the game server.
 
@@ -431,10 +456,10 @@ One test per row, deterministic. **Step 1** means the local PoC tests it now; **
 
 | # | What fails | What the user sees, and what we tell them | Tested |
 | :-: | :--- | :--- | :--- |
-| 1 | UDP to the lighthouse is blocked (corporate firewall) | `edge-mesh join` exits 5: "cannot reach the lighthouse; UDP 4242 must be allowed; ask for the relay option" | step 1: J15 |
+| 1 | UDP to the lighthouse is blocked (corporate firewall) | `edge-mesh join` exits 5: "cannot reach the lighthouse; UDP 4242 must be allowed; ask for the relay option" | step 1: J16 |
 | 2 | Symmetric NAT on both sides | falls back to a relay; latency measured | later: needs a relay (section 16) |
-| 3 | Nebula certificate expired or not yet valid (clock skew) | Nebula refuses the certificate; check NTP | step 1: J14 (expiry) |
-| 4 | Certificate revoked or blocklisted (after a kick) | handshake refused: "certificate is in the block list" | step 1: J16 |
+| 3 | Nebula certificate expired or not yet valid (clock skew) | Nebula refuses the certificate; check NTP | step 1: J15 (expiry) |
+| 4 | Certificate revoked or blocklisted (after a kick) | handshake refused: "certificate is in the block list" | step 1: J17 |
 | 5 | MTU or fragmentation: handshake works, big packets hang | pod network MTU fixed at 1250 (Nebula 1300 minus 50) | step 1: J08 |
 | 6 | The kubeconfig server is unreachable because Nebula is down | a clear error, not a generic timeout: "Nebula is down; run `edge-mesh join`" | later: with the user kubeconfig (step 3) |
 | 7 | x509 CA mismatch (wrong bundle or a man in the middle) | `x509: certificate signed by unknown authority`; re-download your bundle | later (step 3) |
@@ -444,7 +469,7 @@ One test per row, deterministic. **Step 1** means the local PoC tests it now; **
 | 11 | ResourceQuota exceeded | `exceeded quota`; lower requests or delete something | later (step 5) |
 | 12 | Pool full (waitlist), same IP already active, cooldown, rate limit | "full, position N" or the reason | pool logic: `poc/test_pool.py`; cluster side later (step 5) |
 | 13 | The node joins but stays NotReady: Cilium fails on WSL2 or privileged Docker (eBPF, WireGuard module, BPF mounts) | `edge-mesh join` prints which prerequisite is missing | later (step 2); a first attempt is recorded |
-| 14 | The k3s agent rejects the token: one-time token already used, or expired | the agent log says unauthorized; ask the host for a new invite | step 1: J13 |
+| 14 | The k3s agent rejects the token: burned (a node already registered with it), or expired | the agent log says unauthorized; ask the host for a new invite | step 1: J14 |
 | 15 | Duplicate node name or Nebula IP conflict | the second joiner is refused | later |
 | 16 | Image pull fails or is slow (no registry access or mirror) | pods stay `ImagePullBackOff`; document a mirror | step 1 (observed: pulls worked); mirror later |
 | 17 | DNS inside pods across nodes (CoreDNS over the tunnel) | resolves cluster services | step 1: J07 |

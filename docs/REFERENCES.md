@@ -1,12 +1,12 @@
 ---
 tipo: doc
-id: edge-mesh-lab-references
+id: k8s-lan-party-references
 version: 0.1.0
 fecha_alta: 2026-10-19
 fecha_ultimo_cambio: 2026-10-19
 categoria: plataforma
 dueno_agente: casa-orquestador
-pieza: edge-mesh-lab
+pieza: k8s-lan-party
 meta: meta.yml
 depende_de: [docs/DESIGN.md]
 lo_usan: [README.md, docs/DESIGN.md]

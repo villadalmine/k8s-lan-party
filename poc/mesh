@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+# mesh: the host's command line. Thin, deterministic wrappers over nebula-cert, nebula, k3s and kubectl.
+#   mesh host init                         open your game: CA, lighthouse, control plane (API only on the Nebula IP)
+#   mesh host invite <name> [--ttl 2h] [--trust friends|public]   a bundle for one player (cert + config + a join token of 8 min at most)
+#   mesh host players                      who is in: node, Ready, certificate time left (and burns the join token of every registered node)
+#   mesh host burn                         delete the join token of every registered player (a k3s token is not one-time) and refresh the node guard (prints burned N)
+#   mesh host revoke <name>                the one command: blocklist the certificate on every host, reload, delete the node (idempotent)
+#   mesh host kick <name>                  cordon, drain, then revoke, and remove the machine
+#   mesh host refresh <name>               rewrite the Nebula config of a running machine (lh, cp or a player; same certificate) and apply it
+#   mesh host down                         end the game: remove everything
+#   mesh play <name>                       (local simulation only) a player machine joins with "edge-mesh join"
+# Admission with manual approval (docs/ADMISSION.md; the numbers are in pool.yaml, or POOL_CONFIG=<file>):
+#   mesh host request <name> [--ip IP] [--note "text"]   put someone on the waiting list; prints the position, or when they become eligible
+#   mesh host waitlist                     the list, in order (waiting = eligible now, deferred = cooldown or daily cap)
+#   mesh host approve [<name>] [--trust public|friends]  the named one, or the first eligible: checks places and limits, invites
+#                                          with ttl = the lease (the join token: TOKEN_TTL, 8 min at most), records the lease
+#   mesh host reject <name> [--reason "text"]           take a request off the list
+#   mesh host leases                       active leases and the time left
+#   mesh host reap [--all | --name N]      burn, then kick every lease that ended (or all / one now) and free its place; again: "reaped 0"
+#   mesh host admission-status             one line: places used, waiting, next to end
+# The automatic pool (phase B1, docs/ADMISSION.md); the host's timer runs the tick, there is no loop of its own:
+#   mesh host auto --once                  one tick: burn, expel what ended (always), warn at 5 min, and with auto on approve the first
+#                                          eligible ones while a place is free (public bundle into the outbox); idempotent
+#   mesh host auto on|off|status           the switch (state: admission/auto.json; off by default)
+#   mesh host panic [--clear]              the abuse switch: auto off, effective slots 0, every active lease expelled; --clear reopens
+#   mesh host bundle <name>                the approved bundle as admission/outbox/<name>.tar.gz (0600) and the one-line join command
+#   mesh host admission-metrics            Prometheus textfile metrics (no identities)
+#   events: admission/events.jsonl; ADMISSION_NOTIFY_CMD="<command>" is called with <type> <summary> for each one (no shell)
+# The CA key lives in .state/ca/ca.key: back it up; if you lose it you must re-issue every player.
+set -eu
+. "$(dirname "$0")/lib.sh"
+usage() { sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
+[ $# -ge 1 ] || usage
+
+next_ip() { # first free Nebula IP from .5 up (1 lighthouse, 2 control plane, 3 and 4 are the PoC players)
+  local i=5; while [ -d "$STATE/bundles/ip-$i" ] || grep -qs "NODE_IP=10.77.0.$i\$" "$STATE"/bundles/*/join.env; do i=$((i+1)); done; echo "10.77.0.$i"
+}
+
+case "$1 ${2:-}" in
+  "host init") HOST_ONLY=1 "$UP" ;;
+  "host invite")
+    name="${3:-}"; [ -n "$name" ] || usage; ttl=2h; trust=friends; shift 3
+    # the name becomes a node name, a certificate name and a directory (the same rule as admission.py)
+    printf '%s' "$name" | grep -Eqx '[a-z][a-z0-9-]{1,19}' && [ "$(printf '%s' "$name" | wc -l)" -eq 0 ] || { echo "invalid name '$name': 2 to 20 characters, a-z, 0-9 and '-', starting with a letter"; exit 2; }
+    while [ $# -gt 0 ]; do case "$1" in --ttl) ttl="$2"; shift 2 ;; --trust) trust="$2"; shift 2 ;; *) usage ;; esac; done
+    case "$trust" in friends|public) ;; *) echo "trust must be friends or public (own is for your own machines)"; exit 2 ;; esac
+    [ ! -d "$STATE/bundles/$name" ] || { echo "a player called $name already exists"; exit 3; }
+    "$POC/issue.sh" "$name" "$(next_ip)" "$trust" "$ttl" || { rm -rf "$STATE/bundles/$name"; echo "invite failed: nothing was kept, fix the error above and run it again"; exit 1; }
+    # the node guard (poc/node-guard.yaml): only issued names, at their Nebula IP, may register a Node
+    age=$(guard_refresh_age)
+    node_guard || { token_burn "$name" || true; rm -rf "$STATE/bundles/$name"; echo "invite failed: the node guard was not updated; nothing was kept"; exit 1; }
+    # the guard is safe only if it is rewritten every minute while a name waits (docs/ADMISSION.md, "the life of a name"): say so when nothing did
+    [ "$age" -le 90 ] || echo "note: nothing rewrote the node guard in the last 90 s; while invites are open run './mesh host reap' (or 'burn') every minute from a timer (docs/HOST-YOUR-OWN.md)" >&2
+    echo "bundle: $STATE/bundles/$name  (send it privately; it holds the player's key and a join token that works until the node registers or 8 min pass)" ;;
+  "host players")
+    printf '%-12s %-8s %s\n' PLAYER READY CERT-EXPIRES
+    for b in "$STATE"/bundles/*/; do n=$(basename "$b"); case "$n" in lh|cp) continue ;; esac
+      r=$(k get node "$n" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || true)
+      e=$("$CACHE/nebula-cert" print -json -path "$b/host.crt" | python3 -c 'import sys,json;print(json.load(sys.stdin)[0]["details"]["notAfter"])')
+      printf '%-12s %-8s %s\n' "$n" "${r:-no}" "$e"
+      if [ -n "$r" ]; then token_burn "$n" || true; fi   # the node registered: its join token is not needed any more
+    done
+    node_guard >/dev/null 2>&1 || echo "warning: the node guard was not refreshed (run mesh host burn)" ;;
+  "host burn")
+    n=0
+    for b in "$STATE"/bundles/*/; do p=$(basename "$b"); case "$p" in lh|cp) continue ;; esac
+      if k get node "$p" >/dev/null 2>&1 && token_burn "$p"; then n=$((n+1)); fi
+    done
+    # and the node guard drops every issued name whose token expired unused (lib.sh guard_names)
+    node_guard >/dev/null 2>&1 || echo "warning: the node guard was not refreshed (run mesh host burn again)"
+    echo "burned $n" ;;
+  "host revoke")
+    name="${3:-}"; [ -n "$name" ] || usage
+    "$POC/revoke.sh" "$name" ;;
+  "host kick")
+    name="${3:-}"; [ -n "$name" ] || usage
+    k cordon "$name" >/dev/null 2>&1 || true
+    k drain "$name" --ignore-daemonsets --delete-emptydir-data --force --timeout=30s >/dev/null 2>&1 || true
+    "$POC/revoke.sh" "$name"
+    machine_rm "$name" ;;
+  "host refresh")
+    name="${3:-}"; [ -n "$name" ] || usage
+    [ -n "${LH_EXTERNAL:-}" ] && [ "$name" = lh ] && { echo "the lighthouse is external: use poc/lighthouse-vps.sh sync"; exit 2; }
+    old=$(cat "$STATE/bundles/$name/config.yml" 2>/dev/null || true)
+    CONFIG_ONLY=1 "$POC/issue.sh" "$name" x x x >/dev/null || exit $?
+    if [ "$old" = "$(cat "$STATE/bundles/$name/config.yml")" ]; then echo "refresh $name: unchanged"; exit 0; fi
+    # a changed `stats` or `listen` section needs a restart (on cp: k3s stopped first, started again once nebula1 is back); anything else is read on SIGHUP
+    if [ "$(printf '%s\n' "$old" | grep -E '^(stats|listen):' || true)" = "$(grep -E '^(stats|listen):' "$STATE/bundles/$name/config.yml" || true)" ]; then
+      nebula_reload "$name" && echo "refresh $name: config applied (nebula reloaded)"
+    else
+      nebula_restart "$name" && echo "refresh $name: config applied (nebula restarted: stats or listen changed)"
+    fi ;;
+  "host down") "$POC/down.sh" ;;
+  "host request"|"host waitlist"|"host approve"|"host reject"|"host leases"|"host reap"|"host admission-status"|"host auto"|"host panic"|"host bundle"|"host admission-metrics")
+    sub="$2"; shift 2; case "$sub" in admission-status) sub=status ;; admission-metrics) sub=metrics ;; esac
+    exec python3 "$POC/admission.py" --state "$STATE/admission" --config "${POOL_CONFIG:-$POC/pool.yaml}" --mesh "$POC/mesh" "$sub" "$@" ;;
+  "play "*)
+    name="$2"; [ -d "$STATE/bundles/$name" ] || { echo "no bundle for $name: run mesh host invite $name"; exit 3; }
+    ip=$(grep ^NODE_IP= "$STATE/bundles/$name/join.env" | cut -d= -f2); last=${ip##*.}
+    new_container "$name" "172.31.0.$((last + 100))"
+    dx "$name" edge-mesh join /bundle --accept-golden-rule ;;
+  *) usage ;;
+esac

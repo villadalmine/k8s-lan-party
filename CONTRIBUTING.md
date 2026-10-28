@@ -1,7 +1,8 @@
 # Contributing
 
 Adapted from the collaboration standard of `villadalmine/study-cybercirujas` (skill `repo-colaborativo`).
-This is a product in **MVP phase 1** and the repository is private: today contributions are
+This is a product in **MVP phase 1**. The repository is public since 2026-10-27, at an early stage and not announced
+yet, so nothing here promises support or response times beyond the best effort below. Today contributions are
 design reviews, threat-model attacks on the paper, and the proof of concept (PoC). See [docs/DESIGN.md](docs/DESIGN.md).
 
 ## What you can contribute
@@ -47,8 +48,8 @@ anyone can set.
 
 ### Security reports
 
-Do not open a public issue for a vulnerability. Until a `SECURITY.md` exists, send a private message to the
-maintainer (GitHub: @villadalmine). A security report gets a reply within 48 hours.
+Do not open a public issue for a vulnerability. How to report one, and when you get an answer, is in
+[SECURITY.md](SECURITY.md).
 
 ## Check before you push
 
@@ -120,7 +121,7 @@ Best effort by one maintainer, not a contract; written down so nobody has to won
 | First reply to an issue or a pull request from outside the project | 3 working days |
 | Decision: accepted, `triage:needs-info`, or closed with the reason | 7 days |
 | Review of an outside pull request with green CI | 7 days |
-| A security report | 48 hours |
+| A security report | as in [SECURITY.md](SECURITY.md) (first answer within 3 days) |
 | An issue marked `triage:needs-info`: how long the author has to answer | 14 days |
 
 **The queue.** An issue or a pull request from outside the project carries `triage:needed` from the moment it
@@ -149,15 +150,16 @@ Every PR gets an independent review by the `revisor-pr` agent before merging. **
 the merge. Low findings do not become one issue each:** they go to an umbrella issue per area, as sub-issues.
 
 **Merging:** squash merge only, the PR title becomes the single commit on `main` (hence a Conventional Commit),
-the branch is deleted on merge: `gh pr merge N --squash --delete-branch`. Nobody merges their own PR except the
+the branch is deleted on merge: `gh pr merge N --squash --delete-branch`. The merging account keeps its email private, so the
+squash commit carries its noreply address; the `authors` job checks it on every push to `main` (runbook
+[`docs/runbooks/github-proteger-main.md`](docs/runbooks/github-proteger-main.md), Step 3). Nobody merges their own PR except the
 maintainer for maintenance changes; an agent never merges. Chained PRs: merge without deleting the branch,
 re-point the next one to `main` and rebase with `--onto origin/main <old parent>`.
 
 `main` is protected by a ruleset ([`.github/rulesets/main.json`](.github/rulesets/main.json), runbook
 [`docs/runbooks/github-proteger-main.md`](docs/runbooks/github-proteger-main.md)): PR required, checks `verify`
-and `pr-format`, linear history, no force push, no deletion. GitHub does not enforce rulesets on private
-repositories of a free account, so until the repository is public (or the account is upgraded) the same rules
-are followed by hand.
+and `pr-format`, linear history, no force push, no deletion. GitHub enforces it since the repository became public
+on 2026-10-27 (on a free account rulesets need a public repository).
 
 ## Licence
 

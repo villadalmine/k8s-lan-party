@@ -1,17 +1,17 @@
 ---
 tipo: runbook
-id: edge-mesh-lab-github-proteger-main
-version: 1.0.0
+id: k8s-lan-party-github-proteger-main
+version: 1.1.0
 fecha_alta: 2026-10-16
-fecha_ultimo_cambio: 2026-10-16
+fecha_ultimo_cambio: 2026-10-28
 categoria: repo
 dueno_agente: casa-orquestador
-pieza: edge-mesh-lab
+pieza: k8s-lan-party
 meta: meta.yml
 operacion: configurar
 requires_maintainer_ok: si
 riesgo: "bajo (solo configuracion del repo; se deshace igual)"
-desde_donde: "PC del mantenedor, Git Bash, gh logueado como villadalmine"
+desde_donde: "the maintainer's PC, Git Bash, gh logged in as villadalmine"
 depende_de: [gh CLI]
 docs: [CONTRIBUTING.md]
 tags: [github, ruleset, squash, main]
@@ -21,24 +21,29 @@ tags: [github, ruleset, squash, main]
 
 **Where to stand:** the maintainer's PC, Git Bash, `gh` logged in as `villadalmine`.
 
-**Status (2026-10-16): step 1 is applied; step 2 is NOT.** GitHub answers
+**Status (2026-10-27): both steps are applied.** On 2026-10-16 step 2 was not: GitHub answers
 `403 Upgrade to GitHub Pro or make this repository public to enable this feature` to a ruleset or branch
-protection on a private repository of a free account. The ruleset is kept as code in
-[`.github/rulesets/main.json`](../../.github/rulesets/main.json) and is applied the day the repository is public
-(the maintainer's OK) or the account has Pro. Until then the rules are followed by hand: PR only, `verify` and
-`pr-format` green, squash, no force push.
+protection on a private repository of a free account. The repository became public on 2026-10-27 and the ruleset,
+kept as code in [`.github/rulesets/main.json`](../../.github/rulesets/main.json), is `active` since then
+(`gh api repos/villadalmine/k8s-lan-party/rulesets` lists `main`).
+
+**Precondition: the maintainer's account keeps its email private** (github.com/settings/emails, "Keep my email addresses
+private"). A squash merge made from the web or the API is authored with the merging account's email; with the setting on,
+the author is the account's `users.noreply.github.com` address and the committer is `GitHub`. Measured on 2026-10-28 on
+throwaway PRs of a private repository: a rebase merge does not avoid it (GitHub rewrites the committer with the same email),
+so squash only stays.
 
 ## Step 0: backup
 
 ```bash
-gh api repos/villadalmine/edge-mesh-lab > ~/backups/edge-mesh-lab-repo-config-antes.json
-gh api repos/villadalmine/edge-mesh-lab/rulesets > ~/backups/edge-mesh-lab-rulesets-antes.json
+gh api repos/villadalmine/k8s-lan-party > ~/backups/k8s-lan-party-repo-config-antes.json
+gh api repos/villadalmine/k8s-lan-party/rulesets > ~/backups/k8s-lan-party-rulesets-antes.json
 ```
 
 ## Step 1: squash only, PR title as commit, delete the branch on merge, no wiki
 
 ```bash
-gh api -X PATCH repos/villadalmine/edge-mesh-lab -F allow_squash_merge=true -F allow_merge_commit=false \
+gh api -X PATCH repos/villadalmine/k8s-lan-party -F allow_squash_merge=true -F allow_merge_commit=false \
   -F allow_rebase_merge=false -F delete_branch_on_merge=true -F has_wiki=false \
   -f squash_merge_commit_title=PR_TITLE -f squash_merge_commit_message=PR_BODY \
   --jq '.allow_squash_merge,.allow_merge_commit,.allow_rebase_merge,.delete_branch_on_merge'
@@ -49,15 +54,26 @@ Expected: `true false false true`.
 ## Step 2: the ruleset (needs a public repo or Pro)
 
 ```bash
-gh api -X POST repos/villadalmine/edge-mesh-lab/rulesets --input <repo-root>/.github/rulesets/main.json --jq '.id,.enforcement'
+gh api -X POST repos/villadalmine/k8s-lan-party/rulesets --input .github/rulesets/main.json --jq '.id,.enforcement'
 ```
 
-Expected: an id and `active`. Verify: `gh api repos/villadalmine/edge-mesh-lab/rulesets --jq '.[].name'` lists `main`.
+Expected: an id and `active`. Verify: `gh api repos/villadalmine/k8s-lan-party/rulesets --jq '.[].name'` lists `main`.
 Admins (repository role 5) may bypass with a pull request, for an emergency.
+
+## Step 3: after every merge, check the addresses on `main`
+
+```bash
+gh api repos/villadalmine/k8s-lan-party/commits/main   --jq '[.commit.author.email, .commit.committer.email] | map(split("@")[1])'
+```
+
+Expected: `["users.noreply.github.com", "github.com"]` (the committer is `GitHub <noreply@github.com>`). The `authors` job of
+`verify.yml` checks the same on every push to `main` and fails, printing only domains, if a commit of the owner carries
+another address. If it fails, the address is already public in the history (no force push on `main`): turn the setting on
+before the next merge, and say so in the next release notes.
 
 ## Rollback
 
 ```bash
-gh api -X DELETE repos/villadalmine/edge-mesh-lab/rulesets/<id>
-gh api -X PATCH repos/villadalmine/edge-mesh-lab -F allow_merge_commit=true -F allow_rebase_merge=true -F delete_branch_on_merge=false
+gh api -X DELETE repos/villadalmine/k8s-lan-party/rulesets/<id>
+gh api -X PATCH repos/villadalmine/k8s-lan-party -F allow_merge_commit=true -F allow_rebase_merge=true -F delete_branch_on_merge=false
 ```

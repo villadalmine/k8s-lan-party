@@ -23,7 +23,7 @@ Adds the design.
 
 ## Evidence
 ### Where it ran
-- CI: https://github.com/villadalmine/edge-mesh-lab/actions/runs/123
+- CI: https://github.com/villadalmine/k8s-lan-party/actions/runs/123
 ### Known gaps
 none
 
@@ -72,7 +72,7 @@ class CheckPr(unittest.TestCase):
         self.assertTrue(any("columns" in p for p in check_pr.check("docs: x", body)))
 
     def test_where_it_ran_required(self):
-        body = GOOD.replace("github.com/villadalmine/edge-mesh-lab/actions/runs/123", "none")
+        body = GOOD.replace("github.com/villadalmine/k8s-lan-party/actions/runs/123", "none")
         self.assertTrue(any("Where it ran" in p for p in check_pr.check("docs: x", body)))
 
     def test_dco(self):

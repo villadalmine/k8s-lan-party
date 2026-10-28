@@ -1,6 +1,6 @@
 flowchart TB
   subgraph Join["Join: one bundle + one command"]
-    bundle["bundle: Nebula cert + config.yml + one-time k3s token (K10hash)"] --> cmd["edge-mesh join"]
+    bundle["bundle: Nebula cert + config.yml + k3s join token (K10hash)"] --> cmd["edge-mesh join"]
     cmd --> neb["1. Nebula handshake (Noise), cert from our CA"]
     neb --> tok["2. k3s token over TLS, CA pinned"]
     tok --> node["3. node Ready, trust label + taint"]

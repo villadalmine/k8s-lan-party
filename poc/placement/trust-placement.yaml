@@ -1,0 +1,210 @@
+# Trust-based placement (DESIGN.md section 4, golden rule 2). Nodes carry the label node-restriction.kubernetes.io/trust=own|friends|public
+# (a kubelet cannot set it: NodeRestriction) and friends/public nodes carry the taint trust=<level>:NoSchedule from registration.
+# Workloads carry edge-mesh/sensitivity=shareable|private; NO label means private. This file is what makes it a rule and not goodwill:
+#  - a private pod is forced onto `own` nodes (nodeSelector), cannot name another node (nodeName bypasses the scheduler) and cannot
+#    tolerate the shared taints (key `trust`, or an Exists toleration for everything);
+#  - a shareable pod gets a toleration only for the level its owner opted in to (edge-mesh/share-with=friends|public) and has to be
+#    harmless on someone else's machine: no hostPath, no privileged, no host namespaces, no added capabilities, no Secrets, no
+#    service account token, resource limits set.
+# System namespaces are excluded (the Cilium agent, the SPIRE agent and similar daemons must run on every node by design).
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: edge-mesh-placement
+  annotations:
+    pod-policies.kyverno.io/autogen-controllers: none   # the rules see the Pods themselves, whoever creates them
+    policies.kyverno.io/title: Trust-based placement
+spec:
+  background: false
+  failurePolicy: Fail
+  rules:
+  # ---- the label itself ----
+  - name: sensitivity-label-values
+    match: {any: [{resources: {kinds: [Pod]}}]}
+    exclude: {any: [{resources: {namespaces: [kube-system, kyverno, cilium-spire, kube-node-lease, kube-public]}}]}
+    validate:
+      failureAction: Enforce
+      message: "edge-mesh/sensitivity must be `shareable` or `private` (or absent, which means private)."
+      deny:
+        conditions:
+          all:
+          - key: "{{ request.object.metadata.labels.\"edge-mesh/sensitivity\" || 'private' }}"
+            operator: AnyNotIn
+            value: [shareable, private]
+  # ---- private: only on own nodes ----
+  - name: private-forced-onto-own
+    match: {any: [{resources: {kinds: [Pod]}}]}
+    exclude: {any: [{resources: {namespaces: [kube-system, kyverno, cilium-spire, kube-node-lease, kube-public]}}]}
+    preconditions:
+      all:
+      - {key: "{{ request.object.metadata.labels.\"edge-mesh/sensitivity\" || 'private' }}", operator: Equals, value: private}
+    mutate:
+      patchStrategicMerge:
+        spec:
+          nodeSelector:
+            node-restriction.kubernetes.io/trust: own
+  - name: private-cannot-name-a-foreign-node
+    match: {any: [{resources: {kinds: [Pod], operations: [CREATE]}}]}
+    exclude: {any: [{resources: {namespaces: [kube-system, kyverno, cilium-spire, kube-node-lease, kube-public]}}]}
+    context:
+    - name: wanted
+      variable: {jmesPath: "request.object.spec.nodeName || ''"}
+    - name: found
+      apiCall:
+        urlPath: "/api/v1/nodes?fieldSelector=metadata.name={{ wanted }}"
+        jmesPath: "items[0].metadata.labels.\"node-restriction.kubernetes.io/trust\" || 'unknown'"
+    preconditions:
+      all:
+      - {key: "{{ request.object.metadata.labels.\"edge-mesh/sensitivity\" || 'private' }}", operator: Equals, value: private}
+      - {key: "{{ wanted }}", operator: NotEquals, value: ""}
+    validate:
+      failureAction: Enforce
+      message: "A private workload may only run on `own` nodes: spec.nodeName names a node whose trust level is not `own`. What runs on someone else's machine can be seen by its owner (golden rule 1)."
+      deny:
+        conditions:
+          all:
+          - {key: "{{ found }}", operator: NotEquals, value: own}
+  - name: private-cannot-tolerate-shared-taints
+    match: {any: [{resources: {kinds: [Pod]}}]}
+    exclude: {any: [{resources: {namespaces: [kube-system, kyverno, cilium-spire, kube-node-lease, kube-public]}}]}
+    preconditions:
+      all:
+      - {key: "{{ request.object.metadata.labels.\"edge-mesh/sensitivity\" || 'private' }}", operator: Equals, value: private}
+    validate:
+      failureAction: Enforce
+      message: "A private workload cannot tolerate the `trust` taints (neither by key nor with an Exists toleration for every taint). Label it edge-mesh/sensitivity=shareable and edge-mesh/share-with=friends|public if it is meant to run on shared nodes."
+      deny:
+        conditions:
+          all:
+          - key: "{{ length(request.object.spec.tolerations[?key=='trust' || (operator=='Exists' && !key)] || `[]`) }}"
+            operator: GreaterThan
+            value: 0
+  # ---- shareable: tolerations only for the level the owner opted in to ----
+  - name: shareable-friends-tolerations-new
+    match: {any: [{resources: {kinds: [Pod]}}]}
+    exclude: {any: [{resources: {namespaces: [kube-system, kyverno, cilium-spire, kube-node-lease, kube-public]}}]}
+    preconditions:
+      all:
+      - {key: "{{ request.object.metadata.labels.\"edge-mesh/sensitivity\" || 'private' }}", operator: Equals, value: shareable}
+      - {key: "{{ request.object.metadata.labels.\"edge-mesh/share-with\" || '' }}", operator: Equals, value: friends}
+      - {key: "{{ length(request.object.spec.tolerations || `[]`) }}", operator: Equals, value: 0}
+    mutate:
+      patchesJson6902: |-
+        - {op: add, path: /spec/tolerations, value: [{key: trust, operator: Equal, value: friends, effect: NoSchedule}]}
+  - name: shareable-friends-tolerations-append
+    match: {any: [{resources: {kinds: [Pod]}}]}
+    exclude: {any: [{resources: {namespaces: [kube-system, kyverno, cilium-spire, kube-node-lease, kube-public]}}]}
+    preconditions:
+      all:
+      - {key: "{{ request.object.metadata.labels.\"edge-mesh/sensitivity\" || 'private' }}", operator: Equals, value: shareable}
+      - {key: "{{ request.object.metadata.labels.\"edge-mesh/share-with\" || '' }}", operator: Equals, value: friends}
+      - {key: "{{ length(request.object.spec.tolerations || `[]`) }}", operator: GreaterThan, value: 0}
+    mutate:
+      patchesJson6902: |-
+        - {op: add, path: /spec/tolerations/-, value: {key: trust, operator: Equal, value: friends, effect: NoSchedule}}
+  - name: shareable-public-tolerations-new
+    match: {any: [{resources: {kinds: [Pod]}}]}
+    exclude: {any: [{resources: {namespaces: [kube-system, kyverno, cilium-spire, kube-node-lease, kube-public]}}]}
+    preconditions:
+      all:
+      - {key: "{{ request.object.metadata.labels.\"edge-mesh/sensitivity\" || 'private' }}", operator: Equals, value: shareable}
+      - {key: "{{ request.object.metadata.labels.\"edge-mesh/share-with\" || '' }}", operator: Equals, value: public}
+      - {key: "{{ length(request.object.spec.tolerations || `[]`) }}", operator: Equals, value: 0}
+    mutate:
+      patchesJson6902: |-
+        - {op: add, path: /spec/tolerations, value: [{key: trust, operator: Equal, value: friends, effect: NoSchedule}, {key: trust, operator: Equal, value: public, effect: NoSchedule}]}
+  - name: shareable-public-tolerations-append
+    match: {any: [{resources: {kinds: [Pod]}}]}
+    exclude: {any: [{resources: {namespaces: [kube-system, kyverno, cilium-spire, kube-node-lease, kube-public]}}]}
+    preconditions:
+      all:
+      - {key: "{{ request.object.metadata.labels.\"edge-mesh/sensitivity\" || 'private' }}", operator: Equals, value: shareable}
+      - {key: "{{ request.object.metadata.labels.\"edge-mesh/share-with\" || '' }}", operator: Equals, value: public}
+      - {key: "{{ length(request.object.spec.tolerations || `[]`) }}", operator: GreaterThan, value: 0}
+    mutate:
+      patchesJson6902: |-
+        - {op: add, path: /spec/tolerations/-, value: {key: trust, operator: Equal, value: friends, effect: NoSchedule}}
+        - {op: add, path: /spec/tolerations/-, value: {key: trust, operator: Equal, value: public, effect: NoSchedule}}
+  # ---- shareable: harmless on somebody else's machine ----
+  - name: shareable-no-hostpath
+    match: {any: [{resources: {kinds: [Pod]}}]}
+    exclude: {any: [{resources: {namespaces: [kube-system, kyverno, cilium-spire, kube-node-lease, kube-public]}}]}
+    preconditions:
+      all:
+      - {key: "{{ request.object.metadata.labels.\"edge-mesh/sensitivity\" || 'private' }}", operator: Equals, value: shareable}
+    validate:
+      failureAction: Enforce
+      message: "A shareable workload cannot use hostPath volumes."
+      deny:
+        conditions:
+          all:
+          - {key: "{{ length(request.object.spec.volumes[?hostPath] || `[]`) }}", operator: GreaterThan, value: 0}
+  - name: shareable-no-privileged-or-capabilities
+    match: {any: [{resources: {kinds: [Pod]}}]}
+    exclude: {any: [{resources: {namespaces: [kube-system, kyverno, cilium-spire, kube-node-lease, kube-public]}}]}
+    preconditions:
+      all:
+      - {key: "{{ request.object.metadata.labels.\"edge-mesh/sensitivity\" || 'private' }}", operator: Equals, value: shareable}
+    validate:
+      failureAction: Enforce
+      message: "A shareable workload cannot be privileged, add Linux capabilities or allow privilege escalation."
+      deny:
+        conditions:
+          any:
+          - {key: "{{ length(request.object.spec.containers[?securityContext.privileged == `true` || securityContext.allowPrivilegeEscalation == `true` || securityContext.capabilities.add] || `[]`) }}", operator: GreaterThan, value: 0}
+          - {key: "{{ length(request.object.spec.initContainers[?securityContext.privileged == `true` || securityContext.allowPrivilegeEscalation == `true` || securityContext.capabilities.add] || `[]`) }}", operator: GreaterThan, value: 0}
+  - name: shareable-no-host-namespaces
+    match: {any: [{resources: {kinds: [Pod]}}]}
+    exclude: {any: [{resources: {namespaces: [kube-system, kyverno, cilium-spire, kube-node-lease, kube-public]}}]}
+    preconditions:
+      all:
+      - {key: "{{ request.object.metadata.labels.\"edge-mesh/sensitivity\" || 'private' }}", operator: Equals, value: shareable}
+    validate:
+      failureAction: Enforce
+      message: "A shareable workload cannot use the host network, PID or IPC namespaces."
+      deny:
+        conditions:
+          any:
+          - {key: "{{ request.object.spec.hostNetwork || `false` }}", operator: Equals, value: true}
+          - {key: "{{ request.object.spec.hostPID || `false` }}", operator: Equals, value: true}
+          - {key: "{{ request.object.spec.hostIPC || `false` }}", operator: Equals, value: true}
+  - name: shareable-no-secrets-no-token
+    match: {any: [{resources: {kinds: [Pod]}}]}
+    exclude: {any: [{resources: {namespaces: [kube-system, kyverno, cilium-spire, kube-node-lease, kube-public]}}]}
+    preconditions:
+      all:
+      - {key: "{{ request.object.metadata.labels.\"edge-mesh/sensitivity\" || 'private' }}", operator: Equals, value: shareable}
+    validate:
+      failureAction: Enforce
+      message: "A shareable workload cannot use Secrets (volume, secretKeyRef, envFrom) and must set automountServiceAccountToken: false: the node's owner can read both."
+      deny:
+        conditions:
+          any:
+          - {key: "{{ length(request.object.spec.volumes[?secret] || `[]`) }}", operator: GreaterThan, value: 0}
+          - {key: "{{ length(request.object.spec.containers[].env[?valueFrom.secretKeyRef] || `[]`) }}", operator: GreaterThan, value: 0}
+          - {key: "{{ length(request.object.spec.containers[].envFrom[?secretRef] || `[]`) }}", operator: GreaterThan, value: 0}
+          - {key: "{{ to_string(request.object.spec.automountServiceAccountToken) }}", operator: NotEquals, value: "false"}
+  - name: shareable-resource-limits
+    match: {any: [{resources: {kinds: [Pod]}}]}
+    exclude: {any: [{resources: {namespaces: [kube-system, kyverno, cilium-spire, kube-node-lease, kube-public]}}]}
+    preconditions:
+      all:
+      - {key: "{{ request.object.metadata.labels.\"edge-mesh/sensitivity\" || 'private' }}", operator: Equals, value: shareable}
+    validate:
+      failureAction: Enforce
+      message: "A shareable workload must set cpu and memory limits on every container."
+      deny:
+        conditions:
+          all:
+          - {key: "{{ length(request.object.spec.containers[?resources.limits.cpu == `null` || resources.limits.memory == `null`] || `[]`) }}", operator: GreaterThan, value: 0}
+---
+# Kyverno reads Node labels (apiCall) to judge spec.nodeName: let its admission controller GET/LIST nodes.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: edge-mesh-kyverno-read-nodes
+  labels: {rbac.kyverno.io/aggregate-to-admission-controller: "true"}
+rules:
+- apiGroups: [""]
+  resources: [nodes]
+  verbs: [get, list, watch]

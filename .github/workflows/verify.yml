@@ -41,6 +41,37 @@ jobs:
             echo "::error::key-shaped string in the tree"; exit 1
           fi
 
+  authors:
+    # On main: every commit authored or committed by the repository owner carries a noreply address. A squash
+    # merge from the API uses the merging account's email, so the owner's account must keep its email private
+    # (runbook docs/runbooks/github-proteger-main.md, precondition and Step 3). A contributor's own address is
+    # theirs to choose and is not checked. Only domains are printed, never an address.
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          OWNER: ${{ github.repository_owner }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+        run: |
+          range="$BEFORE...$AFTER"; [ -z "${BEFORE//0/}" ] && range="$AFTER~1...$AFTER"
+          # fail closed: if the commits cannot be read, the job fails (no "OK" on an error)
+          bad="$(gh api "repos/$REPO/compare/$range" --jq '.commits[]
+            | select(.author.login == env.OWNER or .committer.login == env.OWNER)
+            | select([.commit.author.email, .commit.committer.email]
+                     | all(endswith("@users.noreply.github.com") or . == "noreply@github.com") | not)
+            | "\(.sha[0:7]) author @\(.commit.author.email | split("@")[1]) committer @\(.commit.committer.email | split("@")[1])"')"             || { echo "::error::could not read the commits of $range"; exit 1; }
+          if [ -n "$bad" ]; then
+            echo "::error::commits of the owner on main without a noreply address (keep the account's email private):"
+            echo "$bad"; exit 1
+          fi
+          echo "authors OK ($range)"
+
   pr-format:
     # The PR description is part of the change: required sections, a Conventional Commit title, a
     # declared scope, declared provenance and a DCO sign-off on every commit. Offline, no model.
@@ -50,7 +81,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
-      actions: read          # the cited run and its jobs (needed because the repository is private)
+      actions: read          # the cited run and its jobs (a permissions block grants nothing it does not list)
     steps:
       - uses: actions/checkout@v4
         with:

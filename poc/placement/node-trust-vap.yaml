@@ -1,0 +1,26 @@
+# A node can carry the label trust=friends|public only while it also carries the matching NoSchedule taint, and cannot lose the taint
+# while labelled. The label is set by the issuing side after the join (a kubelet cannot set it); the taint is set at registration
+# (edge-mesh join, TAINT=yes). Both halves are needed: a label without the taint would let private pods land there.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata: {name: edge-mesh-node-trust}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+    - {apiGroups: [""], apiVersions: ["v1"], operations: [CREATE, UPDATE], resources: ["nodes"]}
+  variables:
+  - name: level
+    expression: "has(object.metadata.labels) && 'node-restriction.kubernetes.io/trust' in object.metadata.labels ? object.metadata.labels['node-restriction.kubernetes.io/trust'] : ''"
+  validations:
+  - expression: "variables.level in ['', 'own', 'friends', 'public']"
+    message: "node-restriction.kubernetes.io/trust must be own, friends or public."
+  - expression: "variables.level in ['', 'own'] || (has(object.spec.taints) && object.spec.taints.exists(t, t.key == 'trust' && t.value == variables.level && t.effect == 'NoSchedule'))"
+    message: "A friends or public node must carry the taint trust=<level>:NoSchedule before (and while) it is labelled with that level."
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata: {name: edge-mesh-node-trust}
+spec:
+  policyName: edge-mesh-node-trust
+  validationActions: [Deny]

@@ -1,0 +1,43 @@
+# The node guard: a kubelet may register or update a Node only under the name of a bundle the host issued and has not revoked, and
+# only with that bundle's Nebula IP as its InternalIP. The list (name -> Nebula IP) is the ConfigMap kube-system/edge-mesh-nodes,
+# rewritten from the live bundles by `mesh host invite` and by revoke.sh (lib.sh node_guard). It stops a copy of a bundle, started on
+# a second machine before its join token was burned, from registering under a name or an address of its own choosing (a plain
+# `k3s agent`, a LAN address, a second address). Without the list every kubelet is refused (parameterNotFoundAction: Deny), so the
+# list is always written before this policy is applied. Only kubelets (users system:node:*) are matched; the host is not.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: edge-mesh-node-guard
+spec:
+  failurePolicy: Fail
+  paramKind:
+    apiVersion: v1
+    kind: ConfigMap
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["nodes", "nodes/status"]
+  matchConditions:
+    - name: kubelets-only
+      expression: "request.userInfo.username.startsWith('system:node:')"
+  validations:
+    - expression: "has(params.data) && object.metadata.name in params.data"
+      message: "this node name is not an issued bundle (edge-mesh node guard)"
+    - expression: >-
+        !has(params.data) || !(object.metadata.name in params.data) || !has(object.status) || !has(object.status.addresses) ||
+        object.status.addresses.all(a, a.type != 'InternalIP' || a.address == params.data[object.metadata.name])
+      message: "a node may only report the Nebula IP of its own bundle as InternalIP (edge-mesh node guard)"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: edge-mesh-node-guard
+spec:
+  policyName: edge-mesh-node-guard
+  validationActions: [Deny]
+  paramRef:
+    name: edge-mesh-nodes
+    namespace: kube-system
+    parameterNotFoundAction: Deny

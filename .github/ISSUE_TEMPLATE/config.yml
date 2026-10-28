@@ -1,11 +1,11 @@
 blank_issues_enabled: false
 contact_links:
   - name: Ask a question (Discussions)
-    url: https://github.com/villadalmine/edge-mesh-lab/discussions/categories/q-a
+    url: https://github.com/villadalmine/k8s-lan-party/discussions/categories/q-a
     about: "How do I...? Not a bug and not a proposal: ask here, the answers help the next person."
   - name: How issues are handled (response times)
-    url: https://github.com/villadalmine/edge-mesh-lab/blob/main/CONTRIBUTING.md#triage-and-response-times
+    url: https://github.com/villadalmine/k8s-lan-party/blob/main/CONTRIBUTING.md#triage-and-response-times
     about: "First reply in 3 days, a decision in 7, and what needs-info and stale mean."
   - name: Security problem
-    url: https://github.com/villadalmine/edge-mesh-lab/blob/main/CONTRIBUTING.md#security-reports
-    about: "Do not open a public issue for a vulnerability: read how to report it."
+    url: https://github.com/villadalmine/k8s-lan-party/blob/main/SECURITY.md
+    about: "Do not open a public issue for a vulnerability: report it privately, as SECURITY.md says."
