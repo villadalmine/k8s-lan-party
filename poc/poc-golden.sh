@@ -45,7 +45,8 @@ cp_curl() { # curl from inside the control plane's network namespace (the only p
 }
 cp_tcpdump() { # cp_tcpdump <seconds> <tcpdump args...>: a capture in the control plane machine
   local s="$1"; shift
-  if [ "$RUNTIME" = incus ]; then dx cp timeout "$s" tcpdump "$@"
+  # the outer timeout: an incus exec whose agent stalls (seen on a loaded host) must not hang the suite
+  if [ "$RUNTIME" = incus ]; then timeout $((s + 20)) incus exec "emesh-$(vmname cp)" -- timeout "$s" tcpdump "$@"
   else docker run --rm --network container:cp --cap-add NET_ADMIN --cap-add NET_RAW "$NETSHOOT_IMAGE" timeout "$s" tcpdump "$@"; fi
 }
 fp_of() { "$CACHE/nebula-cert" print -json -path "$STATE/bundles/$1/host.crt" | python3 -c 'import sys,json;print(json.load(sys.stdin)[0]["fingerprint"])'; }
