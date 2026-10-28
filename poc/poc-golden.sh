@@ -223,22 +223,11 @@ g5_idempotent() {
 }
 
 # ---- rule 6: the API is never public ----
-g6_listens_on_nebula_only() { # every listening socket on 6443 in the control plane is bound to its Nebula IP
-  local out; out=$(cpx cat /proc/net/tcp /proc/net/tcp6 | python3 -c '
-import sys, socket, struct
-for line in sys.stdin:
-    f = line.split()
-    if len(f) < 4 or f[3] != "0A" or ":" not in f[1]:
-        continue
-    addr, port = f[1].rsplit(":", 1)
-    if int(port, 16) != 6443:
-        continue
-    if len(addr) == 8:
-        print(socket.inet_ntoa(struct.pack("<I", int(addr, 16))))
-    else:
-        print("ipv6:" + addr)
-')
-  echo "6443 listens on: ${out:-nothing}"; [ "$out" = "$CP_NEB" ]
+g6_listens_on_nebula_only() { # every socket listening on 6443 in the control plane is bound to its Nebula IP or to loopback (k3s's own local
+  # listener, which nothing outside the machine reaches); none to an underlay address or to every address
+  local all out; all=$(cpx cat /proc/net/tcp /proc/net/tcp6 | python3 "$POC/golden.py" listeners 6443) || return 1
+  out=$(echo "$all" | grep -vxE '127\.[0-9.]+|::1' | sort -u | tr '\n' ' ')
+  echo "6443 listens on: $(echo "$all" | tr '\n' ' ')"; [ "$out" = "$CP_NEB " ]
 }
 g6_not_outside() { # from this machine, outside the mesh, the control plane's underlay address does not answer on 6443; the Nebula IP does
   local outside inside; outside=$(curl -sk -m4 -o /dev/null -w '%{http_code}' "https://$CP_UNDERLAY:6443/readyz"); inside=$(cp_curl -sk -m4 -o /dev/null -w '%{http_code}' "https://$CP_NEB:6443/readyz")
