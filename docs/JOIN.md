@@ -1,9 +1,9 @@
 ---
 tipo: runbook
 id: k8s-lan-party-join
-version: 0.2.0
+version: 0.3.0
 fecha_alta: 2026-10-21
-fecha_ultimo_cambio: 2026-10-21
+fecha_ultimo_cambio: 2026-10-28
 categoria: plataforma
 dueno_agente: casa-orquestador
 pieza: k8s-lan-party
@@ -18,7 +18,9 @@ tags: [join, participante, bundle]
 
 # Join a game
 
-You received a **bundle** from a host. One bundle, one command. Read the golden rule first, because the command makes you accept it:
+You received a **bundle** from a host. One bundle, one command.
+
+**A regular of the maintainer's game** (trust `friends`, not the 1 h pool) asks for the bundle by a signed pull request instead: [participants/README.md](../participants/README.md). The bundle then arrives encrypted (`<login>.age`), holds no private key (you made yours) and is opened with `participants.py open`; the join below is the same. Read the golden rule first, because the command makes you accept it:
 
 > What runs on someone else's machine can be seen by its owner. Nothing encrypts a pod from the owner of the node it runs on. Keep
 > private things on your own machine. ([GOLDEN-RULES.md](GOLDEN-RULES.md))
