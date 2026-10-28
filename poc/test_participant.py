@@ -36,12 +36,23 @@ class ManifestsTest(unittest.TestCase):
         self.k = kinds(manifests("alice", CFG))
 
     def test_every_object_lives_in_play_alice_and_is_labelled(self):
-        self.assertEqual(sorted(self.k), ["LimitRange", "Namespace", "ResourceQuota", "Role", "RoleBinding", "ServiceAccount"])
+        self.assertEqual(sorted(self.k), ["LimitRange", "Namespace", "NetworkPolicy", "ResourceQuota", "Role", "RoleBinding",
+                                          "ServiceAccount"])
         self.assertEqual(self.k["Namespace"]["metadata"]["name"], "play-alice")
         for kind, obj in self.k.items():
             if kind != "Namespace":
                 self.assertEqual(obj["metadata"]["namespace"], "play-alice", kind)
             self.assertEqual(obj["metadata"]["labels"]["edge-mesh/participant"], "alice", kind)
+
+    def test_the_network_policy_keeps_other_namespaces_out_and_lets_only_dns_out(self):
+        spec = self.k["NetworkPolicy"]["spec"]
+        self.assertEqual((spec["podSelector"], spec["policyTypes"]), ({}, ["Ingress", "Egress"]))
+        self.assertEqual(spec["ingress"], [{"from": [{"podSelector": {}}]}])      # the same namespace only
+        same, dns = spec["egress"]
+        self.assertEqual(same, {"to": [{"podSelector": {}}]})
+        self.assertEqual(dns["to"], [{"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "kube-system"}},
+                                      "podSelector": {"matchLabels": {"k8s-app": "kube-dns"}}}])
+        self.assertEqual({p["port"] for p in dns["ports"]}, {53})
 
     def test_pod_security_restricted_is_enforced(self):
         labels = self.k["Namespace"]["metadata"]["labels"]

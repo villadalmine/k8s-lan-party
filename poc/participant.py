@@ -4,7 +4,9 @@
 Every invited player gets one namespace, `play-<name>`, and a kubeconfig of their own next to the node credential in the bundle:
 
 - the namespace carries the labels `edge-mesh/participant=<name>` and Pod Security `restricted` (enforced: no privileged pod, no host
-  path, no host network, non-root), a ResourceQuota and a LimitRange with the numbers of pool.yaml (no LoadBalancer, no NodePort);
+  path, no host network, non-root), a ResourceQuota and a LimitRange with the numbers of pool.yaml (no LoadBalancer, no NodePort),
+  and a NetworkPolicy: its pods talk to each other and to the cluster DNS, nothing else, and nothing from another namespace reaches them;
+  the participant guard (participant-policy.yaml) keeps its private pods on the player's own node;
 - a ServiceAccount `user` bound by a Role to that namespace only: pods (logs, exec), deployments, services and configmaps; read-only
   events, replicasets, its quota and its limits. No secrets, no nodes, nothing cluster-wide, no RBAC, no CRDs;
 - the kubeconfig holds a token of that ServiceAccount made with the TokenRequest API (`kubectl create token`) for exactly the length of the
@@ -94,6 +96,14 @@ def manifests(name: str, cfg: dict) -> dict:
             # object counts: etcd is the host's, and a player may not fill it
             "configmaps": str(q["quota_configmaps"]), "count/deployments.apps": str(q["quota_deployments"]),
             "persistentvolumeclaims": "0"}}},
+        # one player's pods talk only to each other and to the cluster DNS; nothing from another namespace reaches them
+        {"apiVersion": "networking.k8s.io/v1", "kind": "NetworkPolicy", "metadata": {"name": "pool", **meta}, "spec": {
+            "podSelector": {}, "policyTypes": ["Ingress", "Egress"],
+            "ingress": [{"from": [{"podSelector": {}}]}],
+            "egress": [{"to": [{"podSelector": {}}]},
+                       {"to": [{"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "kube-system"}},
+                                "podSelector": {"matchLabels": {"k8s-app": "kube-dns"}}}],
+                        "ports": [{"protocol": "UDP", "port": 53}, {"protocol": "TCP", "port": 53}]}]}},
         {"apiVersion": "v1", "kind": "LimitRange", "metadata": {"name": "pool", **meta}, "spec": {"limits": [{
             "type": "Container",
             "default": {"cpu": f"{q['limit_default_cpu_millis']}m", "memory": f"{q['limit_default_memory_mib']}Mi",
