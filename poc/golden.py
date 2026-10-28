@@ -119,7 +119,7 @@ def main(argv: list[str]) -> int:
     args = ap.parse_args(argv)
     if args.cmd == "table":
         doc = Path(args.doc)
-        doc.write_text(update(doc.read_text(), args.env, read_results(args.results)))
+        doc.write_text(update(doc.read_text(), args.env, read_results(args.results)), newline="")
         print(f"table updated: column '{args.env}' in {args.doc}")
     elif args.cmd == "audit":
         trust = dict(x.split("=", 1) for x in args.trust.split())

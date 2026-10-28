@@ -7,7 +7,7 @@ BASE     ?= origin/main
 PR_BODY  ?=
 PR_TITLE ?=
 
-.PHONY: poc-lighthouse poc-cilium help labels-check test verify-ci pr-check install-hooks uninstall-hooks poc-join poc-host poc-weakness poc-down poc-ca poc-placement poc-kind poc-vm poc-revoke poc-admission poc-admission-auto
+.PHONY: poc-lighthouse poc-cilium help labels-check test verify-ci pr-check install-hooks uninstall-hooks poc-join poc-host poc-weakness poc-down poc-ca poc-placement poc-kind poc-vm poc-revoke poc-admission poc-admission-auto poc-golden
 
 help:
 	@grep -E '^[a-z-]+:.*##' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-14s %s\n", $$1, $$2}'
@@ -76,3 +76,6 @@ poc-admission: ## admission with manual approval (docs/ADMISSION.md): request, a
 
 poc-admission-auto: ## the automatic pool (phase B1, docs/ADMISSION.md): one tick approves, expels at lease end and promotes the next; switch, panic, daily cap, notify hook; needs Incus
 	poc/poc-admission-auto.sh
+
+poc-golden: ## issue #23: one check per golden rule against the game this machine hosts (yours or a stranger's); GOLDEN_ENV="<column>" writes the table in docs/POC-STATUS.md
+	poc/poc-golden.sh
