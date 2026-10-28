@@ -51,7 +51,8 @@ it**. `poc/.state/poc.log` has the detail of the last run of any PoC script (`/t
 - **Fix:** the PoC uses `10.77.0.0/24`. Do not choose `10.42.x.x`.
 
 ### Nodes are NotReady, `kubectl logs/exec` fails, pods on other nodes are unreachable after narrowing the firewall
-- **Cause:** a port outside the allow-list. The list is ICMP, TCP 6443, TCP 10250 (from group `control-plane`), UDP 51871, and UDP 8472 only with flannel.
+- **Cause:** a port outside the allow-list. The list is ICMP (any host), TCP 10250 (from group `control-plane`), and TCP 6443, UDP 51871 and UDP 8472
+  (8472 only with flannel) from the groups `own`, `friends` and `public`: a host whose certificate has none of them (the lighthouse) gets ICMP only.
 - **Diagnose:** run the capture the suite uses (`underlay_ports` in `poc/checks-cilium.sh`: tcpdump on `nebula1` while pods talk) and compare. A
   *dropped* packet never appears on `nebula1`; look at the sender's side. `FW=open` (any/any) as a bisection tool, never to keep.
 - **Fix:** add the port in `issue.sh` (`INBOUND`). Not needed with Cilium and node encryption: TCP 4240 and TCP 4250.

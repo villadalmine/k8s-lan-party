@@ -1,0 +1,22 @@
+# The public page behind Caddy (docs/PUBLIC-PAGE.md). One site block for /etc/caddy/conf.d/ (the main Caddyfile has
+# `import /etc/caddy/conf.d/*.caddy`). poc/page/page-server.sh writes it with your site address in place of page.example.org;
+# by hand: copy it, change the address, `caddy validate`, `systemctl reload caddy`. Caddy gets the certificate (ACME) by itself;
+# the lab uses `tls internal` instead (a private CA: the page has no name in public DNS there).
+page.example.org {
+	# @TLS@
+	request_body {
+		max_size 16KB
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		-Server
+	}
+	# Caddy replaces any X-Forwarded-For the client sent with the address it sees; the page believes the header only from the loopback
+	reverse_proxy 127.0.0.1:8088 {
+		header_up X-Forwarded-For {remote_host}
+		transport http {
+			dial_timeout 5s
+			response_header_timeout 15s
+		}
+	}
+}

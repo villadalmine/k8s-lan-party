@@ -90,7 +90,7 @@ IP (`10.77.0.2` in the PoC).
 | Allowed inbound | Used by |
 | :--- | :--- |
 | ICMP | health, `ping` |
-| **TCP 6443** (any host) | the k3s API and supervisor |
+| **TCP 6443** (members only: groups `own`, `friends`, `public`; never the lighthouse) | the k3s API and supervisor |
 | **TCP 10250** (only from group `control-plane`) | kubelet (`logs`, `exec`) |
 | **UDP 51871** | Cilium WireGuard (pod-to-pod and node-to-node) |
 | **UDP 8472** | flannel VXLAN, only when flannel is the CNI (step 1); not needed with Cilium |

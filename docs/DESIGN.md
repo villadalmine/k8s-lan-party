@@ -247,10 +247,11 @@ peering policy has a `nodeSelector` for `own` nodes, and the IP pools select Ser
 issued automatically. The encryption layers do not conflict because each protects a different stretch: client to
 gateway (TLS), gateway to pods (WireGuard, plus mutual auth where asked), and Nebula underneath everything.
 
-**The public lighthouse** is today a full member of the mesh: it has a `nebula1` address, outbound `any`, and every host accepts `tcp/6443` from any
-member, so a compromised lighthouse server can reach the Kubernetes API over Nebula (authentication still applies). A lighthouse only has to introduce
-hosts; running it with `tun: {disabled: true}` (and checking its liveness with `lighthouse-vps.sh verify` instead of a ping over the mesh) removes that
-reach. Not done yet: tracked as a hardening follow-up (issue #20).
+**The public lighthouse** is a member of the mesh: it has a `nebula1` address and outbound `any`. Since 2026-10-28 every host accepts `tcp/6443`,
+WireGuard and VXLAN only from the member groups (`own`, `friends`, `public`), one rule per group, so a compromised lighthouse server reaches the hosts with
+ICMP only and never the Kubernetes API (`make poc-page` G10; the same server may carry the public page, ADMISSION.md B2). A lighthouse only has to
+introduce hosts; running it with `tun: {disabled: true}` as well (and checking its liveness with `lighthouse-vps.sh verify` instead of a ping over the
+mesh) is a hardening follow-up (issue #20).
 
 ## 7. Risks to prove in the PoC
 

@@ -1,0 +1,11 @@
+# Every minute, a few seconds after the admission tick (emesh-admission.timer fires at :00). docs/PUBLIC-PAGE.md
+[Unit]
+Description=k8s-lan-party: the public page's puller, every minute
+
+[Timer]
+OnCalendar=*-*-* *:*:20
+AccuracySec=5s
+Persistent=true
+
+[Install]
+WantedBy=timers.target

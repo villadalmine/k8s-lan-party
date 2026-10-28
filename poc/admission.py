@@ -24,7 +24,7 @@ grant more than the slots. Time is injectable (`--now <epoch seconds>`): the uni
 
     admission.py --state DIR --config pool.yaml [--mesh poc/mesh] [--now N] <command> ...
       request <name> [--ip IP] [--peer IP --xff CHAIN] [--note TEXT]
-      waitlist | leases | status | metrics
+      waitlist | leases | status [--json] | metrics
       approve [<name>] [--trust public|friends]
       reject <name> [--reason TEXT]
       reap [--all | --name NAME]
@@ -660,6 +660,25 @@ def metrics(cfg: dict, led: Ledger, auto: dict, state_dir: Path) -> str:
     return "\n".join(out)
 
 
+def status_json(cfg: dict, led: Ledger, auto: dict) -> dict:
+    """`status --json`: the numbers of the status line and every request by name, for the public page's puller (poc/page/puller.py),
+    which runs on the host and publishes only numbers and each visitor's own position. Not for publishing as it is: it has names."""
+    opened = led.open()
+    ends = {l["id"]: l["end"] for l in led.pool.leases}
+    reqs = []
+    for r in led.requests:
+        item = {"name": r["name"], "state": r["state"], "eligible_at": r.get("eligible_at", 0), "why": r.get("why", "")}
+        if r["state"] in OPEN:
+            item["position"] = opened.index(r) + 1
+        if r.get("lease") in ends:
+            item["lease_end"] = ends[r["lease"]]
+        reqs.append(item)
+    return {"now": led.now, "auto": auto["enabled"], "panic": auto["panic"], "slots_total": cfg["slots"],
+            "slots_used": len(led.pool.leases), "lease_seconds": cfg["lease_seconds"], "waiting": len(opened),
+            "eligible": len([r for r in opened if r["state"] == "waiting"]),
+            "leases": [{"name": l.get("name", ""), "end": l["end"]} for l in led.due(everyone=True)], "requests": reqs}
+
+
 def run(a, cfg: dict) -> int:
     d = Path(a.state)
     after: list = []
@@ -817,6 +836,8 @@ def command(a, cfg: dict, led: Ledger, auto: dict, state_dir: Path) -> int:
         print(f"join: {join_line(name)}")
     elif a.cmd == "metrics":
         print(metrics(cfg, led, auto, state_dir))
+    elif getattr(a, "json", False):
+        print(json.dumps(status_json(cfg, led, auto), sort_keys=True))
     else:
         print(led.status_line())
     return 0
@@ -849,7 +870,8 @@ def main(argv: list[str] | None = None) -> int:
     g = p.add_mutually_exclusive_group()
     g.add_argument("--all", action="store_true", help="end every lease now")
     g.add_argument("--name", help="end this one lease now")
-    sub.add_parser("status")
+    p = sub.add_parser("status")
+    p.add_argument("--json", action="store_true", help="the numbers and every request by name, as JSON (for the page's puller)")
     p = sub.add_parser("auto")
     p.add_argument("action", nargs="?", choices=["on", "off", "status"])
     p.add_argument("--once", action="store_true", help="one tick (the host's timer runs it every minute)")
