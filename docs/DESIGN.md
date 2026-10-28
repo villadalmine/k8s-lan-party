@@ -243,6 +243,16 @@ peering policy has a `nodeSelector` for `own` nodes, and the IP pools select Ser
 issued automatically. The encryption layers do not conflict because each protects a different stretch: client to
 gateway (TLS), gateway to pods (WireGuard, plus mutual auth where asked), and Nebula underneath everything.
 
+**How the PoC builds it (`make poc-bgp`, issue #13).** The gateway is Envoy Gateway: its controller and its Envoy proxies (an `EnvoyProxy`
+with `nodeSelector` on the trust label) run only on `own` nodes, and so do cert-manager and the backend. The listener's certificate comes from
+the `Gateway` itself (`cert-manager.io/cluster-issuer` annotation; a local CA in the test, ACME in real life): nobody writes a `Certificate`.
+Cilium's BGP control plane is on, with a `CiliumBGPClusterConfig` whose `nodeSelector` is `trust=own`: a remote node gets no BGP instance at
+all. Three things keep it that way, each tested: a kubelet cannot set the `node-restriction.kubernetes.io/` label on its own Node; the Cilium
+agent's token (which a remote owner can read from his disk) may not write any BGP object, the pool, a Node or a Service; and the edge router
+peers only with the addresses of `own` nodes, so root on a remote machine that speaks BGP to it gets no session. The test router is an FRR
+container in the test's own network; the real router is configured by the maintainer, never by a test. The AI part (model routes, token
+limits) sits on top of this gateway later (Envoy AI Gateway extends Envoy Gateway); placement, BGP and TLS do not change with it.
+
 **The public lighthouse** is today a full member of the mesh: it has a `nebula1` address, outbound `any`, and every host accepts `tcp/6443` from any
 member, so a compromised lighthouse server can reach the Kubernetes API over Nebula (authentication still applies). A lighthouse only has to introduce
 hosts; running it with `tun: {disabled: true}` (and checking its liveness with `lighthouse-vps.sh verify` instead of a ping over the mesh) removes that
@@ -342,6 +352,7 @@ Where each suite passed, how often, and what is still relaxed is in [POC-STATUS.
 | `make poc-revoke` | `mesh host revoke` is idempotent, the negative test (`kubectl delete node` alone does not revoke), time to loss of access (10) |
 | `make poc-placement` | trust levels and Kyverno placement, the golden rule (30, 14 of them negative) |
 | `make poc-cilium` / `poc-vm` / `poc-kind` | step 2: Cilium tunnel + WireGuard over Nebula (`cilium-dbg encrypt status` with every other node a peer, the kernel's peers are the published keys), the MTU set once, encryption on the wire, a remote node's Cilium token cannot rewrite another node's WireGuard key, mutual auth with SPIRE non-root and persistent: an authenticated peer passes and an unauthenticated one (its node has no SPIRE identity) is dropped by the same policy (33 on the Incus VMs) |
+| `make poc-bgp` | the maintainer's endpoints (section 6): Envoy Gateway and cert-manager only on `own` nodes, TLS issued from the Gateway by itself, BGP only from `own` nodes to a test router, a remote node never announces (no BGP instance, cannot select itself, its Cilium token writes no BGP object, the router refuses it) (19, 5 of them negative) |
 | `make poc-lighthouse` | a lighthouse on a separate public server (a VM plays it): prepare, sign and deploy are idempotent, a player joins through it, `revoke` reaches it; `mesh host refresh` with no change, with a change that restarts Nebula (the API and the node come back) and with one read on reload (23) |
 | `make poc-admission` | admission with manual approval ([ADMISSION.md](ADMISSION.md)): request, approve, join, places full, the lease ends, `reap` expels, the next one in line enters, `reap --all`, a burned join token refused to a second machine, a non-cooperative copy of a bundle refused by the node guard and cut with the lease, another guest's issued name refused by its node password, a name whose node password k3s dropped refused by the guard (31) |
 | `make test` | the pool logic (`poc/pool.py`): fixed slots, 1 h lease, per-identity rules (IP normalized), daily cap, FIFO waitlist; the admission ledger (`poc/admission.py`); the scripts keep their executable bit |
@@ -353,7 +364,7 @@ instead of deleting a Node that registered without it. Private pods are pinned t
 `own` is denied. The `owner=<github-user>` label and the relative trust of section 1 (several owners in one cluster) are not built yet.
 
 **Not built yet** (the phase-1 gap table in POC-STATUS.md has the evidence): the rest of the pool (quotas, idle kick, the public request
-page; the manual admission, its reaper and the automatic tick exist, [ADMISSION.md](ADMISSION.md)), per-namespace RBAC and kubeconfig per user, join by signed PR, relay and NAT tests, the gateway and BGP on own nodes, and
+page; the manual admission, its reaper and the automatic tick exist, [ADMISSION.md](ADMISSION.md)), per-namespace RBAC and kubeconfig per user, join by signed PR, relay and NAT tests, and
 the public opening. The PoC cannot use the real Fulcio offline: when join by PR is built, a local test CA (or `--insecure-ignore-tlog`)
 will be used **only in the PoC fixture, marked as such**, and the real flow will run in CI on the PR.
 
@@ -385,6 +396,8 @@ The simple idea first: **it joins, and a study lab runs on it.** Security layers
 | **4. Trust levels + Kyverno placement** | sections 4, 1 | `make poc-placement` | built for one owner (#10; section 10) |
 | 5. The 1 h pool and per-IP limits | section 8; `poc/pool.py` has unit tests today, and the pool CA exists (`make poc-ca`) | planned | logic and CA built, cluster side planned (#11) |
 | **6. Mutual auth by policy** | section 3 | `make poc-vm` (V90-V102) | built: an authenticated peer passes, an unauthenticated one is dropped (V101); beta upstream; not evidence against a joined node's owner (section 3.3) (#8) |
+| **6b. Gateway and BGP on own nodes** | section 6 | `make poc-bgp` | built (#13) |
+| 7. Signed-PR participants | section 5.1 | planned | design (#12) |
 | 8. The public opening | the runbook with the go-public checklist ([DEMO.md](DEMO.md)) | planned | design (#16) |
 
 Every step is a milestone epic, so nothing is lost.

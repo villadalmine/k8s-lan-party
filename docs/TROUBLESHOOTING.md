@@ -11,7 +11,7 @@ meta: ../meta.yml
 depende_de: [docs/REQUIREMENTS.md, docs/POC-STATUS.md]
 lo_usan: [README.md, docs/HOST-YOUR-OWN.md, docs/JOIN.md]
 docs: [docs/DESIGN.md]
-scripts: [poc/cilium.sh, poc/spire-args.sh, poc/checks-cilium.sh, poc/issue.sh, poc/cilium-node-guard.yaml]
+scripts: [poc/cilium.sh, poc/spire-args.sh, poc/checks-cilium.sh, poc/issue.sh, poc/gateway.sh, poc/cilium-node-guard.yaml]
 runbooks: []
 tags: [problemas, diagnostico, spire, cilium, nebula, kyverno]
 ---
@@ -153,6 +153,17 @@ it**. `poc/.state/poc.log` has the detail of the last run of any PoC script (`/t
 - **Fix:** `poc/cilium-node-guard.yaml` (applied by `cilium.sh`) admits an agent's write only to the `CiliumNode` of the node its token was issued
   on. Check it is there: `kubectl get validatingadmissionpolicybinding cilium-agent-own-ciliumnode`. `V06c` tests it.
 
+### Envoy Gateway's chart fails: "Installing experimental CRDs on top of standard channel CRDs is prohibited"
+- **Cause:** k3s 1.37 installs the Gateway API CRDs (standard channel) and Gateway API's `safe-upgrades` admission policy; Envoy Gateway's main chart
+  carries the experimental channel.
+- **Fix:** what `gateway.sh install` does: Envoy Gateway's own CRDs from `gateway-crds-helm` (rendered, `kubectl apply --server-side`; as a Helm release
+  they exceed the 1 MiB release Secret), then the main chart with `--skip-crds`.
+
+### The router shows no session with the own node, or a route through a joined node
+- **Diagnose:** `kubectl get ciliumbgpnodeconfigs` lists only `own` nodes; on an own node `cilium-dbg shell -- bgp/peers` shows the router
+  `established`; on the router (FRR) `show bgp summary` and `show ip bgp`.
+- **Remember:** the router must list only your own nodes as neighbours; a connection from any other address is logged as
+  `not configured and not valid for dynamic` and gets no session (`G11`).
 
 ## Kyverno and placement
 

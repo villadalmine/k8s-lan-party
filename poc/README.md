@@ -11,8 +11,8 @@ meta: ../meta.yml
 depende_de: [docs/DESIGN.md]
 lo_usan: [README.md]
 docs: [docs/DESIGN.md, docs/GOLDEN-RULES.md, docs/POC-STATUS.md, docs/HOST-YOUR-OWN.md, docs/JOIN.md, docs/TROUBLESHOOTING.md]
-scripts: [poc/poc-join.sh, poc/poc-host.sh, poc/poc-weakness.sh, poc/poc-ca.sh, poc/poc-revoke.sh, poc/poc-placement.sh, poc/poc-cilium.sh, poc/poc-lighthouse.sh, poc/kind-cilium.sh, poc/vm/poc-vm.sh, poc/vm/run-all.sh, poc/up.sh, poc/down.sh, poc/issue.sh, poc/revoke.sh, poc/mesh, poc/edge-mesh, poc/lighthouse-vps.sh, poc/pool.py, poc/admission.py, poc/poc-admission.sh, poc/poc-admission-auto.sh]
-tags: [poc, determinista, nebula, k3s, cilium, kyverno]
+scripts: [poc/poc-join.sh, poc/poc-host.sh, poc/poc-weakness.sh, poc/poc-ca.sh, poc/poc-revoke.sh, poc/poc-placement.sh, poc/poc-cilium.sh, poc/poc-lighthouse.sh, poc/kind-cilium.sh, poc/vm/poc-vm.sh, poc/vm/run-all.sh, poc/up.sh, poc/down.sh, poc/issue.sh, poc/revoke.sh, poc/mesh, poc/edge-mesh, poc/lighthouse-vps.sh, poc/pool.py, poc/admission.py, poc/poc-admission.sh, poc/poc-admission-auto.sh, poc/vm/poc-bgp.sh, poc/gateway.sh]
+tags: [poc, determinista, nebula, k3s, cilium, kyverno, bgp, gateway]
 ---
 
 # poc/: the deterministic proof of concept
@@ -31,6 +31,7 @@ directory). Where each suite passed and how often is in [docs/POC-STATUS.md](../
 | `make poc-placement` | `poc-placement.sh` | 30 (L01-L53), 14 of them negative | **the golden rule**: Kyverno trust-based placement plus a node-side `ValidatingAdmissionPolicy` |
 | `make poc-cilium` | `poc-cilium.sh` | 23 (C01-C97) | **step 2** on k3s in Docker: Cilium tunnel + WireGuard over Nebula, encryption on the wire, SPIRE mutual auth (non-root, PVC); the deny half and the CiliumNode guard are in `poc-vm` only |
 | `make poc-vm` | `vm/poc-vm.sh` | 33 (V01-V102) | step 2 on Incus VMs, each with its own kernel, remote nodes tainted as in a real join: `cilium-dbg encrypt status` with every other node a peer, the MTU set once, a remote node's Cilium token cannot rewrite another node's WireGuard key (V06c), mutual auth allows an authenticated peer and drops an unauthenticated one (V98-V102) |
+| `make poc-bgp` | `vm/poc-bgp.sh` | 19 (G01-G19), 5 of them negative | **issue #13**: Envoy Gateway and cert-manager only on `own` nodes, the listener's certificate issued from the Gateway by itself, Cilium BGP only from `own` nodes to a test FRR router; a remote node never announces (no BGP instance, cannot select itself, its Cilium token writes no BGP object, the router refuses it) (Incus VMs) |
 | `make poc-kind` | `kind-cilium.sh` | 20 (K01-K97) | step 2 on kind (no Nebula): Cilium itself works on this kernel |
 | `make poc-lighthouse` | `poc-lighthouse.sh` | 23 (P01-P18, P09b, P12b-P12e) | a lighthouse on a separate public server (a VM plays it): `lighthouse-vps.sh` prepare / sign / deploy idempotent, a player joins through it, `revoke` reaches it; `mesh host refresh` with no change, with a change that needs a restart (the API comes back) and with one read on reload |
 | `make poc-admission` | `poc-admission.sh` | 31 (A01-A31) | **admission with manual approval** ([docs/ADMISSION.md](../docs/ADMISSION.md)): request, approve, join, a burned join token refused to a second machine, a non-cooperative copy of a bundle refused by the node guard, another guest's name refused by its node password, a name whose node password k3s dropped refused, places full, the lease ends, `reap` expels, the next one in line enters, `reap --all` (Incus VMs) |
@@ -56,10 +57,11 @@ another workload's identity toward mutual auth (docs/DESIGN.md section 3.3).
 | `lighthouse-vps.sh` | a lighthouse on a separate public server: `prepare` (key made on the server), `sign`, `deploy`, `install`, `verify`, `sync`, `remove` |
 | `kc` | `kubectl` against the PoC control plane, whatever the runtime |
 | `install-placement.sh`, `placement/` | install Kyverno and the trust-placement policies on your own control plane |
-| `cilium.sh`, `checks-cilium.sh`, `spire-args.sh` | step 2: the Cilium install (`MUTUAL=yes` adds SPIRE), its assertions (shared by Docker and VMs), the hardened SPIRE arguments |
+| `cilium.sh`, `checks-cilium.sh`, `spire-args.sh` | step 2: the Cilium install (`BGP=yes` adds the BGP control plane, `MUTUAL=yes` SPIRE), its assertions (shared by Docker and VMs), the hardened SPIRE arguments |
 | `cilium-node-guard.yaml` | a Cilium agent's token may write only the `CiliumNode` of its own node (where the node publishes its WireGuard key); `cilium.sh` applies it |
+| `gateway.sh`, `gateway/` | issue #13: `gateway.sh bgp` (BGP from own nodes only, the pool by Service label, `gateway/bgp.yaml`), `install` (Envoy Gateway, cert-manager, a local CA and the Gateway, all on own nodes, `gateway/gateway.yaml`), `router` (the test FRR router, `gateway/frr.conf`) |
 | `kind-cilium.sh` | step 2 on kind |
-| `vm/` | the Incus VM flow: `up.sh`, `down.sh`, `lib-vm.sh`, `poc-vm.sh`, `poc-placement.sh`, `run-all.sh` |
+| `vm/` | the Incus VM flow: `up.sh`, `down.sh`, `lib-vm.sh`, `poc-vm.sh`, `poc-bgp.sh`, `poc-placement.sh`, `run-all.sh` |
 | `pool.py`, `pool.yaml`, `test_pool.py` | the capacity pool for the public demo (pure logic, simulated time) |
 | `admission.py`, `test_admission.py`, `test_admission_auto.py`, `poc-admission.sh`, `poc-admission-auto.sh` | admission with manual approval and the automatic tick (B1): the ledger behind `mesh host request / approve / reap` |
 | `node-guard.yaml`, `nodes_sweep.py`, `test_nodes_sweep.py` | only Nodes named after an issued bundle, at its Nebula IP, may register; what `revoke` sweeps |
@@ -80,6 +82,9 @@ another workload's identity toward mutual auth (docs/DESIGN.md section 3.3).
   not keep a node out (R03 shows the machine stays in the mesh).
 - (2026-10-27) When Nebula restarts, `nebula1` loses its address and the embedded flannel makes the k3s server exit. `mesh host refresh` therefore
   reloads (SIGHUP) unless `stats` or `listen` changed, and on the control plane stops k3s before the restart and starts it again once `nebula1` is back (P12d).
+- (2026-10-28) k3s 1.37 installs the Gateway API CRDs itself (standard channel) together with Gateway API's `safe-upgrades` policy, which
+  refuses experimental CRDs on top: Envoy Gateway's main chart (experimental channel) goes in with `--skip-crds`, its own CRDs from its CRD
+  chart, rendered and applied server-side (as a Helm release they pass the 1 MiB limit of the release Secret).
 - (2026-10-28) In the VM flow `k` is `incus exec`, which reads its standard input: a `$(k ...)` inside the arguments of a command that reads a
   pipe swallows the pipe (`echo "$out" | grep "$(k get ...)"` never matches). Read the value first, then pipe.
 - (2026-10-28) The SPIRE agent did not tolerate the `trust` taint, so on tainted remote nodes (a real join) pods got no identity and every
