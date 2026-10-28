@@ -25,7 +25,7 @@ directory). Where each suite passed and how often is in [docs/POC-STATUS.md](../
 | :--- | :--- | :--- | :--- |
 | `make poc-join` | `poc-join.sh` | 17 (J01-J17) | **step 1**: Nebula CA + lighthouse + control plane; two outside nodes join with one bundle and one command; a study lab (CKA 1.1) runs on them; narrowed firewall, token reuse, expired certificate, blocked UDP and revocation behave |
 | `make poc-host` | `poc-host.sh` | 11 (H01-H11) | **host your own game**: `mesh host init / invite / players / kick / down` |
-| `make poc-golden` | `poc-golden.sh` | 28 (G1.1-G10.1; 4 wait for #8, #9, #13, #12) | **golden path**: one check per golden rule against a game that is already up (yours or a stranger's); `GOLDEN_ENV="<column>"` writes the table in POC-STATUS.md; it builds nothing |
+| `make poc-golden` | `poc-golden.sh` | 29 (G1.1-G10.1; 26 run, 3 wait for #8, #9 and #13) | **golden path**: one check per golden rule against a game that is already up (yours or a stranger's); `GOLDEN_ENV="<column>"` writes the table in POC-STATUS.md; it builds nothing |
 | `make poc-weakness` | `poc-weakness.sh` | 8 (W00-W06, W03b) | what one control plane costs: flapping, tolerance, a lossy link, control plane down, the supervised k3s agent |
 | `make poc-ca` | `poc-ca.sh` | 13 (B01-B13) | two CAs (persistent and pool); the pool CA is constrained to group `public`; pulling it cuts only the pool |
 | `make poc-revoke` | `poc-revoke.sh` | 10 (R01-R10) | `mesh host revoke` is one command and idempotent; the negative test (`kubectl delete node` without the blocklist does not revoke, R03); time to loss of access |

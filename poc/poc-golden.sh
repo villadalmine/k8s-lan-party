@@ -277,6 +277,14 @@ g9_our_ca() { # every certificate in the game was issued by one of our two CAs, 
   echo "certificates: $n, all from our CAs, all pointing at the lighthouse $LH_DOCKER_IP"
 }
 
+g8_signed_pr() { # the maintainer's policy caps a pull request at friends, and the schema checks that the existing tests prove (reused, not copied):
+  # trust own, public and an unknown level are refused with their messages; the signature itself is poc-participants.sh (33 checks, cosign)
+  local pol="$POC/../participants/policy.yaml"
+  grep -qE '^self_service_trust: *friends *(#.*)?$' "$pol" || { echo "participants/policy.yaml: self_service_trust is not friends"; return 1; }
+  (cd "$POC" && python3 -c 'import participants' >/dev/null 2>&1) || { echo "python3 lacks pyyaml or cryptography (poc/participants.py needs them): cannot run the schema tests"; return 3; }
+  (cd "$POC" && python3 -m unittest -v test_participants.Schema.test_trust_ceiling 2>&1 | tail -4)
+  (cd "$POC" && python3 -m unittest test_participants.Schema.test_trust_ceiling >/dev/null 2>&1)
+}
 step_g10() { # rule 10: every rule 1-9 had at least one check that ran and passed in this run
   local r missing=""; for r in 1 2 3 4 5 6 8 9; do awk -F'\t' -v r="$r" '$1==r && $3=="PASS"' "$RES" | grep -q . || missing="$missing $r"; done
   echo "rules without a passing check:${missing:- none} (rule 7 is not built: #13)"; [ -z "$missing" ]
@@ -310,7 +318,7 @@ check 5 G5.5 "revoke is idempotent, and an unknown name is refused (exit 3)" g5_
 check 6 G6.1 "the API listens on the control plane's Nebula IP only" g6_listens_on_nebula_only
 check 6 G6.2 "outside the mesh the API does not answer; inside it does" g6_not_outside
 depends 7 G7.1 "the maintainer's endpoints (AI gateway, LoadBalancer with BGP) run only on own nodes" "#13"
-depends 8 G8.1 "persistent participants join only by a signed PR" "#12"
+check 8 G8.1 "a participant who joins by signed PR gets friends only: own and public are refused by the schema, and the policy says friends (poc/participants.py)" g8_signed_pr
 check 8 G8.2 "every public certificate comes from the pool CA and lives at most the lease (pool.yaml)" g8_pool_lease
 check 9 G9.1 "every certificate was issued by one of our two CAs and every bundle points at our lighthouse" g9_our_ca
 check 10 G10.1 "every rule 1-9 that is built has a passing check in this run" step_g10

@@ -103,7 +103,7 @@ Cilium and Kyverno), `lifetime_minutes`, `name` (two demos in one account need t
 
 ```bash
 ssh ubuntu@HOST
-sudo apt-get update && sudo apt-get install -y docker.io git make python3 curl
+sudo apt-get update && sudo apt-get install -y docker.io git make python3 python3-yaml python3-cryptography curl
 sudo usermod -aG docker ubuntu && exit           # log in again so the docker group applies
 ssh ubuntu@HOST
 git clone https://github.com/villadalmine/k8s-lan-party.git && cd k8s-lan-party/poc
@@ -183,7 +183,7 @@ it refreshes the node guard while invites are open and expels leases at their en
   `./mesh host request guest --ip <its public IP>`, `./mesh host approve`, deliver and join as above, `./mesh host leases`, then
   `./mesh host reap --name guest` (or wait for the hour): the node goes, its fingerprint lands on the blocklist of the control plane **and of the
   lighthouse**, and `ping 10.77.0.1` from the guest stops answering.
-- The golden rules, one check each: `./poc-golden.sh` (section "Golden path conformance" of [POC-STATUS.md](POC-STATUS.md)).
+- The golden rules, one check each: `./poc-golden.sh` (G8.1 needs `python3-yaml` and `python3-cryptography`, installed above; without them it SKIPs) (section "Golden path conformance" of [POC-STATUS.md](POC-STATUS.md)).
 
 ## 7. Tear it down, and check nothing is left billing
 
@@ -193,7 +193,7 @@ AWS_PROFILE=<your profile> ./leftovers.sh eu-west-1  # "OK: nothing left of 'k8s
 ```
 
 `leftovers.sh` looks for everything the example creates, by its tag or its name: instances not terminated, volumes, elastic IPs, network interfaces,
-security groups, key pairs, VPCs, subnets, internet gateways, the IAM role and the schedule. If you are past the deadline, the machines are already
+security groups, key pairs, VPCs, subnets, internet gateways, the IAM role and the schedule. Past the deadline the example cannot be applied again: the schedule asks for a time that has gone, and `time_static` keeps the old one. Run `terraform destroy`, then `apply` for a new game (a new deadline). If you are past the deadline, the machines are already
 gone: `destroy` removes the rest.
 
 ## What this recipe found in the guides (2026-10-28)

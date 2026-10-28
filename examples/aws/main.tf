@@ -24,13 +24,6 @@ locals {
   deadline = timeadd(time_static.created.rfc3339, "${var.lifetime_minutes}m")
 }
 
-check "joiner_names" {
-  assert {
-    condition     = !contains(keys(var.joiners), "lighthouse") && !contains(keys(var.joiners), "host")
-    error_message = "A joiner cannot be called lighthouse or host."
-  }
-}
-
 data "aws_ec2_instance_type" "t" {
   for_each      = local.types
   instance_type = each.key
@@ -201,11 +194,18 @@ resource "aws_instance" "m" {
 }
 
 # ---- the AWS side of the hard lifetime ----
+data "aws_caller_identity" "me" {}
+
 resource "aws_iam_role" "terminate" {
   name = "${var.name}-terminate"
   assume_role_policy = jsonencode({
-    Version   = "2012-10-17"
-    Statement = [{ Effect = "Allow", Action = "sts:AssumeRole", Principal = { Service = "scheduler.amazonaws.com" } }]
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Action    = "sts:AssumeRole"
+      Principal = { Service = "scheduler.amazonaws.com" }
+      Condition = { StringEquals = { "aws:SourceAccount" = data.aws_caller_identity.me.account_id } } # confused deputy: only schedules of this account
+    }]
   })
 }
 

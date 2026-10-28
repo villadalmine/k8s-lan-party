@@ -20,7 +20,10 @@ step() { # step <id> <description> <command...>: PASS when the command succeeds
 # ARCH: this machine's architecture, for the pinned downloads (Nebula, k3s, helm): amd64 or arm64
 case "$(uname -m)" in aarch64|arm64) ARCH=arm64 ;; *) ARCH=amd64 ;; esac
 # The game's settings, recorded by `mesh host init` in .state/game.env and read back by game-env.sh (mesh, kc) and down.sh.
-record_game() { printf 'GAME_RUNTIME=%s\nGAME_CNI=%s\nGAME_TAINT=%s\n' "$RUNTIME" "${CNI:-flannel}" "${TAINT:-no}" >"$STATE/game.env"; }
+record_game() { # the values are checked here too: game-env.sh accepts only these
+  case "$RUNTIME:${CNI:-flannel}:${TAINT:-no}" in docker:flannel:no|docker:flannel:yes|docker:cilium:no|docker:cilium:yes|incus:flannel:no|incus:flannel:yes|incus:cilium:no|incus:cilium:yes) ;;
+    *) echo "cannot record the game: RUNTIME=docker|incus, CNI=flannel|cilium, TAINT=no|yes"; return 1 ;; esac
+  printf 'GAME_RUNTIME=%s\nGAME_CNI=%s\nGAME_TAINT=%s\n' "$RUNTIME" "${CNI:-flannel}" "${TAINT:-no}" >"$STATE/game.env"; }
 game_mismatch() { # an invite whose CNI or TAINT differs from the game's would give a bundle that cannot work, or one without the trust taint
   [ -z "${GAME_CNI:-}" ] || [ "${CNI:-$GAME_CNI}" = "$GAME_CNI" ] || { echo "this game runs CNI=$GAME_CNI (.state/game.env); CNI=$CNI would give a bundle that cannot join it"; return 1; }
   [ -z "${GAME_TAINT:-}" ] || [ "${TAINT:-$GAME_TAINT}" = "$GAME_TAINT" ] || { echo "this game runs TAINT=$GAME_TAINT (.state/game.env); TAINT=$TAINT would change how the node registers"; return 1; }

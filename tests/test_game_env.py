@@ -57,6 +57,15 @@ class GameEnv(unittest.TestCase):
         self.assertIn("VM flow removed", p.stdout)
         self.assertFalse(self.state.exists())
 
+    def test_a_malformed_file_is_ignored_not_executed(self) -> None:
+        # the file is read, never sourced: a value with shell syntax must not run, and the whole file is refused
+        mark = self.tmp / "ran"
+        (self.state / "game.env").write_text("GAME_RUNTIME=incus\nGAME_CNI=$(touch " + str(mark) + ")\nGAME_TAINT=yes\n")
+        p = self.bash(f'. "{POC}/game-env.sh"; echo "[${{CNI:-unset}}]"')
+        self.assertFalse(mark.exists(), "the value of game.env was executed")
+        self.assertEqual(p.stdout.strip(), "[unset]")
+        self.assertIn("ignored", p.stderr)
+
     def test_suites_do_not_read_it(self) -> None:
         # a suite sources lib.sh only and builds its own game: a recorded Cilium game must not leak into a flannel suite
         p = self.bash(f'. "{POC}/lib.sh"; echo "${{CNI:-unset}} ${{RUNTIME}}"')

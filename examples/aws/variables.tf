@@ -56,6 +56,10 @@ variable "joiners" {
     condition     = alltrue([for k in keys(var.joiners) : can(regex("^[a-z][a-z0-9-]{0,15}$", k))])
     error_message = "Joiner names: a-z, 0-9 and '-', starting with a letter, at most 16 characters."
   }
+  validation {
+    condition     = !contains(keys(var.joiners), "lighthouse") && !contains(keys(var.joiners), "host")
+    error_message = "A joiner cannot be called lighthouse or host."
+  }
 }
 
 variable "lifetime_minutes" {
