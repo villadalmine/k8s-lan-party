@@ -8,8 +8,11 @@ pool.py enforces. Approving issues the bundle with the existing `mesh host invit
 first burn the join token of every player whose node registered (`mesh host burn`), then expel every lease that ended with the existing
 `mesh host kick` and free its place.
 
-The tick, in order: burn, expel what ended (always, also with auto off), warn the leases that end within `lease_warning_seconds`, and only
-with auto on and no panic: approve while a place is free and the first eligible request passes the limits. `panic` switches auto off, makes
+The tick, in order: burn, expel what ended (always, also with auto off), the idle kick (a lease whose node has been missing, NotReady or
+without a workload for `idle_kick_seconds`, as `mesh host activity` sees it, is expelled early; 0 switches it off), warn the leases that
+end within `lease_warning_seconds`, and only with auto on and no panic: approve while a place is free and the first eligible request
+passes the limits. A request is refused (exit 6, not listed, no event: the event log is not the spammer's) once its identity sent
+`rate_max_requests` within `rate_window_seconds`. `panic` switches auto off, makes
 the effective slots 0 and expels every active lease. Every fact is a JSON line in <state>/events.jsonl and, when ADMISSION_NOTIFY_CMD is set,
 a call of that command with two arguments, the event type and a short summary (an argument list: no shell ever sees a name or a note).
 
@@ -36,7 +39,7 @@ Exit codes: 0 done; 1 the invite failed (nothing recorded), a kick failed (`reap
 keep the failed lease for the next run), the ledger file is unreadable (nothing changed) or the outbox is unsafe; 2 bad input (name, IP,
 arguments); 3 unknown or already used name, a player with that name already exists, or no active lease for `bundle`; 4 nobody eligible;
 5 no free place; 6 that identity is not eligible yet (cooldown, daily cap, active lease), or, with auto on, a request over the daily cap
-(refused, not listed); 7 admission is closed by `panic` (approve, request and `auto on` are refused until `panic --clear`).
+(refused, not listed), or a request over the rate limit (refused, not listed); 7 admission is closed by `panic` (approve, request and `auto on` are refused until `panic --clear`).
 """
 from __future__ import annotations
 
@@ -534,6 +537,20 @@ def mesh_kick(mesh: str):
     return kick
 
 
+def mesh_activity(mesh: str):
+    def activity(name: str) -> str | None:
+        """`mesh host activity <name>`: "active", "idle: <why>", or None when the API did not answer (an unknown never expels)."""
+        r = subprocess.run([mesh, "host", "activity", name], capture_output=True, text=True)
+        last = (r.stdout.strip().splitlines() or [""])[-1]
+        if r.returncode == 0:
+            return "active"
+        if r.returncode == 1 and last.startswith("idle: "):
+            return last
+        sys.stderr.write(r.stdout + r.stderr)
+        return None
+    return activity
+
+
 def mesh_burn(mesh: str):
     def burn() -> None:
         """Delete the join token of every player whose node registered (`mesh host burn`); its output goes to stderr so
@@ -585,6 +602,10 @@ def tick(a, cfg: dict, led: Ledger, auto: dict, outbox: Path) -> int:
             expelled += 1
         else:
             code = 1
+    idle = int(cfg.get("idle_kick_seconds", 0) or 0)
+    if idle > 0 and not auto["panic"]:
+        expelled, failed = idle_kick(led, idle, mesh_activity(a.mesh), kick, outbox, expelled)
+        code = max(code, failed)
     led._refresh()
     warn = cfg.get("lease_warning_seconds", 300)
     for lease in led.due(everyone=True):
@@ -626,6 +647,29 @@ def tick(a, cfg: dict, led: Ledger, auto: dict, outbox: Path) -> int:
     print(f"tick: auto {mode} | expelled {expelled} | approved {approved} | slots {len(led.pool.leases)}/{cfg['slots']} used | "
           f"{len(led.open())} in the list ({len(waiting)} eligible now)")
     return code
+
+
+def idle_kick(led: Ledger, idle: int, activity, kick, outbox: Path, expelled: int) -> tuple[int, int]:
+    """Expel every lease whose node has been idle (missing, NotReady or without a workload) for `idle` seconds. A lease is idle from its
+    start until its node is first seen active, and afterwards from the first tick that sees it idle again (`idle_since`). Only a change
+    is written, so a tick that sees the same thing changes nothing. Returns (expelled so far, 1 if a kick failed else 0)."""
+    failed = 0
+    for lease in led.due(everyone=True):
+        seen = activity(lease.get("name", ""))
+        if seen is None:
+            continue
+        if seen == "active":
+            if not lease.get("active_seen") or "idle_since" in lease:
+                lease.pop("idle_since", None)
+                lease["active_seen"] = True
+            continue
+        since = lease.setdefault("idle_since", led.now if lease.get("active_seen") else lease["start"])
+        if led.now - since >= idle:
+            if expel(led, lease, kick, outbox, "idle"):
+                expelled += 1
+            else:
+                failed = 1
+    return expelled, failed
 
 
 def last_tick(state_dir: Path) -> int:
@@ -698,6 +742,14 @@ def command(a, cfg: dict, led: Ledger, auto: dict, state_dir: Path) -> int:
         check_name(a.name)
         if led.closed:
             raise AdmissionError(7, CLOSED)
+        rate, window = int(cfg.get("rate_max_requests", 0) or 0), int(cfg.get("rate_window_seconds", 600) or 600)
+        if rate > 0:   # per identity, every request counts (a repeat too); a refused one does not extend the wait
+            recent = [t for t in led.pool.requests.get(ident, []) if led.now - t < window]
+            if len(recent) >= rate:
+                print(f"{a.name}: refused: too many requests from this identity ({rate} in {window} s); try again at "
+                      f"{iso(min(recent) + window)} [not added]")
+                return 6
+            led.pool.requests[ident] = recent + [led.now]
         mine = led.find(a.name)
         if auto["enabled"] and not (mine and mine["state"] in OPEN):
             when, why = led.pool.eligible_at(ident, led.now)

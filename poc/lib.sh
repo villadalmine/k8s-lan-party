@@ -149,6 +149,29 @@ stray_nodes() { # stray_nodes <revoked-nebula-ip>: "<node><TAB><why>" for every 
   # shellcheck disable=SC2046
   printf '%s' "$json" | python3 "$POC/nodes_sweep.py" --gone-ip "$1" $(live_bundles) || return 2
 }
+# A player's namespace and their own kubeconfig (poc/participant.py, DESIGN.md section 14): play-<name> with Pod Security "restricted", a
+# ResourceQuota and a LimitRange from pool.yaml, a ServiceAccount bound to that namespace only, and the participant guard
+# (poc/participant-policy.yaml). The kubeconfig's token comes from the TokenRequest API and lives exactly <seconds> (the lease).
+participant_up() { # participant_up <name> <seconds>: writes <bundle>/kubeconfig (0600); 1 on any failure (the caller removes what was made)
+  local n="$1" s="$2" ns="play-$1" b="$STATE/bundles/$1" tok ca rc=0
+  k apply -f - <"$POC/participant-policy.yaml" >/dev/null || return 1
+  python3 "$POC/participant.py" manifests "$n" --config "${POOL_CONFIG:-$POC/pool.yaml}" | k create -f - >/dev/null || return 1
+  tok=$(k create token user -n "$ns" --duration "${s}s") || return 1
+  ca=$(mktemp)
+  cpx cat /var/lib/rancher/k3s/server/tls/server-ca.crt >"$ca" &&
+    (umask 077; printf '%s' "$tok" | python3 "$POC/participant.py" kubeconfig "$n" --server "https://$CP_NEB:6443" --ca "$ca" >"$b/kubeconfig") || rc=1
+  rm -f "$ca"; return "$rc"
+}
+participant_down() { # participant_down <name>: the token dies first (its ServiceAccount), then the namespace and all in it. 0 once it is gone;
+  # 4 while it is still terminating or when the API does not answer (never read as "gone")
+  local ns="play-$1" left
+  k delete serviceaccount user -n "$ns" --ignore-not-found >/dev/null 2>&1 || true
+  # pods on a node that is already gone (revoked, or its certificate expired with the lease) would hold the namespace until the pod GC
+  k delete pods --all -n "$ns" --force --grace-period=0 >/dev/null 2>&1 || true
+  k delete namespace "$ns" --ignore-not-found --wait=true --timeout=120s >/dev/null 2>&1 || true
+  left=$(k get namespace "$ns" --ignore-not-found -o name 2>/dev/null) || return 4
+  [ -z "$left" ] || return 4
+}
 machine_rm() { # a player machine goes away
   if [ "$RUNTIME" = incus ]; then
     if [ -f "$STATE/alias/$1" ]; then rm -f "$STATE/alias/$1"; else incus delete -f "emesh-$1" >/dev/null 2>&1 || true; fi

@@ -1,7 +1,13 @@
 #!/bin/sh
 # edge-mesh: the participant-side command. POSIX sh, runs on the joining machine (here: inside a container).
 #   edge-mesh join <bundle-dir> [--accept-golden-rule]
-# The bundle holds: ca.crt host.crt host.key config.yml join.env (K3S_URL, K3S_TOKEN, NODE_NAME, NODE_IP, TRUST).
+#   edge-mesh kubectl <kubectl arguments...>    kubectl with your own kubeconfig (KUBECONFIG, default /etc/edge-mesh/kubeconfig, which
+#                                               `join` installs from the bundle), over Nebula, with the error matrix's messages
+#                                               (docs/DESIGN.md section 14.1). Exit codes: kubectl's own, or
+#                                               10 Nebula is down (row 6)        11 the API's certificate does not match the bundle (row 7)
+#                                               12 401: the token ended with the lease (row 8)   13 403: outside your namespace (row 9)
+#                                               14 exceeded quota (row 11)
+# The bundle holds: ca.crt host.crt host.key config.yml join.env (K3S_URL, K3S_TOKEN, NODE_NAME, NODE_IP, TRUST) and kubeconfig (the user's).
 set -eu
 cmd="${1:-}"; bundle="${2:-}"; accept="${3:-}"
 case "$cmd" in
@@ -47,6 +53,34 @@ case "$cmd" in
       [ $i -gt 90 ] && giveup "the node did not register within 90 s: see /var/log/k3s-agent.log"; sleep 1
     done
     echo "joined: $NODE_NAME (trust=$TRUST)"
+    # the user's credential, apart from the node's: a token for the namespace play-<name> only, valid until the lease ends
+    if [ -f "$bundle/kubeconfig" ]; then
+      mkdir -p /etc/edge-mesh && (umask 077 && cp "$bundle/kubeconfig" /etc/edge-mesh/kubeconfig.new) && mv /etc/edge-mesh/kubeconfig.new /etc/edge-mesh/kubeconfig
+      echo "your namespace: play-$NODE_NAME; try: sudo edge-mesh kubectl get pods"
+    fi
     ;;
-  *) echo "usage: edge-mesh join <bundle-dir> --accept-golden-rule"; exit 2 ;;
+  kubectl)
+    shift
+    kc="${KUBECONFIG:-/etc/edge-mesh/kubeconfig}"
+    [ -r "$kc" ] || { echo "edge-mesh: no kubeconfig at $kc: join first (sudo edge-mesh join <bundle-dir> --accept-golden-rule) or set KUBECONFIG" >&2; exit 2; }
+    ns=$(sed -n 's/^ *namespace: *//p' "$kc" | head -n1)
+    # row 6: the API lives only on the control plane's Nebula address, so without the tunnel kubectl would only time out
+    ip -4 addr show dev nebula1 2>/dev/null | grep -q inet || {
+      echo "edge-mesh: Nebula is down (nebula1 has no address), so the cluster cannot be reached; run: sudo edge-mesh join <bundle-dir> --accept-golden-rule" >&2; exit 10; }
+    if command -v kubectl >/dev/null 2>&1; then set -- kubectl "$@"; else set -- k3s kubectl "$@"; fi
+    err=$(mktemp); trap 'rm -f "$err"' EXIT
+    rc=0; KUBECONFIG="$kc" "$@" 2>"$err" || rc=$?
+    cat "$err" >&2
+    [ "$rc" -ne 0 ] || exit 0
+    if grep -q 'x509:' "$err"; then
+      echo "edge-mesh: the API's certificate is not the one your bundle pins (x509): a wrong or old bundle, or a man in the middle; download your bundle again" >&2; exit 11
+    elif grep -qE 'Unauthorized|must be logged in' "$err"; then
+      echo "edge-mesh: 401 Unauthorized: your access ended with your lease (or the host ended it); to play again, ask for a new place" >&2; exit 12
+    elif grep -q 'exceeded quota' "$err"; then
+      echo "edge-mesh: exceeded quota in $ns: lower the requests or delete something (see: edge-mesh kubectl describe quota)" >&2; exit 14
+    elif grep -qE 'cannot [a-z]+ resource' "$err"; then
+      echo "edge-mesh: forbidden (403): you may only work in your namespace $ns" >&2; exit 13
+    fi
+    exit "$rc" ;;
+  *) echo "usage: edge-mesh join <bundle-dir> --accept-golden-rule | edge-mesh kubectl <arguments>"; exit 2 ;;
 esac

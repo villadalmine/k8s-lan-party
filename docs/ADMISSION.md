@@ -1,18 +1,18 @@
 ---
 tipo: runbook
 id: k8s-lan-party-admission
-version: 0.2.0
+version: 0.3.0
 fecha_alta: 2026-10-27
-fecha_ultimo_cambio: 2026-10-27
+fecha_ultimo_cambio: 2026-10-28
 categoria: plataforma
 dueno_agente: casa-orquestador
 pieza: k8s-lan-party
 meta: ../meta.yml
-estado: opcion A y fase B1 (pool automatico) construidas y probadas (VMs Incus); B2 y B3 solo diseno
-depende_de: [docs/DESIGN.md, poc/pool.yaml, poc/pool.py, poc/admission.py, poc/mesh]
+estado: opcion A, fase B1 (pool automatico) y el lado cluster del pool (namespace, kubeconfig, cuotas, idle kick) construidos y probados (VMs Incus); B2 y B3 solo diseno
+depende_de: [docs/DESIGN.md, poc/pool.yaml, poc/pool.py, poc/admission.py, poc/mesh, poc/participant.py, poc/participant-policy.yaml]
 lo_usan: [README.md, docs/DEMO.md, docs/POC-STATUS.md, docs/HOST-YOUR-OWN.md]
 docs: [docs/DEMO.md, docs/HOST-YOUR-OWN.md, docs/DESIGN.md]
-scripts: [poc/admission.py, poc/pool.py, poc/pool.yaml, poc/mesh, poc/issue.sh, poc/revoke.sh, poc/poc-admission.sh, poc/poc-admission-auto.sh, poc/test_admission.py, poc/test_admission_auto.py, poc/test_pool.py]
+scripts: [poc/admission.py, poc/pool.py, poc/pool.yaml, poc/mesh, poc/issue.sh, poc/revoke.sh, poc/poc-admission.sh, poc/poc-admission-auto.sh, poc/poc-pool.sh, poc/participant.py, poc/participant-policy.yaml, poc/edge-mesh, poc/test_admission.py, poc/test_admission_auto.py, poc/test_pool.py, poc/test_participant.py, poc/test_edge_mesh.py]
 runbooks: [docs/DEMO.md]
 tags: [admision, pool, lista-de-espera, anti-bot, demo, automatico, panic, eventos, metricas]
 ---
@@ -22,8 +22,10 @@ tags: [admision, pool, lista-de-espera, anti-bot, demo, automatico, panic, event
 **Status (2026-10-27).** **Option A (manual approval) is built and tested**: unit tests with a simulated clock and `make poc-admission` on Incus VMs.
 **Phase B1 (the automatic tick) is built and tested**: `mesh host auto --once` approves, expels at the end of the lease and promotes the next one with
 no human in the loop, with a switch, a panic button, events, a notify hook and metrics (`make test`, `make poc-admission-auto` on Incus VMs).
-**B2 (the public page that takes requests) and B3 (the opening) are design only.** Phase 1 is still not complete (the gap table in
-[POC-STATUS.md](POC-STATUS.md)); the cluster side of the pool (quotas, the idle kick) and the page are issue #11, which stays open until B2 and B3 exist.
+**The cluster side of the pool is built and tested (2026-10-28, issues #9 and #11)**: every approved player gets a namespace `play-<name>` with a
+quota and a kubeconfig of their own that dies with the lease, the tick expels an idle lease early, a request over the rate limit is refused, and the
+lease end removes node, namespace and token (`make poc-pool`, below). **B2 (the public page that takes requests) and B3 (the opening) are design
+only.** Phase 1 is still not complete (the gap table in [POC-STATUS.md](POC-STATUS.md)).
 
 The maintainer decided on 2026-10-27: **start with A** (a human approves every place) and keep a written path to **B** (a public, automatic pool);
 later the same day: **build B in phases (B1, B2, B3) so that bots run it** without the maintainer stepping in.
@@ -191,7 +193,8 @@ reach the API). The certificate expires at the same hour anyway (`disconnect_inv
   whatever is left and the blocklist cuts the copy's tunnel (A29-A30). **Why 8 minutes at most:** the token is the only part of the bundle a second machine can
   reuse, so it lives as little as a hand delivery allows: the visitor installs the tools first ([JOIN.md](JOIN.md)) and asks for approval when
   ready (`TOKEN_TTL` may be shorter, `5m`, never longer: see "the life of a name" above).
-- Not built (issue #11): per-namespace quotas and LimitRange for visitors, the idle kick, the page. The automatic tick is B1, below.
+- Built since (issue #11, `make poc-pool`): the namespace with its quota and limits and the player's own kubeconfig (at the approval, by
+  `mesh host invite`), the idle kick (in the tick, B1) and the rate limit. Not built: the page (B2).
 
 ### Proof
 
@@ -243,11 +246,31 @@ delivers `outbox/<name>.tar.gz`; in B2 a service does it). So the anti-bot layer
 
 With auto on, a request over the **daily cap** is refused (exit 6, event `refused`, not listed): over the cap is a no, not a place in the list for
 tomorrow, when nobody may be there to take it. A request in **cooldown** or with an active lease is kept, deferred, and the tick approves it when its
-time comes. With auto off, `request` behaves as in A.
+time comes; until then neither `approve` (exit 6) nor the tick admits it, even with a place free (`poc-pool` PL21). With auto off, `request` behaves as in A.
+In both modes an identity gets at most `rate_max_requests` (5) requests in `rate_window_seconds` (600; a repeat counts); the next one is refused
+(exit 6, not listed) and leaves **no event**: the log and the hook are not the spammer's.
+
+**The idle kick (issue #11).** After expiring what ended, every tick asks `mesh host activity <name>` about each active lease: **active** means the
+player's Node is Ready and has a workload (a pod in `play-<name>`, or a pod outside kube-system that is not a DaemonSet's on their node). A lease is
+idle from its start until it is first seen active, and afterwards from the first tick that sees it idle; once it has been idle for
+`idle_kick_seconds` (900) the tick expels it like an expiry (`expelled`, `how: idle`) and the place goes to the next one in the same pass. An API that
+does not answer is an unknown, and an unknown never expels. Only changes are written, so a tick that sees the same thing changes nothing. Panic does
+not ask (it expels everyone anyway); `idle_kick_seconds: 0` switches it off.
+
+**The player's namespace and kubeconfig (issue #9).** `mesh host invite` (so every approval, and every hand invite) also makes `play-<name>`: Pod
+Security `restricted` enforced, a ResourceQuota and a LimitRange with the numbers of pool.yaml (no LoadBalancer, no NodePort, no volume claim), a
+ServiceAccount bound by a Role to that namespace only (pods with logs and exec, deployments, services, configmaps; reading its events, quota and
+limits; **no secrets, no nodes, no RBAC, no tokens**), and the participant guard (`poc/participant-policy.yaml`: Services ClusterIP without
+externalIPs, no `nodeName`, no toleration of the control plane's taint). The bundle gets `kubeconfig` (0600): the control plane's Nebula address, the
+cluster CA pinned and a token from the TokenRequest API that lives **exactly the lease** (so `--ttl` is at least 10 minutes, the API's minimum). It
+carries no client certificate, no join token and no node password, and `join.env` carries no user token: node credentials and user credentials stay
+apart. `edge-mesh join` installs it as `/etc/edge-mesh/kubeconfig` and `edge-mesh kubectl` uses it with the messages and exit codes of the error
+matrix (JOIN.md). `kick` (reap, the tick, panic) deletes the ServiceAccount first, so the token stops working at once, then the namespace; while the
+namespace is still terminating `kick` exits 4 and the lease is kept for the next run.
 
 **Events.** Every fact is one JSON line in `admission/events.jsonl` (0600; `seq`, `ts`, `time`, `type`, `name`, `identity`, `summary`, and `how`,
 `end`, `path`, `why`, `retry_at` where they apply): `request`, `refused`, `approved` (`by`: auto or host), `bundle_ready` (with the outbox path),
-`expiring`, `expelled` (`how`: expired, ended early, panic), `rejected`, `kick_failed`, `invite_failed`, `auto_on`, `auto_off`, `panic`,
+`expiring`, `expelled` (`how`: expired, ended early, idle, panic), `rejected`, `kick_failed`, `invite_failed`, `auto_on`, `auto_off`, `panic`,
 `panic_cleared`. They are appended under the same lock, right after the ledger is written, so the log's order is the order of the commits. The log
 keeps the last `events_max_lines` (5000) lines and blanks the identity of every event older than `identity_retention_seconds`, like the ledger; the
 counters behind the metrics live in the ledger, so they survive that rotation.
@@ -288,6 +311,8 @@ frees the place only once `kick` confirmed no stray Node is left, and the blockl
 | Check | Where |
 | :--- | :--- |
 | FIFO up to the slots in one tick; a tick expels then promotes in one pass; a no-op tick leaves state, switch and log byte-identical; daily cap and cooldown inside auto (a listed request over the cap is never approved before its time); a failed invite records nothing and the next tick retries; a failed kick keeps the lease and its place; `expiring` once; the switch and its events; panic expels everyone, closes everything (exit 7) and is idempotent; events in order with exactly two hook arguments; the identity only with `ADMISSION_NOTIFY_IP=1`; hostile names and notes (quotes, `;`, newlines, `$(...)`, backticks) never reach a shell and no file is created; a failing or missing hook breaks nothing; the log is bounded and forgets identities; the outbox (0600, deterministic bytes, links not followed, names outside refused, deleted at the end); the metrics text; 8 concurrent ticks as processes | `make test` (`poc/test_admission_auto.py`, simulated clock, no Docker). Three mutations fail it: the tick without its expel step, the daily cap ignored, the hook run through a shell |
+| a node that never came, or went idle, is expelled after `idle_kick_seconds` and its place goes on in the same tick; idle counts again after the node was active; an unknown never expels; a tick that sees the same thing writes nothing; 0 switches it off and panic does not ask; a failed idle kick keeps the lease; the rate limit (a repeat counts, a refusal does not, no event, another identity unaffected); `X-Forwarded-For` only through the trusted proxy; the participant's objects, RBAC (no secret, node, RBAC or wildcard), quota numbers and kubeconfig (no client certificate, no join token); `edge-mesh kubectl` exit codes with a stub kubectl | `make test` (`poc/test_admission_auto.py`, `poc/test_participant.py`, `poc/test_edge_mesh.py`) |
+| three ask, one tick approves two and carol waits; `play-alice` and `play-bob` with Pod Security restricted, quota, limits, RBAC and the guard; alice's kubeconfig (0600, Nebula address, the cluster CA, a token of exactly the lease, nothing of the node's); alice joins and works in her namespace; the kubelet's credential cannot act there; rows 6, 7, 8, 9 and 11 of the error matrix for real (exit 10 to 14 and their messages); no secret anywhere, no node, no quota lifted, no RoleBinding, no token, no relabel; Pod Security and the guard refuse a privileged pod, a NodePort, externalIPs and a pod pinned to the control plane; a second request from alice's address deferred; the rate limit; `X-Forwarded-For`; bob never joins and is expelled as idle, carol takes his place; a place free but alice-2 held (approve exit 6, the tick admits nobody); the lease ends: node, namespace and token gone, certificate blocklisted and expired; the cooldown, then the place reused; `reap --all` leaves no participant namespace | `make poc-pool` (PL01-PL25), Incus VMs; `POOL_LEASE` (900 s), `POOL_IDLE` (240 s), `POOL_COOLDOWN` (60 s) shorten the test |
 | `auto` off by default; a tick with auto off approves nobody; `auto on`; one tick approves alice and bob, carol waits; a no-op tick; the outbox bundle is 0600, the same files, a certificate of exactly the lease; a copy of bob's bundle on a second machine (plain k3s agent, its own name, LAN and IPv6 addresses) reaches the API and is refused by the node guard; both join and are Ready; the next tick burns the tokens; `expiring` once; the leases end and one tick expels both, leaves no Node but the control plane and only then promotes carol; the outbox files go; the copy, started again, cannot reach the API; a machine presenting alice's burned token is refused; carol joins; with auto off the tick only warns and expels; `auto on` approves the same identity's second lease; its third request is refused by the daily cap; panic, panic again (no event), panic holds (exit 7), `--clear`; the hook got every event in order without IP, key or path; the metrics | `make poc-admission-auto` (AA01-AA37), Incus VMs; `ADM_LEASE` (default 1200 s) and `ADM_COOLDOWN` (default 60 s) shorten the test |
 
 ### B2. A public page that takes requests (design only)
@@ -321,7 +346,10 @@ request, the position and an estimated time (`position / slots * lease`, correct
 The pull model also fixes the bundle's secrecy: the visitor makes their own Nebula key (`nebula-cert keygen`, or the page does it in the browser) and
 sends only the **public** key. The home signs it with `IN_PUB` (already in `issue.sh`, used for the lighthouse), so the bundle that travels back through
 the public server has **no private key** (the B1 outbox bundle still has one: B1 is delivered by the host). The join token does travel; it lives
-8 minutes at most, is burned once the node registers, and is useless without the private key (the API only answers on the Nebula IP). The visitor fetches the
+8 minutes at most, is burned once the node registers, and is useless without the private key (the API only answers on the Nebula IP). So does the
+player's kubeconfig token (issue #9): it lives the lease and works only from inside the mesh, but any member of the mesh can reach the API, so
+whoever copies it from the public server and has a place of their own could act in that player's namespace: B2 must encrypt the result to the
+visitor's key, or keep the token out of what travels. The visitor fetches the
 result with a random claim code shown only to them; the server stores its hash. Test: the page answers with the same numbers as `admission-status`;
 the server's disk holds no `*.key`.
 
@@ -349,12 +377,12 @@ All of these, each the maintainer's explicit decision:
 
 - [x] the repository is public (2026-10-27, not announced; see DESIGN.md, open decision 3); announcing it is the maintainer's "open it";
 - [ ] B2 built and tested (the page, the anti-bot layers, the visitor's own key);
-- [ ] issue #9: per-namespace RBAC and a kubeconfig per visitor (today a visitor has a node, not a namespace);
+- [x] issue #9: per-namespace RBAC and a kubeconfig per visitor (2026-10-28, `make poc-pool`);
 - [ ] issue #12: signed-PR participants, so the regulars are not in the free pool;
 - [ ] issue #13: the gateway and BGP only on own nodes;
 - [ ] issue #15: the relay for symmetric NAT (otherwise part of the visitors cannot join at all);
 - [ ] issue #16: the go-public checklist in [DEMO.md](DEMO.md);
-- [ ] issue #11: quotas, LimitRange and the idle kick for the pool (B1 closed the automatic tick; #11 stays open until B2 and B3).
+- [x] issue #11: quotas, LimitRange, the idle kick and the rate limit for the pool (2026-10-28, `make poc-pool`); the page itself is B2.
 
 ## Parameters
 
@@ -368,9 +396,11 @@ All in [`poc/pool.yaml`](../poc/pool.yaml) except the token lifetime (an environ
 | `daily_leases_per_identity` | 2 | leases per identity in any 24 h (rolling) | maintainer |
 | `identity_ipv4_prefix` | 32 | 32 = one address; 24 = the whole /24 (planned for B2, when the public brings its own IP) | maintainer |
 | `identity_ipv6_prefix` | 64 | an IPv6 /64 is one identity | maintainer |
-| `rate_window_seconds`, `rate_max_requests` | 600, 5 | request rate per identity (for the public intake, B2; not used by B1) | maintainer |
+| `rate_window_seconds`, `rate_max_requests` | 600, 5 | requests per identity in the window; the next is refused (exit 6, not listed, no event); 0 switches it off | maintainer |
 | `trusted_proxies` | the reverse proxy's addresses | who may set `X-Forwarded-For` | whoever runs the border |
-| `idle_kick_seconds` | 900 | early eviction of an idle node (not built, #11) | maintainer |
+| `idle_kick_seconds` | 900 | the tick expels a lease whose node has been missing, NotReady or without a workload this long; 0 switches it off | maintainer |
+| `quota_pods`, `quota_cpu_millis`, `quota_memory_mib`, `quota_storage_mib`, `quota_services`, `quota_configmaps`, `quota_deployments` | 10, 1000, 1024, 2048, 5, 10, 5 | the ResourceQuota of each `play-<name>` (CPU, memory and ephemeral storage for requests and limits alike; LoadBalancer, NodePort and volume claims 0; the object counts keep etcd, the host's, from filling up) | maintainer |
+| `limit_default_cpu_millis`, `limit_default_memory_mib`, `limit_default_storage_mib`, `limit_max_cpu_millis`, `limit_max_memory_mib`, `limit_max_storage_mib` | 200, 128, 256, 500, 512, 1024 | the LimitRange: a container without limits gets the default (half of it as its request); no container above the max | maintainer |
 | `TOKEN_TTL` (environment) | 8m (1 to 8 minutes; more is refused) | lifetime of the k3s join token (burned earlier, once the node registers); it must die before k3s may drop the node password of an unused name | code (the cap) and host (shorter) |
 | `identity_retention_seconds` | 90000 (25 h) | how long an identity is kept after its lease or request closed; never below 24 h or the cooldown | maintainer |
 | `ADM_LEASE` (environment, test only) | 1800 | the shortened lease of `make poc-admission` | test |
@@ -378,4 +408,5 @@ All in [`poc/pool.yaml`](../poc/pool.yaml) except the token lifetime (an environ
 | `events_max_lines` | 5000 | lines kept in `admission/events.jsonl`; the metric counters survive the rotation (B1) | host |
 | `ADMISSION_NOTIFY_CMD` (environment) | unset | the host's command, called with `<type> <summary>` per event, never through a shell (B1) | host |
 | `ADMISSION_NOTIFY_IP` (environment) | unset | `1` appends the identity to the summary the hook gets (B1) | host |
-| `ADM_LEASE`, `ADM_COOLDOWN` (environment, test only) | 1200, 60 | the shortened lease and cooldown of `make poc-admission-auto` | test |
+| `ADM_LEASE`, `ADM_COOLDOWN` (environment, test only) | 1200, 60 | the shortened lease and cooldown of `make poc-admission-auto` (its idle kick is off: its players run nothing on purpose) | test |
+| `POOL_LEASE`, `POOL_IDLE`, `POOL_COOLDOWN` (environment, test only) | 900, 240, 60 | the shortened lease, idle time and cooldown of `make poc-pool` | test |

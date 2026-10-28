@@ -98,9 +98,11 @@ binary (at `/opt/nebula/nebula`) and `k3s` installed. Today the join command is 
    ```
 3. **Check you are in:** `ping 10.77.0.2` (the control plane) works from your machine, and the host sees your node Ready (`mesh host players`).
    Step by step, with the commands to install the tools: [docs/JOIN.md](docs/JOIN.md).
+   **Your own namespace:** the bundle also carries a kubeconfig for `play-<you>`, valid for your lease: `sudo ./poc/edge-mesh kubectl get pods`
+   ([JOIN.md](docs/JOIN.md#use-the-cluster-your-namespace-dell) lists its messages and exit codes).
 4. **Run your study lab on it:** pick one in [study.cybercirujas.club](https://study.cybercirujas.club) (for example
    `cka/1.1`) and run its `break_fix.sh break`, fix it, then `verify`.
-5. **Leave:** stop the agent and Nebula; the host can kick you with `mesh host kick <you>` and your certificate stops working.
+5. **Leave:** stop the agent and Nebula; the host can kick you with `mesh host kick <you>`: your certificate and your kubeconfig stop working and your namespace is deleted.
 
 ### 3. Host your own game
 

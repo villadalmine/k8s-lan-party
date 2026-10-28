@@ -3,6 +3,7 @@
 #  1. the certificate fingerprint goes on the Nebula blocklist of every host, which reloads (SIGHUP);
 #  2. the node object is deleted (the blocklist is what keeps it from coming back);
 #  3. the join token of the player is deleted (if it still existed: a bootstrap token is not one-time, it works until deleted or expired);
+#     and so is the ServiceAccount behind the player's kubeconfig (play-<name>/user): that token stops working at once;
 #  4. every Node not named after a live bundle is deleted too (a second machine started with a copy of the bundle before the burn picks
 #     its own name and addresses; the sweep keys on the names the host issued: poc/nodes_sweep.py).
 # Idempotent: a second run finds the fingerprint already listed, the node already gone, and exits 0. Unknown name: exit 3. A Node still
@@ -37,6 +38,7 @@ elif [ -n "${LH_EXTERNAL:-}" ]; then
 fi
 k delete node "$n" --wait=false --ignore-not-found >/dev/null 2>&1 || true   # the sweep below confirms it (or exits 4)
 token_burn "$n" || true
+k delete serviceaccount user -n "play-$n" --ignore-not-found >/dev/null 2>&1 || true   # the player's kubeconfig token dies with its ServiceAccount
 # The node guard (poc/node-guard.yaml) drops this name from the names a kubelet may register: no copy can come back under it.
 guard=ok; node_guard || guard=failed
 # A second machine started with a copy of this bundle before its token was burned registers a Node whose name and addresses it picks

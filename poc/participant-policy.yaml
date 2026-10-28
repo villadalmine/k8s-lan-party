@@ -1,0 +1,43 @@
+# The participant guard: what a player may not do inside their own namespace (play-<name>, labelled edge-mesh/participant), on top of
+# Pod Security "restricted", the ResourceQuota and the Role (poc/participant.py). Applied by `mesh host invite`; idempotent.
+#  - a Service is ClusterIP only and has no externalIPs: an externalIP lets a namespace user take over traffic to any address in the
+#    cluster (CVE-2020-8554), and a NodePort or LoadBalancer would open a port on other people's machines;
+#  - a pod may not name its node (spec.nodeName skips the scheduler and every taint) nor tolerate the control plane's taint: a
+#    player's pods never land on the host's control plane. The scheduler binds pods through pods/binding, which this does not match.
+# Who may run where among the players' own nodes is the trust placement of section 4 (Kyverno, poc/placement/), not this.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: edge-mesh-participant-guard
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    namespaceSelector:
+      matchExpressions:
+        - {key: edge-mesh/participant, operator: Exists}
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["services", "pods"]
+  validations:
+    - expression: "request.resource.resource != 'services' || !has(object.spec.type) || object.spec.type == 'ClusterIP'"
+      message: "a participant's Service must be ClusterIP: no NodePort, LoadBalancer or ExternalName (edge-mesh participant guard)"
+    - expression: "request.resource.resource != 'services' || !has(object.spec.externalIPs) || size(object.spec.externalIPs) == 0"
+      message: "a participant's Service may not set externalIPs (edge-mesh participant guard)"
+    # CREATE only: once scheduled every pod has a nodeName, and an update cannot change it
+    - expression: >-
+        request.resource.resource != 'pods' || request.operation != 'CREATE' || !has(object.spec.nodeName) || object.spec.nodeName == ''
+      message: "a participant's pod may not set spec.nodeName: the scheduler places it (edge-mesh participant guard)"
+    - expression: >-
+        request.resource.resource != 'pods' || !has(object.spec.tolerations) || !object.spec.tolerations.exists(t,
+        !has(t.key) || t.key == '' || t.key == 'node-role.kubernetes.io/control-plane')
+      message: "a participant's pod may not tolerate the control plane's taint or every taint (edge-mesh participant guard)"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: edge-mesh-participant-guard
+spec:
+  policyName: edge-mesh-participant-guard
+  validationActions: [Deny]

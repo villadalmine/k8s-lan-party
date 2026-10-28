@@ -1,9 +1,9 @@
 ---
 tipo: doc
 id: k8s-lan-party-poc
-version: 0.2.0
+version: 0.3.0
 fecha_alta: 2026-10-19
-fecha_ultimo_cambio: 2026-10-27
+fecha_ultimo_cambio: 2026-10-28
 categoria: plataforma
 dueno_agente: casa-orquestador
 pieza: k8s-lan-party
@@ -11,7 +11,7 @@ meta: ../meta.yml
 depende_de: [docs/DESIGN.md]
 lo_usan: [README.md]
 docs: [docs/DESIGN.md, docs/GOLDEN-RULES.md, docs/POC-STATUS.md, docs/HOST-YOUR-OWN.md, docs/JOIN.md, docs/TROUBLESHOOTING.md]
-scripts: [poc/poc-join.sh, poc/poc-host.sh, poc/poc-weakness.sh, poc/poc-ca.sh, poc/poc-revoke.sh, poc/poc-placement.sh, poc/poc-cilium.sh, poc/poc-lighthouse.sh, poc/kind-cilium.sh, poc/vm/poc-vm.sh, poc/vm/run-all.sh, poc/up.sh, poc/down.sh, poc/issue.sh, poc/revoke.sh, poc/mesh, poc/edge-mesh, poc/lighthouse-vps.sh, poc/pool.py, poc/admission.py, poc/poc-admission.sh, poc/poc-admission-auto.sh]
+scripts: [poc/poc-join.sh, poc/poc-host.sh, poc/poc-weakness.sh, poc/poc-ca.sh, poc/poc-revoke.sh, poc/poc-placement.sh, poc/poc-cilium.sh, poc/poc-lighthouse.sh, poc/kind-cilium.sh, poc/vm/poc-vm.sh, poc/vm/run-all.sh, poc/up.sh, poc/down.sh, poc/issue.sh, poc/revoke.sh, poc/mesh, poc/edge-mesh, poc/lighthouse-vps.sh, poc/pool.py, poc/admission.py, poc/poc-admission.sh, poc/poc-admission-auto.sh, poc/poc-pool.sh, poc/participant.py, poc/participant-policy.yaml]
 tags: [poc, determinista, nebula, k3s, cilium, kyverno]
 ---
 
@@ -35,9 +35,10 @@ directory). Where each suite passed and how often is in [docs/POC-STATUS.md](../
 | `make poc-lighthouse` | `poc-lighthouse.sh` | 23 (P01-P18, P09b, P12b-P12e) | a lighthouse on a separate public server (a VM plays it): `lighthouse-vps.sh` prepare / sign / deploy idempotent, a player joins through it, `revoke` reaches it; `mesh host refresh` with no change, with a change that needs a restart (the API comes back) and with one read on reload |
 | `make poc-admission` | `poc-admission.sh` | 31 (A01-A31) | **admission with manual approval** ([docs/ADMISSION.md](../docs/ADMISSION.md)): request, approve, join, a burned join token refused to a second machine, a non-cooperative copy of a bundle refused by the node guard, another guest's name refused by its node password, a name whose node password k3s dropped refused, places full, the lease ends, `reap` expels, the next one in line enters, `reap --all` (Incus VMs) |
 | `make poc-admission-auto` | `poc-admission-auto.sh` | 37 (AA01-AA37) | **the automatic pool, phase B1** ([docs/ADMISSION.md](../docs/ADMISSION.md)): `auto on`, one tick approves two and the third waits, the outbox bundle, both join, a copy of a bundle refused by the node guard, one tick expels at the end (no stray Node left) and only then promotes, the copy's tunnel cut, a burned token refused, auto off only expels, the daily cap refuses a third request, `panic`, the notify hook in order, the metrics (Incus VMs) |
+| `make poc-pool` | `poc-pool.sh` | 25 (PL01-PL25) | **the pool's cluster side and the player's own access** (issues #9, #11): a namespace `play-<name>` per player (Pod Security restricted, quota, limits, the participant guard) and a kubeconfig whose token lives exactly the lease, kept apart from the node credential; the error matrix rows 6, 7, 8, 9 and 11 with their messages and exit codes (`edge-mesh kubectl`); no secret, node or other namespace; the idle kick; the second request of an address held while its lease runs and through the cooldown; the rate limit; `X-Forwarded-For`; the lease end removes node, namespace and token and the place is reused (Incus VMs) |
 | `vm/run-all.sh` | | 89 | join, host, weakness, CAs, revoke and placement on Incus VMs in one go |
 | `make poc-down` | `down.sh` | | remove every container, network and the state |
-| `make test` | `test_pool.py`, `test_admission.py`, `test_admission_auto.py`, `../tests/` | | the pool logic (1 h lease, per-identity rules, daily cap, FIFO waitlist), the admission ledger (the file, the lock, names), the automatic tick (switch, panic, events and hook, outbox, metrics, 8 concurrent ticks), the PR gates, every PoC script keeps its executable bit, two state directories do not touch each other |
+| `make test` | `test_pool.py`, `test_admission.py`, `test_admission_auto.py`, `test_participant.py`, `test_edge_mesh.py`, `../tests/` | | the pool logic (1 h lease, per-identity rules, daily cap, FIFO waitlist), the admission ledger (the file, the lock, names), the automatic tick (switch, panic, events and hook, outbox, metrics, 8 concurrent ticks, the idle kick, the rate limit), the player's namespace objects and kubeconfig, `edge-mesh kubectl`'s exit codes, the PR gates, every PoC script keeps its executable bit, two state directories do not touch each other |
 
 Not covered by a check yet: the deny half of mutual auth (a peer without a SPIFFE identity is dropped), native WSL2 as a node, macOS,
 relays and symmetric NAT (issues #8, #14, #15).
@@ -50,9 +51,9 @@ relays and symmetric NAT (issues #8, #14, #15).
 | `lib.sh` | shared helpers (`step`, `wait_for`, containers and VMs, Nebula reload and restart). `EMESH_STATE` picks the state directory (default `poc/.state`) |
 | `up.sh`, `down.sh` | bring the Docker flow up (idempotent) and tear it down |
 | `issue.sh` | the host's side of a join: sign a Nebula certificate (persistent or pool CA), create a short-lived join token, write the bundle |
-| `edge-mesh` | the participant's one command: `edge-mesh join <bundle> --accept-golden-rule` (supervises the k3s agent) |
+| `edge-mesh` | the participant's one command: `edge-mesh join <bundle> --accept-golden-rule` (supervises the k3s agent, installs the player's kubeconfig) and `edge-mesh kubectl ...` (their own access, with the error matrix's messages and exit codes 10-14) |
 | `revoke.sh` | revocation in one command: blocklist, reload every host (and the external lighthouse), delete the node |
-| `mesh` | the host's CLI: `host init / invite / players / revoke / kick / refresh / down`, the admission commands `host request / waitlist / approve / reject / leases / reap / admission-status` and the automatic pool `host auto --once / auto on / auto off / auto status / panic / bundle / admission-metrics`, and `play` (local simulation of a player) |
+| `mesh` | the host's CLI: `host init / invite / players / revoke / kick / refresh / down`, the admission commands `host request / waitlist / approve / reject / leases / reap / admission-status` and the automatic pool `host auto --once / auto on / auto off / auto status / panic / bundle / admission-metrics / activity`, and `play` (local simulation of a player) |
 | `lighthouse-vps.sh` | a lighthouse on a separate public server: `prepare` (key made on the server), `sign`, `deploy`, `install`, `verify`, `sync`, `remove` |
 | `kc` | `kubectl` against the PoC control plane, whatever the runtime |
 | `install-placement.sh`, `placement/` | install Kyverno and the trust-placement policies on your own control plane |
@@ -61,6 +62,7 @@ relays and symmetric NAT (issues #8, #14, #15).
 | `vm/` | the Incus VM flow: `up.sh`, `down.sh`, `lib-vm.sh`, `poc-vm.sh`, `poc-placement.sh`, `run-all.sh` |
 | `pool.py`, `pool.yaml`, `test_pool.py` | the capacity pool for the public demo (pure logic, simulated time) |
 | `admission.py`, `test_admission.py`, `test_admission_auto.py`, `poc-admission.sh`, `poc-admission-auto.sh` | admission with manual approval and the automatic tick (B1): the ledger behind `mesh host request / approve / reap` |
+| `participant.py`, `participant-policy.yaml`, `test_participant.py`, `test_edge_mesh.py`, `poc-pool.sh` | the player's namespace `play-<name>` (Pod Security, quota, limits, RBAC), their kubeconfig (TokenRequest, the lease's length), what the idle kick reads (`mesh host activity`), and the participant guard (ClusterIP only, no externalIPs, no `nodeName`, no toleration of the control plane) |
 | `node-guard.yaml`, `nodes_sweep.py`, `test_nodes_sweep.py` | only Nodes named after an issued bundle, at its Nebula IP, may register; what `revoke` sweeps |
 | `node_password.py`, `test_node_password.py` | the k3s node password the host makes for each bundle name (only the bundle carries it) |
 | `labs/cka-1.1/` | a copy of the study lab, from [study-cybercirujas](https://github.com/villadalmine/study-cybercirujas) (Apache-2.0), commit `ec0dd8a` |
