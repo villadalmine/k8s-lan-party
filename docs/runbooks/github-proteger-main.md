@@ -1,7 +1,7 @@
 ---
 tipo: runbook
 id: k8s-lan-party-github-proteger-main
-version: 1.1.0
+version: 1.2.0
 fecha_alta: 2026-10-16
 fecha_ultimo_cambio: 2026-10-28
 categoria: repo
@@ -70,6 +70,19 @@ Expected: `["users.noreply.github.com", "github.com"]` (the committer is `GitHub
 `verify.yml` checks the same on every push to `main` and fails, printing only domains, if a commit of the owner carries
 another address. If it fails, the address is already public in the history (no force push on `main`): turn the setting on
 before the next merge, and say so in the next release notes.
+
+## Step 4: update the ruleset after a change to `main.json` (2026-10-28: the checks `participants` and `participants-offline`)
+
+Apply it **after** the pull request that adds `.github/workflows/participants.yml` is merged: a required check that no workflow on `main`
+reports would block every pull request. Backup first (step 0), then:
+
+```bash
+id=$(gh api repos/villadalmine/k8s-lan-party/rulesets --jq '.[] | select(.name == "main") | .id')
+gh api -X PUT "repos/villadalmine/k8s-lan-party/rulesets/$id" --input .github/rulesets/main.json \
+  --jq '[.rules[] | select(.type == "required_status_checks") | .parameters.required_status_checks[].context] | join(",")'
+```
+
+Expected: `verify,pr-format,participants,participants-offline`. Undo: the same `PUT` with the backup's version of `main.json`.
 
 ## Rollback
 

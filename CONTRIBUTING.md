@@ -157,8 +157,8 @@ maintainer for maintenance changes; an agent never merges. Chained PRs: merge wi
 re-point the next one to `main` and rebase with `--onto origin/main <old parent>`.
 
 `main` is protected by a ruleset ([`.github/rulesets/main.json`](.github/rulesets/main.json), runbook
-[`docs/runbooks/github-proteger-main.md`](docs/runbooks/github-proteger-main.md)): PR required, checks `verify`
-and `pr-format`, linear history, no force push, no deletion. GitHub enforces it since the repository became public
+[`docs/runbooks/github-proteger-main.md`](docs/runbooks/github-proteger-main.md)): PR required, checks `verify`,
+`pr-format`, `participants` and `participants-offline` (join by signed PR, `.github/workflows/participants.yml`), linear history, no force push, no deletion. GitHub enforces it since the repository became public
 on 2026-10-27 (on a free account rulesets need a public repository).
 
 ## Licence
