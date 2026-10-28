@@ -42,7 +42,7 @@ EOF
 }
 fetch_local() { # the pinned nebula-cert, next to the scripts
   [ -x "$CACHE/nebula-cert" ] && return 0
-  curl -fsSL "https://github.com/slackhq/nebula/releases/download/v$NEBULA_VERSION/nebula-linux-amd64.tar.gz" | tar xz -C "$CACHE"
+  curl -fsSL "https://github.com/slackhq/nebula/releases/download/v$NEBULA_VERSION/nebula-linux-$ARCH.tar.gz" | tar xz -C "$CACHE"
 }
 
 prepare() { # prepare <public-host>

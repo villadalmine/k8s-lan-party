@@ -40,10 +40,14 @@ shareable (and that opted in to your trust level) can land on it. **Time and cos
 - On the machine, as root (versions pinned in `poc/stack.env`); these are the exact commands that were run:
 
 ```bash
-apt-get update && apt-get install -y curl ca-certificates iproute2 iputils-ping
-mkdir -p /opt/nebula && curl -sL https://github.com/slackhq/nebula/releases/download/v1.11.2/nebula-linux-amd64.tar.gz | tar xz -C /opt/nebula
-curl -sLo /usr/local/bin/k3s "https://github.com/k3s-io/k3s/releases/download/v1.37.1%2Bk3s1/k3s" && chmod +x /usr/local/bin/k3s
-cp poc/edge-mesh /usr/local/bin/edge-mesh && chmod +x /usr/local/bin/edge-mesh      # the script from this repository
+sudo -i                                                                              # everything below runs as root
+apt-get update && apt-get install -y curl ca-certificates iproute2 iputils-ping git
+ARCH=$(dpkg --print-architecture)                                                    # amd64 or arm64 (an arm64 VM, a Raspberry Pi)
+K3S_BIN=k3s; [ "$ARCH" = amd64 ] || K3S_BIN=k3s-$ARCH                                # k3s names its arm64 binary k3s-arm64
+mkdir -p /opt/nebula && curl -fsSL "https://github.com/slackhq/nebula/releases/download/v1.11.2/nebula-linux-$ARCH.tar.gz" | tar xz -C /opt/nebula
+curl -fsSLo /usr/local/bin/k3s "https://github.com/k3s-io/k3s/releases/download/v1.37.1%2Bk3s1/$K3S_BIN" && chmod +x /usr/local/bin/k3s
+git clone -q https://github.com/villadalmine/k8s-lan-party.git                      # only for the join script, poc/edge-mesh
+install -m 755 k8s-lan-party/poc/edge-mesh /usr/local/bin/edge-mesh
 /opt/nebula/nebula -version && k3s --version | head -1                               # 1.11.2 and v1.37.1+k3s1
 ```
 
