@@ -107,7 +107,7 @@ Out of scope for phase 1: marketplaces, billing, storage, GPUs, scheduling fairn
 | **Nebula** | join/"login" (node identity: certificate from our CA with expiry and groups) and NAT traversal/connectivity | yes; it always encrypts (Noise) and cannot be turned off, which is fine: the team does not manage it | Tailscale, Headscale, NetBird, zrok, ngrok, ClusterMesh |
 | **Cilium, tunnel mode** (VXLAN/Geneve over the Nebula IPs) | the CNI; joiners configure nothing extra. MTU is set once. Native routing is **not** the default; it is an optional optimisation for the maintainer's own nodes | yes | flannel (kept only as plan B) |
 | **Cilium WireGuard** (transparent encryption) | encrypt pod-to-pod across nodes, plus node-to-node | **always on** | app-level TLS for transit |
-| **Cilium mutual authentication** (SPIFFE/SPIRE, "mTLS") | authenticate workload identity; WireGuard provides the encryption | per policy, `authentication.mode: required`, when a user asks (beta: prove it in the PoC) | a service mesh |
+| **Cilium mutual authentication** (SPIFFE/SPIRE, "mTLS") | authenticate workload identity between nodes that are honest; not evidence against a joined node's owner (section 3.3, issue #29); WireGuard provides the encryption | per policy, `authentication.mode: required`, when a user asks (beta: prove it in the PoC) | a service mesh |
 | **Kyverno + labels + taints** | placement by trust (section 4) | yes | goodwill |
 
 Each layer does one job. Nebula does not do placement; Cilium does not do the identity of machines; Kyverno does
@@ -149,7 +149,26 @@ pod-bound token was issued on (`cilium.sh` applies it; `poc-vm` V06c). The same 
 `CiliumIdentities`, which no per-node rule scopes, and the SPIRE registration entries are not tied to a node (selector `cilium:mutual-auth`,
 parented to the operator). So **mutual authentication proves that the peer node holds a certificate from the cluster's SPIRE for that
 identity; it is not evidence against the owner of a joined node** claiming another workload's identity (section 1: authorize each request in
-the application). That attack is not tested yet: a follow-up.
+the application). That attack is not tested yet: a follow-up (issue #29).
+
+**The k3s controller credential (found in the review of PR #28, 2026-10-28).** Every joined machine also holds
+`/var/lib/rancher/k3s/agent/k3scontroller.kubeconfig` (user `system:k3s-controller`). Its ClusterRole in k3s v1.37.1 reads nodes, pods, endpoints,
+endpointslices, namespaces and network policies cluster-wide and has exactly one write: `patch nodes/status`, on every Node. The API server resets only
+`spec` on a status update, so a status patch may change `metadata.labels`, and NodeRestriction and the node guard match `system:node:*` only. So a joined
+node could have labelled itself `own` or taken `own` away from the maintainer's nodes. **Guard:** `poc/node-trust-freeze.yaml`, a
+`ValidatingAdmissionPolicy` (fail closed) on `nodes` and `nodes/status`: the `node-restriction.kubernetes.io/` labels and the `trust` taint change only
+for `system:masters` (the host), everything else (other labels, annotations, the status) stays writable so kubelets, k3s and the lifecycle controller keep
+working. Applied by `up.sh` before any node joins; `poc-bgp` G09b and `poc-placement` L52b test it. Still open on that credential, by design of k3s:
+the rest of `status` (conditions, capacity, addresses of any Node) is writable by it, and the reads above include every pod spec. Accepted for a node
+you do not own, as the paragraph above says.
+
+**The SPIRE agent (found in the same review).** Running it on joined nodes (a toleration, so their pods get an identity) puts its service account token
+there. The chart's ClusterRole is `get` on `pods`, `nodes` and `nodes/proxy` cluster-wide (measured by `poc-vm` V103 as an RBAC inventory). `nodes/proxy`
+lets the API server relay a GET to any node's kubelet (`/pods`, container logs), so the owner of a joined node can read the pod specs and logs of the
+maintainer's own nodes with it. The chart offers no way to narrow that role, and the SPIRE Kubernetes workload attestor needs that permission to ask the
+local kubelet about its pods (not re-measured by removing it), so mutual authentication toward joined nodes and this exposure come together. The
+decision is the maintainer's: accept it as golden-rule exposure (nothing private belongs where such a node can be reached through the API), a kubelet-side
+authorizer, or no SPIRE agent on joined nodes (then no mutual auth for their pods). Open: see the issue linked in POC-STATUS.
 
 ## 4. Trust and placement policy
 
@@ -177,14 +196,16 @@ Mechanics (all of them required):
    (`nodeName` skips the scheduler, so it would skip `nodeAffinity` and `NoSchedule`); policies run with `failurePolicy: Fail`.
 6. **Kyverno on shareable workloads**: no `hostPath`, `privileged`, host namespaces or added capabilities; **no
    Secret volumes or `secretKeyRef`**; `automountServiceAccountToken: false`; resource limits; image allow-list.
-7. **Cilium**: deny by default per namespace, plus mutual auth where a policy asks for it.
+7. **Cilium**: deny by default per namespace, plus mutual auth where a policy asks for it (it does not stand against a joined node's owner: section 3.3).
 
 ![The pattern with Kyverno and trust levels](diagrams/placement-kyverno.svg)
 
 *Diagram 2 ([source](diagrams/placement-kyverno.mmd)): the correct pattern. What the PoC implements of it today (one owner, a ValidatingAdmissionPolicy on Nodes) is in section 10.*
 
 **Node-side credentials.** Whoever owns a node also holds what lives on it outside NodeRestriction: the k3s controller and kube-proxy
-identities (the controller can read pod specs cluster-wide and patch node status) and the CNI's service account. That is accepted,
+identities (the controller can read pod specs cluster-wide and patch the status of any Node, which can carry label changes) and the CNI's service account. The
+trust of a node is frozen against all of them: `poc/node-trust-freeze.yaml` lets only `system:masters` (the host) change the `node-restriction.kubernetes.io/`
+labels or the `trust` taint, on a Node or its status (`poc-bgp` G09b, `poc-placement` L52b). That is accepted,
 unfixable risk on a node you do not own, so **the automatic public demo runs on its own disposable control plane** that holds
 nothing of the maintainer's (no secrets, no real workloads), never on the cluster that has the maintainer's own nodes.
 
@@ -247,7 +268,8 @@ gateway (TLS), gateway to pods (WireGuard, plus mutual auth where asked), and Ne
 with `nodeSelector` on the trust label) run only on `own` nodes, and so do cert-manager and the backend. The listener's certificate comes from
 the `Gateway` itself (`cert-manager.io/cluster-issuer` annotation; a local CA in the test, ACME in real life): nobody writes a `Certificate`.
 Cilium's BGP control plane is on, with a `CiliumBGPClusterConfig` whose `nodeSelector` is `trust=own`: a remote node gets no BGP instance at
-all. Three things keep it that way, each tested: a kubelet cannot set the `node-restriction.kubernetes.io/` label on its own Node; the Cilium
+all. Four things keep it that way, each tested: a kubelet cannot set the `node-restriction.kubernetes.io/` label on its own Node (NodeRestriction),
+and no other credential on a joined machine can either (`poc/node-trust-freeze.yaml`, below; G09, G09b); the Cilium
 agent's token (which a remote owner can read from his disk) may not write any BGP object, the pool, a Node or a Service; and the edge router
 peers only with the addresses of `own` nodes, so root on a remote machine that speaks BGP to it gets no session. The test router is an FRR
 container in the test's own network; the real router is configured by the maintainer, never by a test. The AI part (model routes, token
@@ -350,9 +372,9 @@ Where each suite passed, how often, and what is still relaxed is in [POC-STATUS.
 | `make poc-weakness` | flapping, tolerance, a lossy link, control plane down, the supervised k3s agent (8) |
 | `make poc-ca` | two CAs (persistent and pool); pulling the pool CA cuts only the pool (13) |
 | `make poc-revoke` | `mesh host revoke` is idempotent, the negative test (`kubectl delete node` alone does not revoke), time to loss of access (10) |
-| `make poc-placement` | trust levels and Kyverno placement, the golden rule (30, 14 of them negative) |
-| `make poc-cilium` / `poc-vm` / `poc-kind` | step 2: Cilium tunnel + WireGuard over Nebula (`cilium-dbg encrypt status` with every other node a peer, the kernel's peers are the published keys), the MTU set once, encryption on the wire, a remote node's Cilium token cannot rewrite another node's WireGuard key, mutual auth with SPIRE non-root and persistent: an authenticated peer passes and an unauthenticated one (its node has no SPIRE identity) is dropped by the same policy (33 on the Incus VMs) |
-| `make poc-bgp` | the maintainer's endpoints (section 6): Envoy Gateway and cert-manager only on `own` nodes, TLS issued from the Gateway by itself, BGP only from `own` nodes to a test router, a remote node never announces (no BGP instance, cannot select itself, its Cilium token writes no BGP object, the router refuses it) (19, 5 of them negative) |
+| `make poc-placement` | trust levels and Kyverno placement, the golden rule (31, 15 of them negative; L52b: no identity but the host can change a node's trust labels) |
+| `make poc-cilium` / `poc-vm` / `poc-kind` | step 2: Cilium tunnel + WireGuard over Nebula (`cilium-dbg encrypt status` with every other node a peer, the kernel's peers are the published keys), the MTU set once, encryption on the wire, a remote node's Cilium token cannot rewrite another node's WireGuard key, mutual auth with SPIRE non-root and persistent: an authenticated peer passes and an unauthenticated one (its node has no SPIRE identity) is dropped by the same policy (34 on the Incus VMs, V103 inventories the SPIRE agent's reach) |
+| `make poc-bgp` | the maintainer's endpoints (section 6): Envoy Gateway and cert-manager only on `own` nodes, TLS issued from the Gateway by itself, BGP only from `own` nodes to a test router, a remote node never announces (no BGP instance, cannot select itself with the kubelet's or the k3s controller's credential, its Cilium token writes no BGP object, the router refuses it) (20, 6 of them negative) |
 | `make poc-lighthouse` | a lighthouse on a separate public server (a VM plays it): prepare, sign and deploy are idempotent, a player joins through it, `revoke` reaches it; `mesh host refresh` with no change, with a change that restarts Nebula (the API and the node come back) and with one read on reload (23) |
 | `make poc-admission` | admission with manual approval ([ADMISSION.md](ADMISSION.md)): request, approve, join, places full, the lease ends, `reap` expels, the next one in line enters, `reap --all`, a burned join token refused to a second machine, a non-cooperative copy of a bundle refused by the node guard and cut with the lease, another guest's issued name refused by its node password, a name whose node password k3s dropped refused by the guard (31) |
 | `make test` | the pool logic (`poc/pool.py`): fixed slots, 1 h lease, per-identity rules (IP normalized), daily cap, FIFO waitlist; the admission ledger (`poc/admission.py`); the scripts keep their executable bit |

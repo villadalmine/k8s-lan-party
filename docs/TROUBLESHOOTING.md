@@ -11,7 +11,7 @@ meta: ../meta.yml
 depende_de: [docs/REQUIREMENTS.md, docs/POC-STATUS.md]
 lo_usan: [README.md, docs/HOST-YOUR-OWN.md, docs/JOIN.md]
 docs: [docs/DESIGN.md]
-scripts: [poc/cilium.sh, poc/spire-args.sh, poc/checks-cilium.sh, poc/issue.sh, poc/gateway.sh, poc/cilium-node-guard.yaml]
+scripts: [poc/cilium.sh, poc/spire-args.sh, poc/checks-cilium.sh, poc/issue.sh, poc/gateway.sh, poc/cilium-node-guard.yaml, poc/node-trust-freeze.yaml]
 runbooks: []
 tags: [problemas, diagnostico, spire, cilium, nebula, kyverno]
 ---
@@ -158,6 +158,12 @@ it**. `poc/.state/poc.log` has the detail of the last run of any PoC script (`/t
   carries the experimental channel.
 - **Fix:** what `gateway.sh install` does: Envoy Gateway's own CRDs from `gateway-crds-helm` (rendered, `kubectl apply --server-side`; as a Helm release
   they exceed the 1 MiB release Secret), then the main chart with `--skip-crds`.
+
+### A joined machine relabelled a node (`own` appeared where it should not, or vanished from cp)
+- **Cause:** the k3s controller credential every joined machine holds (`k3scontroller.kubeconfig`) may `patch nodes/status` on every Node, and a status
+  patch can carry labels; NodeRestriction only watches kubelets.
+- **Fix:** `poc/node-trust-freeze.yaml` (`up.sh` applies it): only `system:masters` changes the `node-restriction.kubernetes.io/` labels or the `trust`
+  taint. Check: `kubectl get validatingadmissionpolicybinding edge-mesh-node-trust-frozen`; `G09b` and `L52b` test it.
 
 ### The router shows no session with the own node, or a route through a joined node
 - **Diagnose:** `kubectl get ciliumbgpnodeconfigs` lists only `own` nodes; on an own node `cilium-dbg shell -- bgp/peers` shows the router

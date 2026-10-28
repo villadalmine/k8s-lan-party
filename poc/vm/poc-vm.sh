@@ -50,6 +50,7 @@ step V99 "the twins share one identity, not one that authenticated before" wait_
 step V100 "the twin on a node with an identity is authenticated and allowed by the policy" wait_for 120 auth_ok_twin
 step V101 "NEGATIVE: the twin on the node without an identity is dropped: no answer, drops 'Authentication required' counted" auth_denied_twin
 step V102 "the SPIRE agent back on $AUTH_DENY_NODE: the same pod is let in (the drop was authentication, nothing else)" auth_restored
+step V103 "INVENTORY: the SPIRE agent (now on joined nodes) may get pods, nodes and nodes/proxy cluster-wide and nothing else: the known reach, recorded" spire_agent_reach
 cp "$LOG" /tmp/poc-vm-last.log 2>/dev/null
 [ "${KEEP:-0}" = 1 ] || "$POC/vm/down.sh" >/dev/null 2>&1
 echo "----"

@@ -43,7 +43,8 @@ class MtuOnce(unittest.TestCase):
             except UnicodeDecodeError:
                 continue
             for n, line in enumerate(text.splitlines(), 1):
-                if re.search(r"\bPOD_MTU=\d|\bNEBULA_MTU=\d|\bmtu:\s*\d{3,4}\b|MTU=\d{3,4}\b", line):
+                # `mtu: 1300`, `MTU=1150`, `--mtu=1150`, `ip link set x mtu 1150`, `--set MTU=1150`: any MTU followed by a number
+                if re.search(r"\bPOD_MTU=\d|\bNEBULA_MTU=\d|\bmtu\b\W{0,3}\d{3,4}\b", line, re.I):
                     bad.append(f"{f.relative_to(ROOT)}:{n}: {line.strip()}")
         self.assertEqual(bad, [], "an MTU number outside poc/stack.env")
 

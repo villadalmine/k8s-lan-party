@@ -120,6 +120,7 @@ step G06 "BGP config selects trust=own nodes; the LoadBalancer pool selects Serv
 step G07 "the own node has its BGP session Established, seen from the router and from Cilium" wait_for 120 own_session
 step G08 "a remote node never speaks BGP: no BGP node config, no peer, no session for n1 or n2" remote_silent
 step G09 "NEGATIVE: a remote node cannot put itself under the selector with its kubelet credential (NodeRestriction)" no_self_promote
+step G09b "node trust labels frozen for non-control-plane identities: the k3s controller credential on a joined node cannot change them, nor an identity that may patch node status; the host can" trust_frozen n2 public
 step G10 "NEGATIVE: the Cilium agent token on a remote node cannot change the BGP config, the pool, the advertisement, a Node or a Service label" agent_cannot
 step G11 "NEGATIVE: root on a remote node opening BGP to the router gets no session ('not configured')" rogue_refused
 step G12 "Envoy Gateway $ENVOY_GATEWAY_VERSION and cert-manager $CERT_MANAGER_VERSION on own nodes, a local CA, the Gateway (helm --wait)" gw_install

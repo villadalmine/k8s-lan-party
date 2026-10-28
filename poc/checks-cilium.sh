@@ -172,6 +172,16 @@ spire_survives_restart() {
   [ -n "$before" ] && [ "$before" = "$after" ] && [ "${before##*entries=}" -ge 3 ]
 }
 mutual_after_restart() { wait_for 120 mutual_works; }
+spire_agent_reach() { # what the SPIRE agent's service account may read, measured as an RBAC inventory (impersonation from the host, nothing is read
+  # with the token): the chart's ClusterRole is get on pods, nodes and nodes/proxy, cluster-wide. nodes/proxy is what lets the apiserver relay a
+  # GET to ANY node's kubelet (/pods, container logs), so the agent that now runs on joined nodes (spire-args.sh) can read pod specs and logs of
+  # the maintainer's nodes. It cannot be dropped without breaking mutual auth: the k8s workload attestor asks the local kubelet for the pods
+  # through the kubelet's own authn/authz, which needs that permission. Recorded, not fixed: DESIGN.md 3.3, POC-STATUS, issue #29's family.
+  local sa=system:serviceaccount:cilium-spire:spire-agent v r ans
+  for r in nodes/proxy pods nodes; do ans=$(k auth can-i get "$r" --as="$sa"); echo "get $r: $ans"; [ "$ans" = yes ] || return 1; done
+  for v in create update patch delete; do for r in nodes/proxy pods nodes secrets; do ans=$(k auth can-i "$v" "$r" --as="$sa"); echo "$v $r: $ans"; [ "$ans" = no ] || return 1; done; done
+  ans=$(k auth can-i get secrets --as="$sa"); echo "get secrets: $ans"; [ "$ans" = no ]
+}
 
 # --- mutual authentication, the deny half (issue #8). The same policy (web needs mutual auth from app=cli) must DROP a peer that cannot authenticate.
 # The unauthenticated peer: a pod on a node whose SPIRE agent is gone, so that node's Cilium agent holds no certificate for the pod's identity and the

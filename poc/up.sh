@@ -58,6 +58,8 @@ wait_for 120 docker exec cp kubectl get --raw /readyz
 docker exec cp sed "s#127.0.0.1:6443#$CP_NEB:6443#" /etc/rancher/k3s/k3s.yaml >"$STATE/kubeconfig"
 wait_for 90 docker exec cp kubectl get node cp   # the API answers before the node object exists
 k label node cp node-restriction.kubernetes.io/trust=own --overwrite >/dev/null
+# from here on, a node's trust (labels node-restriction.kubernetes.io/*, the trust taint) changes only with the host's admin credential (node-trust-freeze.yaml)
+k apply -f - <"$POC/node-trust-freeze.yaml" >/dev/null
 
 [ "${HOST_ONLY:-0}" = 1 ] && { echo "host up"; exit 0; }
 # 2. outside nodes: issue the bundle (cert + config + join token), then ONE command on the node
