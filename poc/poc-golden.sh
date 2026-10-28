@@ -17,7 +17,8 @@ NS=golden
 GOLD="gold$(date +%s | tail -c 7)"   # a fresh name every run: a name can be used once, even after a revoke
 CANARY="EDGEMESH-GOLDEN-CANARY-0123456789"
 SENTENCE="what runs on someone else's machine can be seen by its owner"
-NEB9=/tmp/golden-nebula
+NEB9="$STATE/golden-nebula"   # the throwaway player's Nebula, run on THIS machine, without a tun device
+NEB9_PID=""
 
 check() { # check <rule> <id> <description> <command...>: exit 0 PASS, 3 SKIP, anything else FAIL
   local rule="$1" id="$2" desc="$3" rc st; shift 3
@@ -49,7 +50,7 @@ cp_tcpdump() { # cp_tcpdump <seconds> <tcpdump args...>: a capture in the contro
 }
 fp_of() { "$CACHE/nebula-cert" print -json -path "$STATE/bundles/$1/host.crt" | python3 -c 'import sys,json;print(json.load(sys.stdin)[0]["fingerprint"])'; }
 cleanup() {
-  cpx sh -c "[ -f $NEB9/pid ] && kill \$(cat $NEB9/pid) 2>/dev/null; rm -rf $NEB9" >/dev/null 2>&1
+  [ -z "$NEB9_PID" ] || kill "$NEB9_PID" 2>/dev/null; rm -rf "$NEB9"
   # forced: a test pod on a node that went NotReady (its certificate expired) would keep the namespace Terminating for ever
   k -n "$NS" delete pod --all --force --grace-period=0 >/dev/null 2>&1
   k delete namespace "$NS" --wait=false --ignore-not-found >/dev/null 2>&1
@@ -191,30 +192,44 @@ g4_fresh_invite() { # a new invite: a token that lives 8 minutes at most, pinned
 }
 
 # ---- rule 5: revocation is one command, and hard ----
-neb9_up() { # a second Nebula inside the control plane machine, with the throwaway player's certificate (device nebula9, any UDP port)
+# The throwaway certificate is tried from the machine that runs this suite, by a Nebula WITHOUT a tun device (tun disabled): no root, no
+# network device, no route, nothing of the game's own machines touched. It still handshakes with the lighthouse, which is the proof: a
+# certificate the lighthouse accepts gets "Handshake message received" from it; a blocklisted one gets "Close tunnel received" and then only
+# "Handshake timed out". (A second Nebula with a tun device inside the control plane took the mesh's /24 route and cut the game: found 2026-10-28.)
+neb9_up() {
   local b="$STATE/bundles/$GOLD" f
-  cpx sh -c "mkdir -p $NEB9 && chmod 700 $NEB9" || return 1
-  for f in ca.crt host.crt host.key; do cpx sh -c "cat >$NEB9/$f" <"$b/$f" || return 1; done
-  sed -e "s#/etc/nebula/#$NEB9/#" -e 's#dev: nebula1#dev: nebula9#' -e 's#port: 4242}#port: 0}#' "$b/config.yml" | cpx sh -c "cat >$NEB9/config.yml"
-  dx cp sh -c "nohup /opt/nebula/nebula -config $NEB9/config.yml </dev/null >$NEB9/log 2>&1 & echo \$! >$NEB9/pid"
+  rm -rf "$NEB9"; mkdir -p "$NEB9"; chmod 700 "$NEB9"
+  for f in ca.crt host.crt host.key; do cp "$b/$f" "$NEB9/" || return 1; done
+  sed -e "s#/etc/nebula/#$NEB9/#" -e 's#^tun: .*#tun: {disabled: true}#' -e 's#port: 4242}#port: 0}#' "$b/config.yml" >"$NEB9/config.yml"
+  grep -qx 'tun: {disabled: true}' "$NEB9/config.yml" || { echo "could not disable the tun device in the copy of the config"; return 1; }
+  "$CACHE/nebula" -config "$NEB9/config.yml" </dev/null >"$NEB9/log" 2>&1 &
+  NEB9_PID=$!
 }
-neb9_reaches_lh() { cpx ping -c1 -W2 -I nebula9 "$LH_NEB"; }
-neb9_cut() { ! cpx ping -c1 -W2 -I nebula9 "$LH_NEB"; }
-g5_before() { # positive control: before the revoke, the throwaway certificate reaches the lighthouse
+lh_said() { # lh_said <message> [from line]: the throwaway Nebula's log has <message> about the lighthouse after that line
+  tail -n +"${2:-1}" "$NEB9/log" | grep "msg=\"$1" | grep -q "vpnAddrs=\[$LH_NEB\]"
+}
+g5_before() { # positive control: before the revoke, the throwaway certificate is accepted by the lighthouse
   [ -f "$STATE/bundles/$GOLD/host.key" ] || return 1
-  neb9_up && wait_for 40 neb9_reaches_lh
+  neb9_up && wait_for 40 lh_said "Handshake message received"
 }
 lh_lists() { # lh_lists <fingerprint>: the running lighthouse has it on its blocklist
   if [ -n "${LH_RSH:-}" ]; then echo "grep -c '$1' /etc/nebula/config.yml" | $LH_RSH bash -s | grep -qv '^0$'
   elif [ -n "${LH_EXTERNAL:-}" ]; then echo "external lighthouse without LH_RSH: cannot look"; return 1
   else dx lh grep -q "$1" /etc/nebula/config.yml; fi
 }
+REVOKED_AT=1
 g5_revoke() { # one command: exit 0; the fingerprint on the blocklist file, in every bundle config, in the running control plane and lighthouse
+  REVOKED_AT=$(($(wc -l <"$NEB9/log" 2>/dev/null || echo 0) + 1))
   "$MESH" host revoke "$GOLD" || return 1
   local fp; fp=$(fp_of "$GOLD")
   grep -qx "$fp" "$STATE/blocklist" && grep -q "$fp" "$STATE/bundles/cp/config.yml" && dx cp grep -q "$fp" /etc/nebula/config.yml && lh_lists "$fp"
 }
-g5_cut() { wait_for 60 neb9_cut; }
+g5_cut() { # after the revoke the lighthouse drops the tunnel and refuses every new handshake: timeouts, and no handshake answered after the first
+  wait_for 60 sh -c "[ \$(tail -n +$REVOKED_AT '$NEB9/log' | grep 'msg=\"Handshake timed out' | grep -c 'vpnAddrs=\[$LH_NEB\]') -ge 2 ]" || { tail -n +"$REVOKED_AT" "$NEB9/log" | cut -c1-200; return 1; }
+  local first; first=$(tail -n +"$REVOKED_AT" "$NEB9/log" | grep -n 'msg="Handshake timed out' | grep "vpnAddrs=\[$LH_NEB\]" | head -1 | cut -d: -f1)
+  tail -n +"$REVOKED_AT" "$NEB9/log" | tail -n +"$first" | cut -c1-200
+  ! lh_said "Handshake message received" $((REVOKED_AT + first - 1))
+}
 g5_token_dead() { # the join token stops authenticating (the API server caches a token for about 10 s)
   local i c; for i in $(seq 12); do c=$(bearer_code); [ "$c" = 401 ] && return 0; echo "bearer still $c"; sleep 5; done; return 1
 }
@@ -287,9 +302,9 @@ depends 3 G3.4 "mutual authentication by policy: an unauthenticated peer is drop
 check 4 G4.1 "every player has its own join token; no bundle carries the shared server token" g4_no_shared_token
 check 4 G4.2 "after mesh host burn no registered player's join token is left" g4_burned
 check 4 G4.3 "a fresh invite: token lives 8 min at most, pinned to the cluster CA, for the API on the Nebula IP, and it authenticates" g4_fresh_invite
-check 5 G5.1 "positive control: before the revoke, the throwaway certificate reaches the lighthouse" g5_before
+check 5 G5.1 "positive control: before the revoke, the lighthouse accepts the throwaway certificate" g5_before
 check 5 G5.2 "mesh host revoke: one command; the fingerprint is on the blocklist of the control plane and the lighthouse" g5_revoke
-check 5 G5.3 "the revoked certificate can no longer reach the lighthouse" g5_cut
+check 5 G5.3 "the lighthouse drops the revoked certificate and refuses every new handshake" g5_cut
 check 5 G5.4 "the revoked player's join token no longer authenticates" g5_token_dead
 check 5 G5.5 "revoke is idempotent, and an unknown name is refused (exit 3)" g5_idempotent
 check 6 G6.1 "the API listens on the control plane's Nebula IP only" g6_listens_on_nebula_only
