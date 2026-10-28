@@ -16,17 +16,17 @@ runbooks: []
 tags: [demo, publico, pool, diseno]
 ---
 
-# The public demo (lighthouse and control plane applied; admission and the automatic tick built, not applied; the request page and the opening not built)
+# The public demo (lighthouse and control plane applied; admission, the automatic tick and the request page built, not applied; the opening not built)
 
 **Status (2026-10-27): the lighthouse and the control plane are up; admission with manual approval and the automatic tick
-(phase B1) are built and tested ([ADMISSION.md](ADMISSION.md)); the public request page (B2), the pool's cluster side and the public opening (B3) are not.**
+(phase B1) are built and tested ([ADMISSION.md](ADMISSION.md)); the optional public request page (B2, [PUBLIC-PAGE.md](PUBLIC-PAGE.md)) is built and tested too; the pool's cluster side and the public opening (B3) are not.**
 Applied on the maintainer's own machines: steps 1 and 2 below (a lighthouse on a small public server with its public name) and a persistent control plane
 at home, reachable from the internet through that lighthouse. A visitor on a network that is not the maintainer's reached the control plane's API over
 Nebula (a test run from outside on 2026-10-27; the home router keeps the UDP source port, so hole punching works
 without a relay). **Built in the repository, not applied to the demo yet:** admission with manual approval (`mesh host request / approve / reap`: 2 places,
 1 h leases, a FIFO waiting list, a daily cap and a cooldown per identity, the reaper that expels at lease end) and the automatic tick of phase B1
 (`mesh host auto --once` from the host's timer: approves inside the same limits, expels at the end and promotes the next one, `mesh host panic`, events,
-a notify hook and metrics), tested on Incus VMs, [ADMISSION.md](ADMISSION.md). **Not built:** the public request page (B2), quotas and the idle kick (issue #11) and the relay for symmetric NAT
+a notify hook and metrics), tested on Incus VMs, [ADMISSION.md](ADMISSION.md). The page is built the same way (`make poc-page`) and is **not applied** to the maintainer's server (issue #16). **Not built:** quotas and the idle kick (issue #11) and the relay for symmetric NAT
 (issue #15). So a stranger can join only through a request the host (or the host's own bot) enters. The repository is public since 2026-10-27 but not announced: announcing it and
 opening the demo need the maintainer's explicit "open it". The PoC itself runs locally and on the maintainer's lab VMs.
 
@@ -55,9 +55,9 @@ The demo uses the **pool CA** only. Its key sits with the automatic issuer and c
 created with `-groups public`, proved in `poc-ca.sh`). If it leaks, you drop the pool CA from the trust bundle and only the pool goes down
 (`B10`-`B13`); persistent friends are untouched.
 
-The lighthouse server is public, and today it is also a full member of the mesh (a `nebula1` address, outbound `any`): whoever takes it over can reach the
-Kubernetes API over Nebula, where a credential is still required. Running it as an introducer only (`tun: {disabled: true}`) is a hardening step not done yet
-(DESIGN.md section 6, issue #20).
+The lighthouse server is public, and it is a member of the mesh (a `nebula1` address, outbound `any`), but not of the cluster: since 2026-10-28 every host accepts
+the Kubernetes API, WireGuard and VXLAN only from the groups `own`, `friends` and `public`, so whoever takes the server over reaches the hosts with ICMP only
+(`make poc-page` G10). Running it as an introducer only (`tun: {disabled: true}`) is a further hardening step (DESIGN.md section 6, issue #20).
 
 ## Configuration (the numbers live in `poc/pool.yaml`)
 
@@ -80,7 +80,7 @@ would limit per account.
 **What exists today:** the decision logic (`pool.py`, unit tests: the 1 h lease, per-identity rules, the daily cap, the FIFO list), the CA split, and
 admission with manual approval with its reaper (`admission.py`, `make poc-admission`) and the automatic tick with its switch, panic, events and metrics
 (`make poc-admission-auto`, [ADMISSION.md](ADMISSION.md) B1). **What does not:** quotas, the idle kick,
-the public request page and its anti-bot layers (ADMISSION.md B2), and the relay for symmetric NAT (issues #11 and #15). The demo needs these built and
+and the relay for symmetric NAT (issues #11 and #15); the request page and its anti-bot layers are built (ADMISSION.md B2, PUBLIC-PAGE.md). The demo needs these built and
 tested before the checklist below can pass.
 
 ## The runbook (do not run without the OK)
