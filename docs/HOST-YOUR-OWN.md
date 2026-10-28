@@ -344,7 +344,7 @@ What the three phases do, and why they are separate commands:
 
 `install` runs the three in a row when one machine has both the CA and the ssh key; otherwise run `prepare` where the key is, copy `lh.pub` to the CA machine,
 `sign`, copy `.state/bundles/lh` back and `deploy`. Every phase is idempotent (a second run prints no `changed:` line, `P03`, `P06`, `P08`). After `mesh host revoke`,
-`lighthouse-vps.sh sync --ssh ...` pushes the new blocklist to the server (revoke does it itself when it can reach the server, `P16`/`P17`). `remove` stops the
+`lighthouse-vps.sh sync --ssh ...` pushes the new blocklist to the server (revoke does it itself; when it cannot reach the server it still revokes everywhere else and ends with exit 5, saying the lighthouse still lacks the blocklist: `N26`; `P16`/`P17`). `remove` stops the
 service and deletes its keys and config.
 
 `PERSIST=1` is for a game people keep joining: nebula and k3s of the control plane become systemd services, the VM starts with the host (`boot.autostart`), and the
@@ -371,5 +371,5 @@ only introduces hosts could run with `tun: {disabled: true}`; that is a later ha
 
 ## What this guide does not cover yet
 
-Signed-PR admission with cosign (issue #12), per-namespace RBAC and user kubeconfigs (issue #9), the public pool's cluster side and its public page (issue #11; the automatic tick is built),
-and the LoadBalancer/BGP on own nodes (issue #13). See the gap table in [POC-STATUS.md](POC-STATUS.md).
+Per-namespace RBAC and user kubeconfigs (issue #9), the public pool's cluster side and its public page (issue #11; the automatic tick is built),
+and the LoadBalancer/BGP on own nodes (issue #13). See the gap table in [POC-STATUS.md](POC-STATUS.md). Join by signed pull request (issue #12) exists as a proof of concept for the maintainer's own game: [participants/README.md](../participants/README.md) (`participants.py sync` takes the same `EMESH_STATE`).

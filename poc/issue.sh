@@ -58,6 +58,9 @@ STATS=""; case "$name" in lh|cp) STATS="stats: {type: prometheus, listen: 127.0.
 # and `relay.use_relays` stays at its default (true). The relay forwards Nebula packets it cannot read (end to end encrypted) and the
 # firewall of each end still decides what gets in; but every relayed byte crosses the relay host (DESIGN.md sections 15 and 16).
 RELAY=""; if [ "${LH_RELAY:-no}" = yes ]; then if [ "$name" = lh ]; then RELAY="relay: {am_relay: true}"; else RELAY="relay: {relays: [\"$LH_NEB\"]}"; fi; fi
+# no blank line of its own: a game that never turned the relay on keeps a byte-identical config (no spurious change at the first refresh)
+nl='
+'; [ -z "$RELAY" ] || ADV="${ADV:+$ADV$nl}$RELAY"
 BL=""; if [ -s "$STATE/blocklist" ]; then while read -r f; do [ -n "$f" ] && BL="${BL:+$BL, }\"$f\""; done <"$STATE/blocklist"; fi
 cat >"$B/config.yml" <<EOF
 pki:
@@ -72,7 +75,6 @@ lighthouse:
   am_lighthouse: $am_lh
   hosts: [$lh_hosts]
 $ADV
-$RELAY
 listen: {host: 0.0.0.0, port: 4242}
 punchy: {punch: true}
 tun: {dev: nebula1, mtu: 1300}

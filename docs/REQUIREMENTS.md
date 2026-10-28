@@ -49,7 +49,7 @@ Nothing inbound is needed on a joiner, and no particular NAT: behind a symmetric
 
 ### Host kind against step (issue #14)
 
-PASS = passed on that host kind (where and when in [POC-STATUS.md](POC-STATUS.md)); FAIL = tried, does not work (the reason); not possible
+PASS = passed on that host kind (where and when: the "Proven" table of [POC-STATUS.md](POC-STATUS.md)); FAIL = tried, does not work (the reason); not possible
 = cannot work by construction; not run = nobody tried it yet.
 
 | Host kind | Refused without the privileges | Join, node Ready (step 1) | Study lab on it | Revoke cuts it | Cilium + WireGuard (step 2) | Placement by trust (step 4) | Behind symmetric NAT, through the relay |

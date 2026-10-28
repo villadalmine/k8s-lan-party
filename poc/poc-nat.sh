@@ -151,7 +151,17 @@ kubelet_through_relay() { [ "$(k get --raw /api/v1/nodes/alice/proxy/healthz 2>/
 alice_cut() { # revoked: the blocklist reaches the lighthouse (it relays no more for alice) and the control plane
   "$MESH" host revoke alice >/dev/null || return 1
   local i; for i in $(seq 30); do incus exec emesh-alice -- ping -c1 -W1 "$CP_NEB" >/dev/null 2>&1 || break; sleep 1; done
-  sleep 5; ! incus exec emesh-alice -- ping -c3 -W2 "$CP_NEB" >/dev/null 2>&1 && ! k get node alice >/dev/null 2>&1
+  sleep 5; ! incus exec emesh-alice -- ping -c3 -W2 "$CP_NEB" >/dev/null 2>&1 && ! k get node alice >/dev/null 2>&1 || return 1
+  # the relay half, isolated: the lighthouse itself holds her fingerprint (the control plane's blocklist alone would cut her too), and she does
+  # not reach the lighthouse any more, so there is no relay for her to use
+  local fp; fp=$("$CACHE/nebula-cert" print -json -path "$STATE/bundles/alice/host.crt" | python3 -c 'import sys,json;print(json.load(sys.stdin)[0]["fingerprint"])') || return 1
+  incus exec "$SERVER" -- grep -q "$fp" /etc/nebula/config.yml || return 1
+  ! incus exec emesh-alice -- ping -c3 -W2 "$LH_NEB" >/dev/null 2>&1
+}
+revoke_fails_when_sync_fails() { # the host cannot reach the lighthouse: the revocation of the relay is not done, and the command says so (exit 5)
+  local env="$STATE/lighthouse.env" keep rc out; keep=$(cat "$env"); out=$(sed -i 's/^LH_RSH=.*/LH_RSH=false/' "$env" && "$MESH" host revoke alice 2>&1); rc=$?
+  printf '%s
+' "$keep" >"$env"; echo "$out"; [ "$rc" = 5 ] && echo "$out" | grep -q 'external lighthouse'
 }
 N_PROBE=""   # the probe's Nebula address, read from its bundle once it is issued
 probe_invited() { "$MESH" host invite probe --trust public >/dev/null && N_PROBE=$(sed -n 's/^NODE_IP=//p' "$STATE/bundles/probe/join.env") && [ -n "$N_PROBE" ] &&
@@ -182,7 +192,8 @@ step N21 "through the relay the control plane's firewall still decides: 6443 ans
 step N22 "a player (alice, trust public) joins with edge-mesh join from behind symmetric NAT, through the relay" alice_joins
 step N23 "alice's node becomes Ready" wait_for 240 ready alice
 step N24 "the API reaches alice's kubelet (logs, exec) through the relay" wait_for 60 kubelet_through_relay
-step N25 "mesh host revoke alice: the lighthouse relays no more for her, she cannot reach the control plane, her Node is gone" alice_cut
+step N25 "mesh host revoke alice: the lighthouse holds her fingerprint and she cannot reach it (no relay for her), she cannot reach the control plane, her Node is gone" alice_cut
+step N26 "NEGATIVE: when the sync to the lighthouse fails, revoke ends with exit 5 and says the lighthouse still lacks the blocklist" revoke_fails_when_sync_fails
 
 if [ "$FAILS" -eq 0 ]; then mkdir -p "$POC/results"; cp "$MEAS" "$POC/results/nat-measurements.txt"; fi
 if [ "${KEEP:-0}" != 1 ]; then nat_down; fi

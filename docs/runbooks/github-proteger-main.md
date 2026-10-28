@@ -1,7 +1,7 @@
 ---
 tipo: runbook
 id: k8s-lan-party-github-proteger-main
-version: 1.1.0
+version: 1.2.0
 fecha_alta: 2026-10-16
 fecha_ultimo_cambio: 2026-10-28
 categoria: repo
@@ -70,6 +70,21 @@ Expected: `["users.noreply.github.com", "github.com"]` (the committer is `GitHub
 `verify.yml` checks the same on every push to `main` and fails, printing only domains, if a commit of the owner carries
 another address. If it fails, the address is already public in the history (no force push on `main`): turn the setting on
 before the next merge, and say so in the next release notes.
+
+## Step 4 (not yet): require the participants checks
+
+**Not before** the `participants` check has verified one real participant's file signed from a fork with `sign.yml` (issue #12): until
+then that path has never run live, and a required check on a never-executed path is a trap. When it has: add
+`{"context": "participants"}, {"context": "participants-live"}, {"context": "participants-offline"}` to `required_status_checks` in
+`.github/rulesets/main.json` by a pull request, merge it, back up (step 0), then:
+
+```bash
+id=$(gh api repos/villadalmine/k8s-lan-party/rulesets --jq '.[] | select(.name == "main") | .id')
+gh api -X PUT "repos/villadalmine/k8s-lan-party/rulesets/$id" --input .github/rulesets/main.json \
+  --jq '[.rules[] | select(.type == "required_status_checks") | .parameters.required_status_checks[].context] | join(",")'
+```
+
+Expected: the list ends with `participants,participants-live,participants-offline`. Undo: the same `PUT` with the backup's `main.json`.
 
 ## Rollback
 

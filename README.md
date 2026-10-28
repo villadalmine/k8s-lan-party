@@ -147,8 +147,9 @@ More rows (and which ones each step tests) are in the [error matrix](docs/DESIGN
 ## Roadmap
 
 1. **It joins**, 2. **Cilium and WireGuard**, 4. **trust levels and placement by Kyverno**, 6. **mutual auth by policy**: proven in the PoC.
+7. **Signed-PR regulars**: built and tested as a PoC ([participants/README.md](participants/README.md)); a first real participant is still to come.
 Still to do: 3. per-namespace access, 5. the free 1 h pool (admission with manual approval and the automatic tick are built, [ADMISSION.md](docs/ADMISSION.md);
-the public request page and the opening are design only), 7. signed-PR regulars.
+the public request page and the opening are design only).
 8. **Public servers** (*coming soon*), after the private game works. Details: [DESIGN.md](docs/DESIGN.md#12-build-order-steps-one-layer-at-a-time).
 
 ## How it differs from other projects

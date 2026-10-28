@@ -1,9 +1,9 @@
 ---
 tipo: runbook
 id: k8s-lan-party-admission
-version: 0.2.0
+version: 0.2.1
 fecha_alta: 2026-10-27
-fecha_ultimo_cambio: 2026-10-27
+fecha_ultimo_cambio: 2026-10-28
 categoria: plataforma
 dueno_agente: casa-orquestador
 pieza: k8s-lan-party
@@ -350,7 +350,7 @@ All of these, each the maintainer's explicit decision:
 - [x] the repository is public (2026-10-27, not announced; see DESIGN.md, open decision 3); announcing it is the maintainer's "open it";
 - [ ] B2 built and tested (the page, the anti-bot layers, the visitor's own key);
 - [ ] issue #9: per-namespace RBAC and a kubeconfig per visitor (today a visitor has a node, not a namespace);
-- [ ] issue #12: signed-PR participants, so the regulars are not in the free pool;
+- [ ] issue #12: signed-PR participants, so the regulars are not in the free pool (built as a proof of concept on 2026-10-28, [participants/README.md](../participants/README.md); open: a fresh join token on request, renewal, a first real participant);
 - [ ] issue #13: the gateway and BGP only on own nodes;
 - [ ] issue #15: the relay for symmetric NAT (otherwise part of the visitors cannot join at all);
 - [ ] issue #16: the go-public checklist in [DEMO.md](DEMO.md);

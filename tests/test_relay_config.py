@@ -58,6 +58,18 @@ class RelayConfig(unittest.TestCase):
         for name, cfg in cfgs.items():
             self.assertNotIn("use_relays", cfg, name)
 
+    def test_relay_flag_only_belongs_to_sign_and_install(self) -> None:
+        env = dict(os.environ, EMESH_STATE=str(self.state), EMESH_CACHE=str(self.state / "cache"))
+        for cmd in ("verify", "deploy", "sync", "remove"):
+            p = subprocess.run([BASH, str(POC / "lighthouse-vps.sh"), cmd, "--relay", "--ssh", "false"], env=env, capture_output=True, text=True, timeout=60)
+            self.assertEqual(p.returncode, 2, cmd + p.stdout + p.stderr)
+            self.assertIn("--relay / --no-relay belong to sign and install", p.stdout, cmd)
+
+    def test_a_game_without_relay_keeps_the_config_byte_identical(self) -> None:
+        # no `$RELAY` line of its own: the config of a game that never asked for a relay has no extra blank line
+        cfgs = self.configs(None)
+        self.assertEqual(cfgs["alice"].count(chr(10) * 2), 2, "the two empty optional lines (advertise, stats) of a player, as before the relay existed")
+
 
 if __name__ == "__main__":
     unittest.main()

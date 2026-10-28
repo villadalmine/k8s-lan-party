@@ -4,7 +4,7 @@
 #   mesh host invite <name> [--ttl 2h] [--trust friends|public]   a bundle for one player (cert + config + a join token of 8 min at most)
 #   mesh host players                      who is in: node, Ready, certificate time left (and burns the join token of every registered node)
 #   mesh host burn                         delete the join token of every registered player (a k3s token is not one-time) and refresh the node guard (prints burned N)
-#   mesh host revoke <name>                the one command: blocklist the certificate on every host, reload, delete the node (idempotent)
+#   mesh host revoke <name>                the one command: blocklist the certificate on every host, reload, delete the node (idempotent; exit 5 = done everywhere but the external lighthouse could not be updated)
 #   mesh host kick <name>                  cordon, drain, then revoke, and remove the machine
 #   mesh host refresh <name>               rewrite the Nebula config of a running machine (lh, cp or a player; same certificate) and apply it
 #   mesh host down                         end the game: remove everything
