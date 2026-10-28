@@ -60,6 +60,20 @@ class Audit(unittest.TestCase):
                                "lab/g (private) on ghost (no trust label)"])
 
 
+class Listeners(unittest.TestCase):
+    PROC = """  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
+   0: 0100007F:192B 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 1 1
+   1: 02004D0A:192B 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 2 1
+   2: 02004D0A:192B 0500A8C0:C350 01 00000000:00000000 00:00000000 00000000     0        0 3 1
+   3: 00000000:2710 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 4 1
+   0: 00000000000000000000000001000000:192B 00000000000000000000000000000000:0000 0A 00000000:00000000 00:00000000 00000000 0 0 5 1
+"""
+
+    def test_listening_sockets_of_one_port(self):
+        self.assertEqual(golden.listeners(self.PROC, 6443), ["127.0.0.1", "10.77.0.2", "::1"])
+        self.assertEqual(golden.listeners(self.PROC, 10000), ["0.0.0.0"])
+
+
 class Cert(unittest.TestCase):
     def test_line(self):
         printed = json.dumps([{"fingerprint": "f1", "details": {"issuer": "ca1", "notBefore": "2026-10-28T10:00:00Z",

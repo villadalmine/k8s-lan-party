@@ -6,6 +6,8 @@
         other environments are kept, so the lab and a stranger's control plane fill the same table. Idempotent.
     golden.py audit <pods.json> "<node>=<trust> ..."
         print every pod outside the system namespaces that is private (no label, or private) and runs on a node that is not `own`
+    golden.py listeners <port> < /proc/net/tcp
+        print every address a TCP port listens on (IPv4 and IPv6), read from the kernel's own table
     golden.py cert <nebula-cert> <host.crt>
         print "<fingerprint> <issuer fingerprint> <lifetime in seconds>" of a Nebula certificate (expired or revoked ones too)
 """
@@ -15,6 +17,7 @@ import argparse
 import datetime as dt
 import json
 import re
+import socket
 import subprocess
 import sys
 from pathlib import Path
@@ -103,6 +106,24 @@ def cert_line(printed: str) -> str:
     return f"{c['fingerprint']} {issuer} {int((t(d['notAfter']) - t(d['notBefore'])).total_seconds())}"
 
 
+def listeners(proc_net: str, port: int) -> list[str]:
+    """The addresses that listen on a TCP port, from the text of /proc/net/tcp and /proc/net/tcp6 (no ss or netstat needed)."""
+    out = []
+    for line in proc_net.splitlines():
+        f = line.split()
+        if len(f) < 4 or f[3] != "0A" or ":" not in f[1]:
+            continue
+        addr, hexport = f[1].rsplit(":", 1)
+        if int(hexport, 16) != port:
+            continue
+        raw = bytes.fromhex(addr)
+        if len(raw) == 4:
+            out.append(socket.inet_ntop(socket.AF_INET, raw[::-1]))
+        else:  # four 32-bit words, each in host (little-endian) order
+            out.append(socket.inet_ntop(socket.AF_INET6, b"".join(raw[i:i + 4][::-1] for i in range(0, 16, 4))))
+    return out
+
+
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -116,6 +137,8 @@ def main(argv: list[str]) -> int:
     c = sub.add_parser("cert")
     c.add_argument("nebula_cert")
     c.add_argument("crt")
+    li = sub.add_parser("listeners")
+    li.add_argument("port", type=int)
     args = ap.parse_args(argv)
     if args.cmd == "table":
         doc = Path(args.doc)
@@ -125,6 +148,9 @@ def main(argv: list[str]) -> int:
         trust = dict(x.split("=", 1) for x in args.trust.split())
         for line in audit(json.loads(Path(args.pods).read_text()), trust):
             print(line)
+    elif args.cmd == "listeners":
+        for addr in listeners(sys.stdin.read(), args.port):
+            print(addr)
     else:
         printed = subprocess.run([args.nebula_cert, "print", "-json", "-path", args.crt], capture_output=True, text=True, check=True).stdout
         print(cert_line(printed))
