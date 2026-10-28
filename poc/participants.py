@@ -682,6 +682,7 @@ def sync(a) -> int:
     bundles = state / "bundles"
     env = dict(os.environ, EMESH_STATE=str(state))
     n_issued = n_revoked = 0
+    unrevoked = set()   # logins whose old certificate could not be revoked: nothing new is issued to them until it is
     for login in revoke:
         e = led["participants"][login]
         why = "its file changed" if login in valid else "its file is gone from main or does not pass any more"
@@ -689,6 +690,7 @@ def sync(a) -> int:
         if r.returncode != 0:
             problems.append(f"revoke {login} (node {e['node']}) failed (exit {r.returncode}): it stays issued; the next sync tries again")
             print(f"revoke failed: {login} (node {e['node']}): {r.stdout.decode(errors='replace').strip()[-200:]}")
+            unrevoked.add(login)
             continue
         with contextlib.suppress(FileNotFoundError):
             (outbox / f"{login}.age").unlink()
@@ -699,6 +701,9 @@ def sync(a) -> int:
         print(f"revoked {login} (node {e['node']}): {why}")
     for login in issue:
         p = valid[login]
+        if login in unrevoked:   # issuing now would overwrite the ledger entry of the certificate that is still valid
+            print(f"not issued: {login}: the old certificate (node {led['participants'][login]['node']}) is not revoked yet")
+            continue
         if p.node in led["retired_nodes"] or (bundles / p.node).exists():
             problems.append(f"{DIR}/{login}.yaml: node name {p.node!r} was issued on this host before: pick another one")
             print(f"not issued: {login}: node name {p.node!r} was used before")

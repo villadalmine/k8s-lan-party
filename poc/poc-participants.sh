@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# make poc-participants (32 checks): join by signed pull request (issue #12, docs/DESIGN.md section 5.1, participants/README.md), offline.
+# make poc-participants (33 checks): join by signed pull request (issue #12, docs/DESIGN.md section 5.1, participants/README.md), offline.
 # The real cosign verifies Sigstore bundles made by a LOCAL TEST CA (poc/sigstore_test_ca.py: "TEST ONLY", made in the state directory,
 # never committed) in place of Fulcio; the pull request gate (participants.py check) runs against a throw-away git repository with one
 # branch per pull request; the issuing side (participants.py sync) runs the real poc/issue.sh and poc/revoke.sh against a stub control
@@ -39,6 +39,9 @@ esac
 exit 0
 EOF
 chmod +x "$F/bin/docker"
+printf '#!/bin/sh
+echo "revoke: the API did not answer (stub)"; exit 4
+' >"$F/bin/revoke-fails"; chmod +x "$F/bin/revoke-fails"
 export PATH="$F/bin:$PATH" FAKE_LOG="$F/docker.log" FAKE_DIR="$F"
 : >"$FAKE_LOG"
 
@@ -189,6 +192,16 @@ t_removal() { # alice's file leaves main: one sync revokes her (blocklist on eve
   grep -q "kubectl delete node alice-pc" "$FAKE_LOG" && [ ! -e "$STATE/participants-outbox/alice.age" ] &&
   ! python3 -c 'import json,sys; sys.exit(0 if "alice" in json.load(open(sys.argv[1]))["participants"] else 1)' "$STATE/participants/ledger.json"; }
 t_idempotent_after() { local o; o=$(sync); echo "$o"; echo "$o" | grep -qx "sync: issued 0, revoked 0, unchanged 1, problems 0"; }
+t_revoke_fails_first() { # bob changes his key and node; the revoke of the old certificate fails (exit 4): nothing new is issued to him
+  # until it is revoked, so the ledger keeps the certificate that is still valid (review finding 2); the next sync does both
+  keys bob2 && g checkout -q main && pfile bob 1002 bob-pc2 friends 4 bob2 && sign_as bob bob 1002 && commit "bob: new key and node" || return 1
+  local old o rc=0; old=$(fp_of "$STATE/bundles/bob-pc/host.crt")
+  o=$(COSIGN_PASSWORD="" $PY sync "${SYNC_ARGS[@]}" --revoke-cmd "$F/bin/revoke-fails") || rc=$?; echo "$o"
+  [ "$rc" = 1 ] && echo "$o" | grep -q "^revoke failed: bob (node bob-pc)" &&
+  echo "$o" | grep -qx "not issued: bob: the old certificate (node bob-pc) is not revoked yet" && [ ! -e "$STATE/bundles/bob-pc2" ] &&
+  python3 -c 'import json,sys; e = json.load(open(sys.argv[1]))["participants"]["bob"]; sys.exit(0 if e["node"] == "bob-pc" and e["fingerprint"] == sys.argv[2] else 1)'     "$STATE/participants/ledger.json" "$old" || return 1
+  o=$(sync); echo "$o"
+  echo "$o" | grep -q "^revoked bob (node bob-pc)" && echo "$o" | grep -q "^issued bob (node bob-pc2, " && grep -qx "$old" "$STATE/blocklist"; }
 t_name_never_reused() { # carol, properly signed, asks for alice's old node name: CI cannot know it was used; the issuer refuses it
   g checkout -q main && pfile carol 1004 alice-pc && sign_as carol carol 1004 && commit "carol asks for alice-pc" || return 1
   local o rc=0; o=$(sync) || rc=$?; echo "$o"
@@ -228,6 +241,7 @@ step S25 "NEGATIVE: a file pushed to main without verifying is not issued (the i
 step S26 "a change of resources only keeps the certificate (updated, not issued again)" t_update
 step S27 "removal revokes access: alice's file leaves main, one sync puts her certificate on every host's blocklist and deletes her node" t_removal
 step S28 "sync again after the removal: nothing to do" t_idempotent_after
+step S28b "NEGATIVE: a revoke that fails blocks the new certificate until the old one is revoked" t_revoke_fails_first
 step S29 "NEGATIVE: a node name issued before is never issued again (carol asks for alice-pc)" t_name_never_reused
 step S30 "NEGATIVE: a broken policy on main changes nothing (no mass revocation)" t_broken_policy
 
