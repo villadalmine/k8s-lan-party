@@ -120,7 +120,10 @@ sudo edge-mesh kubectl describe quota               # what you may still use
 
 What you may do: pods (with logs and exec), deployments, ClusterIP services and configmaps in `play-<name>`, and read its events, quota and
 limits. What you may not: secrets (none at all), nodes, other namespaces, RBAC, tokens, NodePort or LoadBalancer services, `externalIPs`, choosing
-a node (`nodeName`) or tolerating the control plane's taint. Pods must pass Pod Security **restricted** (non-root, no privilege escalation,
+a node (`nodeName`) or tolerating the control plane's taint. **Your pods are private unless you label them** `edge-mesh/sensitivity=shareable`:
+a private pod runs on your own node only (it is pinned there; aimed at another node it is refused). A shareable pod may run on any player's node,
+whose owner can see it (golden rule 1). Your pods reach each other and the cluster DNS, nothing else, and no other player's pod reaches yours
+(a NetworkPolicy). Pods must pass Pod Security **restricted** (non-root, no privilege escalation,
 `capabilities: {drop: [ALL]}`, `seccompProfile: RuntimeDefault`); a container without limits gets the namespace's defaults. Another kubeconfig:
 `KUBECONFIG=/path edge-mesh kubectl ...`.
 
@@ -133,7 +136,7 @@ a node (`nodeName`) or tolerating the control plane's taint. Pods must pass Pod 
 | 14 | 11, the quota | kubectl's `exceeded quota: pool, ...` and `edge-mesh: exceeded quota in play-<name>` | lower the requests or delete something |
 | other | a policy (Pod Security, the participant guard) or anything else | kubectl's own message and exit code | read the message: it names the rule |
 
-All six were triggered for real by `make poc-pool` (PL10-PL16, PL23) on Incus VMs; `poc/test_edge_mesh.py` checks the mapping with a stub.
+All six were triggered for real by `make poc-pool` (PL10-PL16, PL21, PL23) on Incus VMs; `poc/test_edge_mesh.py` checks the mapping with a stub.
 
 ## Leaving
 

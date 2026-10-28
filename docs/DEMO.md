@@ -65,7 +65,7 @@ Kubernetes API over Nebula, where a credential is still required. Running it as 
 | Setting | PoC value | Meaning |
 | :--- | :--- | :--- |
 | `slots` | 2 | at most N participant nodes; a join over capacity goes to a FIFO waiting list |
-| `namespaces` | 1 | at most M demo namespaces |
+| (namespaces) | one per place | each player gets `play-<name>`, made at the invite and deleted with the lease |
 | `lease_seconds` | 3600 | the 1 h lease; the Nebula certificate has the same expiry |
 | `cooldown_seconds` | 3600 | an identity waits this long after its lease |
 | `daily_leases_per_identity` | 2 | at most this many leases per identity in any 24 h (rolling window) |

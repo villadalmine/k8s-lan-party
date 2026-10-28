@@ -266,7 +266,8 @@ The free demo must not fill up: a fixed pool that empties itself every hour. Set
 - **Quotas.** ResourceQuota and LimitRange per namespace (CPU, RAM, pods; no LoadBalancer, no NodePort); at most
   one node per invite. **Built** (`poc/participant.py`, numbers in pool.yaml), with Pod Security `restricted` on the namespace and a
   `ValidatingAdmissionPolicy` (`poc/participant-policy.yaml`): Services are ClusterIP without externalIPs, and a pod may not set `nodeName` or
-  tolerate the control plane's taint.
+  tolerate the control plane's taint; with it a mutating policy keeps a player's private (unlabelled) pods on the player's own node, and a
+  NetworkPolicy per namespace keeps players' pods apart (section 14).
 - **Per-IP rules**: at most **1 active lease per source IP**; a **cooldown** after a lease ends (default 1 h) before
   the same IP can join again; a **per-IP invite rate limit**; at most `daily_leases_per_identity` (2) leases per identity in any 24 h. The "IP" is an
   identity: the address normalized (IPv4 or its /24, IPv6 /64). A human approves each lease (option A) or the automatic tick does, inside the same limits
@@ -341,7 +342,7 @@ Where each suite passed, how often, and what is still relaxed is in [POC-STATUS.
 | `make poc-cilium` / `poc-vm` / `poc-kind` | step 2: Cilium tunnel + WireGuard over Nebula, encryption on the wire, mutual auth with SPIRE non-root and persistent: an authenticated peer passes (the deny half, an unauthenticated peer dropped, has no check yet) (24 on the Incus VMs) |
 | `make poc-lighthouse` | a lighthouse on a separate public server (a VM plays it): prepare, sign and deploy are idempotent, a player joins through it, `revoke` reaches it; `mesh host refresh` with no change, with a change that restarts Nebula (the API and the node come back) and with one read on reload (23) |
 | `make poc-admission` | admission with manual approval ([ADMISSION.md](ADMISSION.md)): request, approve, join, places full, the lease ends, `reap` expels, the next one in line enters, `reap --all`, a burned join token refused to a second machine, a non-cooperative copy of a bundle refused by the node guard and cut with the lease, another guest's issued name refused by its node password, a name whose node password k3s dropped refused by the guard (31) |
-| `make poc-pool` | issues #9 and #11 ([ADMISSION.md](ADMISSION.md)): a namespace and a kubeconfig per player (a TokenRequest token of exactly the lease, node and user credentials apart, RBAC to the namespace only, no secret, no node), the error matrix rows 6, 7, 8, 9 and 11 with their messages and exit codes, Pod Security and the participant guard, the idle kick, the second request of an address held while its lease runs and through the cooldown, the rate limit, `X-Forwarded-For`, the lease end removing node, namespace and token, the place reused (25) |
+| `make poc-pool` | issues #9 and #11 ([ADMISSION.md](ADMISSION.md)): a namespace and a kubeconfig per player (a TokenRequest token of exactly the lease, node and user credentials apart, RBAC to the namespace only, no secret, no node), the error matrix rows 6, 7, 8, 9 and 11 with their messages and exit codes, Pod Security and the participant guard, private pods pinned to the player's own node and a shareable one allowed on another's, the NetworkPolicy between players, the token dead at once when a lease is ended by hand, the idle kick, the second request of an address held while its lease runs and through the cooldown, the rate limit, `X-Forwarded-For`, the lease end removing node, namespace and token, the place reused (29) |
 | `make test` | the pool logic (`poc/pool.py`): fixed slots, 1 h lease, per-identity rules (IP normalized), daily cap, FIFO waitlist; the admission ledger (`poc/admission.py`), the idle kick and the rate limit; the participant's objects and kubeconfig (`poc/participant.py`); `edge-mesh kubectl` and its exit codes; the scripts keep their executable bit |
 
 **What the PoC implements of section 4.** The PoC runs one owner's cluster (the maintainer's), so it implements the single-owner case:
@@ -443,10 +444,14 @@ kubeconfig's `server:` is that IP and its CA is pinned.
 
 - **Free 1 h pool:** the bundle includes a kubeconfig built from a ServiceAccount token issued with the TokenRequest API,
   expiring with the lease. RBAC binds it to the participant's demo namespace only: create/get/list/delete pods, deployments,
-  ClusterIP services and configmaps; no cluster-wide secrets, no nodes, no CRDs. Quotas and Kyverno apply. **Built** (`mesh host invite`,
+  ClusterIP services and configmaps; no cluster-wide secrets, no nodes, no CRDs. **Built** (`mesh host invite`,
   so a hand invite gets one too): the namespace is `play-<name>` (the prefix keeps a player called `kube-system` out of the real one),
   Pod Security `restricted` is enforced, the Role also reads its quota, limits and events and may exec into its own pods, and nothing else (no
   secrets at all, no RBAC, no tokens). The token stops working at the lease end twice over: its expiry, and the ServiceAccount the reaper deletes.
+  What applies to a player's pods is what `mesh host init` and `invite` install, Kyverno or not: Pod Security, the quota, a NetworkPolicy (the
+  namespace's pods reach each other and the cluster DNS, nothing else; nothing from another namespace reaches them) and the participant guard (`poc/participant-policy.yaml`): a pod without `edge-mesh/sensitivity=shareable` is private and is pinned to the player's own node (a MutatingAdmissionPolicy adds `nodeSelector kubernetes.io/hostname=<name>`; a private pod aimed at another node is refused); a shareable pod may run on any player's node (golden rule 1: that node's owner can see it), never on the control plane.
+  Golden rule 2 is relative here: "own" is the player's own node, so the host's absolute `trust=own` placement (section 4, `poc/placement/`)
+  skips the players' namespaces. Trust taints on players' nodes (`TAINT=yes`) are not supported with the pool yet.
 - **Persistent participants (signed-PR flow):** OIDC (Keycloak or Dex, still open) through kubelogin; groups map to RBAC:
   their own namespaces plus `friends`-level permissions. No long-lived tokens.
 - **Node credentials and user credentials are different things.** The k3s agent's node credential lets a *machine* be a node;
@@ -458,7 +463,8 @@ The flow, in commands:
 ```bash
 edge-mesh join ./bundle --accept-golden-rule     # brings up Nebula and the agent (a player machine)
 sudo edge-mesh kubectl get pods                    # your kubeconfig (installed by join), your namespace play-<name>, the messages below
-sudo edge-mesh kubectl apply -f my-pod.yaml        # a pod that passes Pod Security "restricted"; label it edge-mesh/sensitivity=shareable or =private
+sudo edge-mesh kubectl apply -f my-pod.yaml        # a pod that passes Pod Security "restricted"; unlabelled = private: it runs on your node only
+                                                   # label it edge-mesh/sensitivity=shareable to let it run on other players' nodes
 ```
 
 ### 14.1 Error matrix
