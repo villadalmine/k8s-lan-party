@@ -57,7 +57,7 @@ case "$1 ${2:-}" in
     age=$(guard_refresh_age)
     node_guard || { token_burn "$name" || true; rm -rf "$STATE/bundles/$name"; echo "invite failed: the node guard was not updated; nothing was kept"; exit 1; }
     # the player's namespace and a kubeconfig of their own in the bundle (poc/participant.py; node and user credentials apart)
-    participant_up "$name" "$secs" || { participant_down "$name" >/dev/null 2>&1 || true; token_burn "$name" || true; rm -rf "$STATE/bundles/$name"
+    participant_up "$name" || { participant_down "$name" >/dev/null 2>&1 || true; token_burn "$name" || true; rm -rf "$STATE/bundles/$name"
       node_guard >/dev/null 2>&1 || true; echo "invite failed: the player's namespace or kubeconfig could not be made; nothing was kept"; exit 1; }
     # the guard is safe only if it is rewritten every minute while a name waits (docs/ADMISSION.md, "the life of a name"): say so when nothing did
     [ "$age" -le 90 ] || echo "note: nothing rewrote the node guard in the last 90 s; while invites are open run './mesh host reap' (or 'burn') every minute from a timer (docs/HOST-YOUR-OWN.md)" >&2

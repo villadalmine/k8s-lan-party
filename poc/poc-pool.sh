@@ -69,13 +69,18 @@ credentials_apart() { # alice's kubeconfig: 0600, the API at the control plane's
   ! grep -Eq 'client-certificate|client-key|K10|NODE_PASSWORD' "$kc" && ! grep -qF "$tok" "$je" &&
     ! grep -qF "$(sed -n 's/^K3S_TOKEN=//p' "$je")" "$kc" && ! grep -qF "$(sed -n 's/^NODE_PASSWORD=//p' "$je")" "$kc"
 }
-token_is_the_lease() { # the token's subject is play-alice's ServiceAccount and it expires when the lease does (TokenRequest, exactly the lease)
+token_is_the_lease() { # the token's subject is play-alice's ServiceAccount and it expires when her certificate does (to the second); both
+  # end with the lease (the ledger's end plus the seconds the tick took to reach the invite, at most 30 here)
+  local na; na=$("$CACHE/nebula-cert" print -json -path "$STATE/bundles/alice/host.crt" | python3 -c '
+import sys, json, datetime as d
+print(int(d.datetime.fromisoformat(json.load(sys.stdin)[0]["details"]["notAfter"].replace("Z", "+00:00")).timestamp()))')
   sed -n 's/^ *token: //p' "$STATE/bundles/alice/kubeconfig" | python3 -c '
 import base64, json, sys
 p = sys.stdin.read().strip().split(".")[1]; c = json.loads(base64.urlsafe_b64decode(p + "=" * (-len(p) % 4)))
-print(c["sub"], c["exp"] - c["iat"], c["exp"] - int(sys.argv[2]))
-sys.exit(0 if c["sub"] == "system:serviceaccount:play-alice:user" and abs(c["exp"] - c["iat"] - int(sys.argv[1])) <= 10
-         and abs(c["exp"] - int(sys.argv[2])) <= 10 else 1)' "$LEASE" "$(lease_of alice end)"; }
+na, end = int(sys.argv[1]), int(sys.argv[2])
+print(c["sub"], "exp-notAfter", c["exp"] - na, "exp-leaseEnd", c["exp"] - end)
+sys.exit(0 if c["sub"] == "system:serviceaccount:play-alice:user" and abs(c["exp"] - na) <= 2 and 0 <= c["exp"] - end <= 30 else 1)' \
+    "$na" "$(lease_of alice end)"; }
 joined_with_kubeconfig() { play_ready alice && [ "$(incus exec emesh-alice -- stat -c %a /etc/edge-mesh/kubeconfig)" = 600 ] &&
   incus file push -q "$STATE/bundles/alice/kubeconfig" emesh-cp/root/alice.kubeconfig; }
 who_is_who() { # the user is play-alice's ServiceAccount, not a node; the node's credential cannot act in her namespace; her kubeconfig also
@@ -209,7 +214,7 @@ step PL02 "alice, bob and carol ask; auto on" sh -c "'$MESH' host request alice 
 step PL03 "one tick approves alice and bob; carol, over capacity, waits in the FIFO list" out_has "tick: auto on | expelled 0 | approved 2 | slots 2/2 used | 1 in the list (1 eligible now)" tick
 step PL04 "each approved player has play-<name>: labelled, Pod Security restricted, quota (no NodePort/LB), limits, RBAC, the participant guard" objects_made
 step PL05 "alice's kubeconfig: 0600, the API on the Nebula IP, the cluster CA pinned, a token; no node credential in it, no user token in join.env" credentials_apart
-step PL06 "the token is play-alice's ServiceAccount and expires exactly with the lease ($LEASE s)" token_is_the_lease
+step PL06 "the token is play-alice's ServiceAccount and expires with her certificate, at the end of the lease ($LEASE s)" token_is_the_lease
 step PL07 "alice joins and is Ready; edge-mesh installed her kubeconfig (0600)" joined_with_kubeconfig
 step PL07b "bob joins with his bundle and is Ready" play_ready bob
 step PL08 "alice is a ServiceAccount, not a node; the node's credential cannot act in her namespace; her kubeconfig works over the mesh" who_is_who

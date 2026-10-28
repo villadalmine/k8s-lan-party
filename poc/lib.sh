@@ -151,11 +151,16 @@ stray_nodes() { # stray_nodes <revoked-nebula-ip>: "<node><TAB><why>" for every 
 }
 # A player's namespace and their own kubeconfig (poc/participant.py, DESIGN.md section 14): play-<name> with Pod Security "restricted", a
 # ResourceQuota and a LimitRange from pool.yaml, a ServiceAccount bound to that namespace only, and the participant guard
-# (poc/participant-policy.yaml). The kubeconfig's token comes from the TokenRequest API and lives exactly <seconds> (the lease).
-participant_up() { # participant_up <name> <seconds>: writes <bundle>/kubeconfig (0600); 1 on any failure (the caller removes what was made)
-  local n="$1" s="$2" ns="play-$1" b="$STATE/bundles/$1" tok ca rc=0
+# (poc/participant-policy.yaml). The kubeconfig's token comes from the TokenRequest API and ends when the bundle's certificate ends (the
+# lease): its duration is counted from the certificate's notAfter, not from now, so the seconds the invite itself took are not added.
+participant_up() { # participant_up <name>: writes <bundle>/kubeconfig (0600); 1 on any failure (the caller removes what was made)
+  local n="$1" ns="play-$1" b="$STATE/bundles/$1" tok ca rc=0 end s
+  end=$("$CACHE/nebula-cert" print -json -path "$b/host.crt" | python3 -c '
+import sys, json, datetime as d
+print(int(d.datetime.fromisoformat(json.load(sys.stdin)[0]["details"]["notAfter"].replace("Z", "+00:00")).timestamp()))') || return 1
   k apply -f - <"$POC/participant-policy.yaml" >/dev/null || return 1
   python3 "$POC/participant.py" manifests "$n" --config "${POOL_CONFIG:-$POC/pool.yaml}" | k create -f - >/dev/null || return 1
+  s=$(( end - $(date +%s) )); [ "$s" -ge 600 ] || { echo "the certificate of $n ends in $s s: a token needs at least 10 minutes"; return 1; }
   tok=$(k create token user -n "$ns" --duration "${s}s") || return 1
   ca=$(mktemp)
   cpx cat /var/lib/rancher/k3s/server/tls/server-ca.crt >"$ca" &&
