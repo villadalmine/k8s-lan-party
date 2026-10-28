@@ -27,7 +27,9 @@ You received a **bundle** from a host. One bundle, one command.
 
 **Tested by following this guide literally, 2026-10-21:** a fresh Ubuntu 24.04 VM (Incus, kernel 6.8, nothing from the PoC scripts installed) joined a control plane
 with only the commands below, showed `joined: ... (trust=friends)`, reached the lighthouse and the control plane over Nebula and appeared Ready on the host; an
-expired bundle was refused with a clear message. Privileged Docker on WSL2 was run earlier with the PoC's own flow. **Not tested:** native WSL2, macOS, bare metal.
+expired bundle was refused with a clear message. **Again on 2026-10-28, on AWS** ([DEMO-AWS.md](DEMO-AWS.md)): an amd64 (`t3.small`) and an **arm64**
+(`t4g.small`) Ubuntu 24.04 VM, in another network than the host and with nothing open inbound, installed the tools below and joined; both Ready in
+about 30 s. Privileged Docker on WSL2 was run earlier with the PoC's own flow. **Not tested:** native WSL2, macOS, bare metal.
 
 **What you will have at the end:** your machine is a node of the host's cluster, on an encrypted private network; only workloads that their owners marked
 shareable (and that opted in to your trust level) can land on it. **Time and cost:** about 10 minutes (downloads included), free.
