@@ -333,7 +333,7 @@ Where each suite passed, how often, and what is still relaxed is in [POC-STATUS.
 | `make poc-cilium` / `poc-vm` / `poc-kind` | step 2: Cilium tunnel + WireGuard over Nebula, encryption on the wire, mutual auth with SPIRE non-root and persistent: an authenticated peer passes (the deny half, an unauthenticated peer dropped, has no check yet) (24 on the Incus VMs) |
 | `make poc-lighthouse` | a lighthouse on a separate public server (a VM plays it): prepare, sign and deploy are idempotent, a player joins through it, `revoke` reaches it; `mesh host refresh` with no change, with a change that restarts Nebula (the API and the node come back) and with one read on reload (23) |
 | `make poc-admission` | admission with manual approval ([ADMISSION.md](ADMISSION.md)): request, approve, join, places full, the lease ends, `reap` expels, the next one in line enters, `reap --all`, a burned join token refused to a second machine, a non-cooperative copy of a bundle refused by the node guard and cut with the lease, another guest's issued name refused by its node password, a name whose node password k3s dropped refused by the guard (31) |
-| `make poc-nat` | relay and NAT ([issue #15](https://github.com/villadalmine/k8s-lan-party/issues/15)): a control plane and a player behind two different routers; port-preserving NAT gives a direct tunnel; symmetric NAT on both sides gives none (the negative test) until `lighthouse-vps.sh sign --relay`; then the player reaches the control plane through the relay on the lighthouse, the relay really carries the bytes and does not bypass the far end's firewall, a real player joins (node Ready, the API reaches its kubelet) and `revoke` cuts it, relay included; latency and bandwidth of both paths recorded (25) |
+| `make poc-nat` | relay and NAT ([issue #15](https://github.com/villadalmine/k8s-lan-party/issues/15)): a control plane and a player behind two different routers; port-preserving NAT gives a direct tunnel; symmetric NAT on both sides gives none (the negative test) until `lighthouse-vps.sh sign --relay`; then the player reaches the control plane through the relay on the lighthouse, the relay really carries the bytes and does not bypass the far end's firewall, a real player joins (node Ready, the API reaches its kubelet) and `revoke` cuts it, relay included; latency and bandwidth of both paths recorded (26) |
 | `make test` | the pool logic (`poc/pool.py`): fixed slots, 1 h lease, per-identity rules (IP normalized), daily cap, FIFO waitlist; the admission ledger (`poc/admission.py`); the scripts keep their executable bit |
 
 **What the PoC implements of section 4.** The PoC runs one owner's cluster (the maintainer's), so it implements the single-owner case:
@@ -515,8 +515,8 @@ Measured by `make poc-join` on one machine (Docker, WSL2); steady state, from th
 
 Relay use is not in step 1 (no relay is configured there); the lighthouse counters above show that a direct path carries the data. The control plane's own traffic is in the idle rows: the node-to-API cost per node is a few KB/s. (50 MB pod-to-pod over nebula: 1 s.)
 
-**Direct against relayed, measured by `make poc-nat`** (issue #15; Incus VMs on the maintainer's lab host, 2026-10-28: five green runs, the last two of the final
-script with identical PASS/FAIL output; the ranges below cover all five). The control plane sits behind one router, the player behind another; the lighthouse
+**Direct against relayed, measured by `make poc-nat`** (issue #15; Incus VMs on the maintainer's lab host, 2026-10-28: the last two runs of the final
+script passed with identical output, and earlier versions of the suite passed six times; the ranges below cover them all). The control plane sits behind one router, the player behind another; the lighthouse
 (1 vCPU, 1 GiB) is the relay. Each transfer is 50 MiB with `iperf3` over Nebula, once each way; the lighthouse's interface counters are read
 around the two transfers (100 MiB of payload in all).
 
@@ -542,7 +542,7 @@ lighthouse carries none of the data (N10). `make poc-nat` proves both halves and
 
 What a participant can and cannot do with the relay: it forwards Nebula packets end to end encrypted, so the relay host reads none of it;
 the far end's Nebula firewall still decides what gets in (N21: through the relay, `6443` answers and an unlisted port does not); a revoked
-certificate is on the lighthouse's blocklist, so it is relayed no more (N25). What it does allow is spending the VPS's bandwidth: any admitted
+certificate is on the lighthouse's blocklist, so it is relayed no more (N25 checks the lighthouse's own copy and that she cannot reach it; N26: if the host cannot push the blocklist to the lighthouse, `revoke` ends with exit 5 and says so instead of reporting success). What it does allow is spending the VPS's bandwidth: any admitted
 host can push traffic through it for as long as its certificate lives (the pool's 1 h lease bounds it). Alerting on the relay's bandwidth
 (the lighthouse publishes Nebula's metrics on its loopback) and a rate limit on the VPS are the operator's protections; neither is built.
 

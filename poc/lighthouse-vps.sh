@@ -30,6 +30,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 set -- "${ARGS[@]+"${ARGS[@]}"}"
+[ -z "$RELAY_SET" ] || [ "$cmd" = sign ] || [ "$cmd" = install ] || { echo "--relay / --no-relay belong to sign and install (the relay is part of the certificate and config it writes), not to $cmd"; exit 2; }
 
 r() { $RSH bash -s; }    # a script on stdin runs there (word splitting of $RSH is intended: it is a command line)
 need_ssh() { [ -n "$RSH" ] || { echo "$cmd needs --ssh \"<ssh command>\""; exit 2; }; }

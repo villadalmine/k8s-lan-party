@@ -344,7 +344,7 @@ What the three phases do, and why they are separate commands:
 
 `install` runs the three in a row when one machine has both the CA and the ssh key; otherwise run `prepare` where the key is, copy `lh.pub` to the CA machine,
 `sign`, copy `.state/bundles/lh` back and `deploy`. Every phase is idempotent (a second run prints no `changed:` line, `P03`, `P06`, `P08`). After `mesh host revoke`,
-`lighthouse-vps.sh sync --ssh ...` pushes the new blocklist to the server (revoke does it itself when it can reach the server, `P16`/`P17`). `remove` stops the
+`lighthouse-vps.sh sync --ssh ...` pushes the new blocklist to the server (revoke does it itself; when it cannot reach the server it still revokes everywhere else and ends with exit 5, saying the lighthouse still lacks the blocklist: `N26`; `P16`/`P17`). `remove` stops the
 service and deletes its keys and config.
 
 `PERSIST=1` is for a game people keep joining: nebula and k3s of the control plane become systemd services, the VM starts with the host (`boot.autostart`), and the
