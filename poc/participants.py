@@ -485,10 +485,22 @@ def check_pr(changes: list, base, head, author: str, author_id: int, verify) -> 
         y, s = f"{DIR}/{login}.yaml", f"{DIR}/{login}.sigstore.json"
         data, sig = head.read(y), head.read(s)
         if data is None:   # the file goes: a removal (or a stray signature)
+            if f"{login}.yaml" in head_entries:   # still in the tree but not a readable file (a gitlink, a directory)
+                problems.append(f"{y}: must be a regular file")
+                continue
             if sig is not None:
                 problems.append(f"{s}: a signature without its {login}.yaml (delete both)")
-            if author != login and not maint:
-                problems.append(f"{y}: only {login} or the maintainer may remove it")
+            if not maint:
+                if author != login:
+                    problems.append(f"{y}: only {login} or the maintainer may remove it")
+                else:   # the login alone is not the participant: a renamed login re-registered by somebody else has another id
+                    was_id = None
+                    with contextlib.suppress(Refused):
+                        was = load_yaml(base.read(y) or b"", y)
+                        was_id = was.get("github_id") if isinstance(was, dict) else None
+                    if was_id != author_id:
+                        problems.append(f"{y}: only {login}'s account (id {was_id}) or the maintainer may remove it; "
+                                        f"the PR author's id is {author_id}")
             continue
         if author != login:
             problems.append(f"{y}: only {login} may add or change it (the PR author is {author})")

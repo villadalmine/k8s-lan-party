@@ -121,7 +121,8 @@ t_schema() { branch pr-x && pfile alice 1001 cp && sign_as alice alice 1001 && c
 t_mixed() { branch pr-x && pfile alice 1001 alice-pc && sign_as alice alice 1001 && echo "# more" >>"$R/poc/mesh" && commit x &&
   fails_with "move poc/mesh to another pull request" check pr-x alice 1001; }
 t_removal_pr() { branch pr-bob-leaves && g rm -q participants/bob.yaml participants/bob.sigstore.json && commit "bob leaves" &&
-  passes check pr-bob-leaves bob 1002 && passes check pr-bob-leaves maint 1 && fails_with "only bob or the maintainer may remove it" check pr-bob-leaves mallory 1003; }
+  passes check pr-bob-leaves bob 1002 && passes check pr-bob-leaves maint 1 && fails_with "only bob or the maintainer may remove it" check pr-bob-leaves mallory 1003 &&
+  fails_with "only bob's account (id 1002) or the maintainer may remove it" check pr-bob-leaves bob 9999; }   # a re-registered login
 t_nothing() { branch pr-docs && echo more >>"$R/README.md" && commit docs || return 1
   local o; o=$(check pr-docs mallory 1003) || { echo "$o"; return 1; }; echo "$o"; [ "$o" = "OK no participant file changed" ]; }
 t_interlock() { # --test-root refuses a trusted root that is not marked TEST ONLY: the insecure flags never meet a real root

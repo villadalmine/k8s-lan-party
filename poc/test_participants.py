@@ -252,8 +252,20 @@ class CheckPR(unittest.TestCase):
         self.assertEqual(self.check(gone, base, {}, author="maint", author_id=1), [])        # the maintainer removes her
         p = self.check(gone, base, {}, author="mallory", author_id=1003)
         self.assertTrue(any("only alice or the maintainer may remove it" in x for x in p), p)
+        # review finding 1: the login alone is not the participant; a re-registered login (another account id) cannot remove her
+        p = self.check(gone, base, {}, author="alice", author_id=9999)
+        self.assertTrue(any("only alice's account (id 1001) or the maintainer may remove it" in x for x in p), p)
+        self.assertEqual(self.check(gone, base, {}, author="Alice", author_id=1001), [])      # logins are case-insensitive
         p = self.check(gone[:1], base, {"participants/alice.sigstore.json": "{}"})
         self.assertTrue(any("a signature without its alice.yaml" in x for x in p), p)
+
+    def test_gitlink_is_not_a_removal(self):  # review finding 6: an entry in the tree that is not a readable blob
+        class Gitlink(P.DictTree):
+            def entries(self):
+                return {**super().entries(), "alice.yaml": "160000"}
+        p = P.check_pr([("T", "participants/alice.yaml")], tree(signed("alice", 1001, "alice-pc")),
+                       Gitlink({"participants/policy.yaml": policy()}), "alice", 1001, Verify())
+        self.assertEqual(p, ["participants/alice.yaml: must be a regular file"])
 
     def test_stray_files(self):
         p = self.check([("A", "participants/notes.txt"), ("A", "participants/x/alice.yaml")], {}, {})
