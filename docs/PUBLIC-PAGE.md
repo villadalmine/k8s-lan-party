@@ -64,7 +64,7 @@ on a server), `static/` (one stylesheet, one script for the browser's proof of w
   pool") and has `python3` and `openssl`. A lighthouse on a public server ([HOST-YOUR-OWN.md](HOST-YOUR-OWN.md) "A public lighthouse").
 - **A public server** with `python3` (Ubuntu 24.04 or similar, systemd), a DNS name that points at it (`page.example.org` here) and TCP 443 (and 80
   for ACME) open. It can be the lighthouse's server. Caddy: yours if it already runs one with `import /etc/caddy/conf.d/*.caddy` in its Caddyfile,
-  or `--with-caddy` installs a pinned one. Any other reverse proxy works if it terminates TLS, replaces `X-Forwarded-For` with the client's address
+  or `--with-caddy` installs a pinned one. The Caddy site sets the body limits per route (16 KB and a 15 s read timeout for visitors, 512 KB for the puller's report), so they hold on a Caddy that was already there. Any other reverse proxy works if it terminates TLS, limits and times the request body the same way, replaces `X-Forwarded-For` with the client's address
   and forwards to `127.0.0.1:8088`.
 - An ssh command that runs as root there, for example `ssh -i ~/.ssh/server admin@page.example.org sudo`.
 
@@ -101,8 +101,8 @@ per address, body size, connections) are in `poc/page/page.yaml`, installed as `
 - **Closed** shows (and new requests get 503) when any of these holds: you ran `mesh host panic` (the next puller run reports it and pulls nothing), the
   puller has not reported for 5 minutes (your host or its timer is down), or the operator switch on the server:
   `./page/page-server.sh close --ssh "$SSH"` (and `open`). `mesh host panic --clear` plus one puller run reopens it.
-- Take it away: `./page/page-server.sh remove --ssh "$SSH"` (the page, its unit, its state and its Caddy site; `--with-caddy` also removes a Caddy it
-  installed), then `sudo systemctl disable --now emesh-page-puller.timer` on your host.
+- Take it away: `./page/page-server.sh remove --ssh "$SSH"` (the page, its unit, its state and its Caddy site; `--with-caddy` also removes the Caddy parts this script
+  installed, as its marker `/etc/caddy/.k8s-lan-party-installed` says, and never a Caddy that was already there), then `sudo systemctl disable --now emesh-page-puller.timer` on your host.
 
 ## For visitors: the same flow from a browser, a script or an agent
 

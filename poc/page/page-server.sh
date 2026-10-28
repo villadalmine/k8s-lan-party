@@ -12,7 +12,8 @@
 #   page-server.sh verify --ssh "<ssh command>" --site <address>      services, loopback-only listener, the API through Caddy, no key on disk
 #   page-server.sh close|open --ssh "<ssh command>"                    the operator's switch on the server (the host's panic closes it too)
 #   page-server.sh cacert --ssh "<ssh command>"                        print Caddy's internal root (only with --tls internal: the lab)
-#   page-server.sh remove --ssh "<ssh command>" [--with-caddy]         stop it and delete the page, its unit, its state and its Caddy site
+#   page-server.sh remove --ssh "<ssh command>" [--with-caddy]         stop it and delete the page, its unit, its state and its Caddy site; --with-caddy also
+#        removes the Caddy parts THIS script installed (a marker says which), never a Caddy that was already there
 # <ssh command> runs a command there as root, e.g. "ssh -i key admin@203.0.113.7 sudo"; the script feeds it a script on stdin.
 # The server's firewall is yours: open TCP 443 (and 80 for ACME). Nothing of the mesh lives on the server but the lighthouse (lighthouse-vps.sh).
 set -eu
@@ -37,11 +38,14 @@ SITE_RE='^(https://)?[][A-Za-z0-9.:-]+$'
 site_ok() { [[ "$SITE" =~ $SITE_RE ]] || { echo "--site must be a name or https://<address> (letters, digits, . : - [ ])"; exit 2; }; }
 case "$TLS" in "" | internal) ;; *) echo "--tls takes only: internal"; exit 2 ;; esac
 
+MARK=/etc/caddy/.k8s-lan-party-installed   # what THIS script installed; `remove --with-caddy` deletes only that
 install_caddy() { # Caddy itself, only when the server has none (a real server usually has its own: then only the site is added)
   [ -n "$SITE" ] || { echo "install needs --site"; exit 2; }; site_ok
   local SNI; SNI=$(printf '%s' "${SITE#https://}" | tr -d '[]')
   r <<EOF
 set -eu
+install -d -m 755 /etc/caddy
+mk() { grep -qx "\$1" $MARK 2>/dev/null || { echo "\$1" >>$MARK; }; }
 if ! command -v caddy >/dev/null; then
   case "\$(uname -m)" in x86_64) A=amd64; S=$CADDY_SHA512_amd64 ;; aarch64) A=arm64; S=$CADDY_SHA512_arm64 ;; *) echo "unsupported architecture"; exit 1 ;; esac
   T=\$(mktemp -d); cd "\$T"
@@ -49,13 +53,14 @@ if ! command -v caddy >/dev/null; then
   echo "\$S  c.tgz" | sha512sum -c - >/dev/null
   tar xzf c.tgz caddy && install -m 755 caddy /usr/local/bin/caddy; cd /; rm -rf "\$T"
   echo "changed: caddy $CADDY_VERSION installed (sha512 checked)"
+  mk binary
 fi
-id caddy >/dev/null 2>&1 || { useradd --system --home-dir /var/lib/caddy --create-home --shell /usr/sbin/nologin caddy; echo "changed: user caddy"; }
+id caddy >/dev/null 2>&1 || { useradd --system --home-dir /var/lib/caddy --create-home --shell /usr/sbin/nologin caddy; mk user; echo "changed: user caddy"; }
 install -d -m 755 /etc/caddy /etc/caddy/conf.d
 if [ ! -f /etc/caddy/Caddyfile ]; then
   # default_sni: a visitor that opens https://<ip> sends no server name; Caddy then picks the certificate of this one (the lab's IP site)
   printf '{\n\tskip_install_trust\n\tdefault_sni %s\n\tservers {\n\t\ttimeouts {\n\t\t\tread_header 10s\n\t\t\tread_body 30s\n\t\t\tidle 2m\n\t\t}\n\t}\n}\nimport /etc/caddy/conf.d/*.caddy\n' "$SNI" >/etc/caddy/Caddyfile
-  echo "changed: /etc/caddy/Caddyfile"
+  mk caddyfile; echo "changed: /etc/caddy/Caddyfile"
 fi
 if [ ! -f /etc/systemd/system/caddy.service ] && [ ! -f /lib/systemd/system/caddy.service ]; then
   cat >/etc/systemd/system/caddy.service <<'U'
@@ -78,7 +83,7 @@ Restart=on-failure
 [Install]
 WantedBy=multi-user.target
 U
-  systemctl daemon-reload; systemctl enable --now caddy >/dev/null 2>&1; echo "changed: caddy service"
+  mk service; systemctl daemon-reload; systemctl enable --now caddy >/dev/null 2>&1; echo "changed: caddy service"
 fi
 EOF
 }
@@ -169,10 +174,19 @@ rm -f /etc/systemd/system/k8s-lan-party-page.service; systemctl daemon-reload
 rm -rf /opt/k8s-lan-party-page /etc/k8s-lan-party-page /var/lib/private/k8s-lan-party-page /var/lib/k8s-lan-party-page
 if [ -f /etc/caddy/conf.d/k8s-lan-party-page.caddy ]; then rm -f /etc/caddy/conf.d/k8s-lan-party-page.caddy; systemctl reload caddy 2>/dev/null || true; fi
 if [ "$WITH_CADDY" = 1 ]; then
-  systemctl disable --now caddy >/dev/null 2>&1 || true
-  rm -f /etc/systemd/system/caddy.service /usr/local/bin/caddy; rm -rf /etc/caddy /var/lib/caddy; userdel caddy 2>/dev/null || true; systemctl daemon-reload
+  if [ -f $MARK ]; then   # only what this script installed, as the marker says; a Caddy that was already there is never touched
+    has() { grep -qx "\$1" $MARK; }
+    if has service; then systemctl disable --now caddy >/dev/null 2>&1 || true; rm -f /etc/systemd/system/caddy.service; fi
+    if has binary; then rm -f /usr/local/bin/caddy; fi
+    if has caddyfile; then rm -f /etc/caddy/Caddyfile; fi
+    if has user; then rm -rf /var/lib/caddy; userdel caddy 2>/dev/null || true; fi
+    rm -f $MARK; rmdir /etc/caddy/conf.d /etc/caddy 2>/dev/null || true; systemctl daemon-reload
+    echo "removed: the parts of Caddy this script installed"
+  else
+    echo "kept: Caddy was already there (no marker $MARK): not touched"
+  fi
 fi
-echo "removed: the page, its unit, its state and its Caddy site$([ "$WITH_CADDY" = 1 ] && echo ', and Caddy')"
+echo "removed: the page, its unit, its state and its Caddy site"
 EOF
 }
 

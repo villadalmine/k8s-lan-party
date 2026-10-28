@@ -46,7 +46,7 @@ HERE = Path(__file__).resolve().parent
 for _p in (HERE.parent, HERE):   # the repository layout (poc/page) and the deployed one (everything in one directory)
     sys.path.insert(0, str(_p))
 from admission import NAME, RESERVED, AdmissionError, clean_text, locked_state  # noqa: E402
-from pool import client_ip, identity, load_config  # noqa: E402
+from pool import client_ip, identity, load_config, _norm as pool_norm  # noqa: E402
 import seal as keys  # noqa: E402
 
 API = 1
@@ -72,6 +72,8 @@ DEFAULTS = {
     "max_report_bytes": 524288,          # the puller's report (sealed bundles of a few KB each)
     "max_threads": 32,                   # connections handled at once; more get a 503
     "socket_timeout_seconds": 10,        # a client that sends nothing for this long is dropped
+    "request_total_seconds": 20,         # the whole request (headers and body) must arrive within this, however slowly it drips
+    "max_per_origin": 4,                 # connections at once from one socket address that is not a trusted proxy
     "trusted_proxies": ["127.0.0.1", "::1"],   # only these may set X-Forwarded-For (the reverse proxy on this machine)
     "access_log": 1,                     # one line per request on stderr: method, path, status (never an address, a query or a body)
 }
@@ -664,27 +666,59 @@ class Server(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
 
-    def __init__(self, addr, handler, max_threads: int):
+    def __init__(self, addr, handler, max_threads: int, total_seconds: float = 20, per_origin: int = 4, trusted: tuple = ()):
         if ":" in addr[0]:
             self.address_family = socket.AF_INET6
         self.slots = threading.BoundedSemaphore(max_threads)
+        self.total, self.per_origin = total_seconds, per_origin
+        self.trusted = {pool_norm(t) for t in trusted}
+        self.origins: dict[str, int] = {}
+        self.lock = threading.Lock()
         super().__init__(addr, handler)
 
+    def _busy(self, request) -> None:
+        try:
+            request.sendall(b"HTTP/1.0 503 Service Unavailable\r\nContent-Length: 0\r\nRetry-After: 5\r\n\r\n")
+        except OSError:
+            pass
+        self.shutdown_request(request)
+
     def process_request(self, request, client_address):
+        origin = pool_norm(client_address[0])
         if not self.slots.acquire(blocking=False):   # too many at once: answer 503 and close, never queue without a bound
-            try:
-                request.sendall(b"HTTP/1.0 503 Service Unavailable\r\nContent-Length: 0\r\nRetry-After: 5\r\n\r\n")
-            except OSError:
-                pass
-            self.shutdown_request(request)
-            return
+            return self._busy(request)
+        with self.lock:   # one origin (not the proxy, which speaks for everybody) cannot hold every slot
+            held = self.origins.get(origin, 0)
+            if origin not in self.trusted and held >= self.per_origin:
+                self.slots.release()
+                return self._busy(request)
+            self.origins[origin] = held + 1
         super().process_request(request, client_address)
 
     def process_request_thread(self, request, client_address):
+        # a total deadline for the whole request: a client that drips one byte every few seconds beats a per-read timeout but not this
+        timer = threading.Timer(self.total, lambda: _hang_up(request))
+        timer.daemon = True
+        timer.start()
         try:
             super().process_request_thread(request, client_address)
         finally:
+            timer.cancel()
+            with self.lock:
+                origin = pool_norm(client_address[0])
+                left = self.origins.get(origin, 1) - 1
+                if left > 0:
+                    self.origins[origin] = left
+                else:
+                    self.origins.pop(origin, None)
             self.slots.release()
+
+
+def _hang_up(request) -> None:
+    try:
+        request.shutdown(socket.SHUT_RDWR)
+    except OSError:
+        pass
 
 
 def make_server(page: Page, listen: str) -> Server:
@@ -694,7 +728,8 @@ def make_server(page: Page, listen: str) -> Server:
     for path, ctype in STATIC.items():
         static[path] = ((HERE / "static" / path.rsplit("/", 1)[1]).read_bytes(), ctype)
     handler = type("PageHandler", (Handler,), {"page": page, "static": static})
-    return Server((host, int(port)), handler, page.cfg["max_threads"])
+    c = page.cfg
+    return Server((host, int(port)), handler, c["max_threads"], c["request_total_seconds"], c["max_per_origin"], tuple(c["trusted_proxies"]))
 
 
 def main(argv: list[str] | None = None) -> int:

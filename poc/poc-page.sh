@@ -189,9 +189,21 @@ panic_closes() { # a request made just before the panic is never pulled; the pag
   [ "$(api "$SITE/api/v1/status" | jget closed_reason)" = "closed by the host" ] &&
   [ "$(api -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' -d '{}' "$SITE/api/v1/requests")" = 503 ]; }
 reopens() { "$MESH" host panic --clear >/dev/null && cycle && [ "$(api "$SITE/api/v1/status" | jget open)" = True ]; }
-server_clean() {
+report_size_limits() { # M2 of the review: a big report of the puller passes Caddy (512 KB) while the public routes stay at 16 KB
+  local big visitor
+  big=$(python3 -c 'import json; print(json.dumps({"closed": False, "status": {"slots_total": 1, "slots_used": 0, "waiting": 0, "eligible": 0, "lease_seconds": 1, "next_ends": []}, "updates": [{"id": "i-%016x" % n, "state": "ended"} for n in range(200)], "pad": "x" * 60000}))')
+  [ "$(printf '%s' "$big" | api -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $(cat "$TOKEN")" -H 'Content-Type: application/json' --data-binary @- "$SITE/api/v1/puller/report")" = 400 ] || return 1   # not 413: it reached the page, which refuses the unknown field
+  visitor=$(printf '{"claim_code": "%s"}' "$(python3 -c 'print("A" * 20000)')")
+  [ "$(printf '%s' "$visitor" | api -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' --data-binary @- "$SITE/api/v1/requests/status")" = 413 ]; }
+caddy_stays() { echo 'test -x /usr/local/bin/caddy && systemctl is-active -q caddy && ! test -e /etc/caddy/conf.d/k8s-lan-party-page.caddy && ! test -e /opt/k8s-lan-party-page' | pub; }
+remove_keeps_caddy() { # M3 of the review: the default removes the page only; a Caddy that was not installed by us is never removed
+  "$PS" remove --ssh "$PUB_SSH" && caddy_stays || return 1
+  echo 'mv /etc/caddy/.k8s-lan-party-installed /root/caddy-marker' | pub && local o; o=$("$PS" remove --ssh "$PUB_SSH" --with-caddy 2>&1); echo "$o"
+  echo "$o" | grep -q '^kept: Caddy was already there' && caddy_stays; }
+server_clean() { # the marker back: now --with-caddy removes exactly what the script installed
+  echo 'mv /root/caddy-marker /etc/caddy/.k8s-lan-party-installed' | pub &&
   "$PS" remove --ssh "$PUB_SSH" --with-caddy && "$LHS" remove --ssh "$PUB_SSH" &&
-  echo '! test -e /opt/k8s-lan-party-page && ! test -e /etc/caddy && ! test -e /etc/nebula && ! systemctl is-active -q caddy && ! systemctl is-active -q nebula' | pub &&
+  echo '! test -e /opt/k8s-lan-party-page && ! test -e /etc/caddy && ! test -e /usr/local/bin/caddy && ! test -e /etc/nebula && ! systemctl is-active -q caddy && ! systemctl is-active -q nebula' | pub &&
   echo 'pkill -f "k3s agent" ; pkill nebula; rm -rf /root/mykeys /opt/k8s-lan-party /tmp/replay.json; true' | vis; }
 
 g08() { cacert && closed_before_pull; }
@@ -211,6 +223,7 @@ step G06 "the puller's token stays on the host (0600); the server holds only its
 step G07 "page-server.sh verify: services, loopback-only page, the API through Caddy, headers, no key on disk" "$PS" verify --ssh "$PUB_SSH" --site "$SITE"
 step G08 "before the control plane reports, the page says closed and refuses a request (503)" g08
 step G09 "auto on; a tick and a pull: the page is open and shows the same numbers as admission-status" g09
+step G09b "body limits per route: the puller's 60 KB report passes Caddy (not 413), a visitor's 20 KB body is refused (413)" report_size_limits
 step G10 "the public server reaches the control plane over Nebula but not the Kubernetes API; the page's process only the loopback" api_not_from_server
 step G11 "a decoy asks through the page with curl (the calls of PUBLIC-PAGE.md): a claim code" decoy_asks
 step G12 "a tick approves the decoy (the only place); the page says ready; collected with curl, opened with its own key (visit.py open)" g12
@@ -228,7 +241,8 @@ step G23 "the lease ends: the visitor is expelled, the page says so, its tunnel 
 step G24 "the server holds no join token in clear, no private key but its own, no claim code (after the whole flow)" no_secret_on_server
 step G25 "panic: the puller stops (a last request is never pulled), the page says closed and refuses requests (503)" panic_closes
 step G26 "panic --clear: the page opens again" reopens
-step G27 "the server is clean: the page, Caddy and the lighthouse removed; the visitor's machine cleaned" server_clean
+step G26b "remove keeps a Caddy that was not installed by this script (default and --with-caddy without the marker)" remove_keeps_caddy
+step G27 "the server is clean: the page, the Caddy this script installed and the lighthouse removed; the visitor's machine cleaned" server_clean
 
 if [ "${KEEP:-0}" != 1 ]; then "$POC/vm/down.sh" >/dev/null 2>&1; fi
 echo "----"

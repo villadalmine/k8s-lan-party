@@ -342,6 +342,50 @@ class T09Limits(Base):
             s.close()
 
 
+class T09bDrip(Base):
+    """M1 of the review: a body that drips one byte at a time beats a per-read timeout, not the total deadline; and one origin cannot hold every slot."""
+    cfg = {"socket_timeout_seconds": 5, "request_total_seconds": 3, "trusted_proxies": [], "max_per_origin": 2, "max_threads": 10}
+
+    def test_dripping_body_is_cut_at_the_total_deadline(self):
+        c = socket.create_connection(("127.0.0.1", self.port))
+        c.sendall(b"POST /api/v1/requests HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\nContent-Length: 100\r\n\r\n")
+        t, cut = time.time(), None
+        try:
+            for _ in range(12):          # one byte a second: every read is well inside socket_timeout_seconds
+                c.sendall(b" ")
+                time.sleep(1)
+                c.settimeout(0.01)
+                try:
+                    if c.recv(10) == b"":
+                        cut = time.time() - t
+                        break
+                except socket.timeout:
+                    pass
+                except OSError:
+                    cut = time.time() - t
+                    break
+        except OSError:
+            cut = time.time() - t
+        c.close()
+        self.assertIsNotNone(cut, "the dripping connection was never cut")
+        self.assertLess(cut, 6)
+
+    def test_one_origin_cannot_hold_every_slot(self):
+        a = socket.create_connection(("127.0.0.1", self.port))
+        b = socket.create_connection(("127.0.0.1", self.port))
+        time.sleep(0.3)
+        c = socket.create_connection(("127.0.0.1", self.port))
+        c.settimeout(5)
+        self.assertIn(b"503", c.recv(100))   # max_per_origin 2, although 8 slots are free
+        a.close()
+        time.sleep(0.5)
+        d = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
+        d.request("GET", "/api/v1/status")
+        self.assertEqual(d.getresponse().status, 200)   # a slot of that origin came back
+        for x in (b, c, d):
+            x.close()
+
+
 class T10Headers(Base):
     def test_every_answer_has_the_security_headers_and_no_cors(self):
         self.open_page()
