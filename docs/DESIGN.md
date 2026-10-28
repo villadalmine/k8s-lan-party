@@ -1,9 +1,9 @@
 ---
 tipo: doc
 id: k8s-lan-party-design
-version: 0.4.0
+version: 0.4.1
 fecha_alta: 2026-10-16
-fecha_ultimo_cambio: 2026-10-27
+fecha_ultimo_cambio: 2026-10-28
 categoria: plataforma
 dueno_agente: casa-orquestador
 pieza: k8s-lan-party
@@ -136,9 +136,20 @@ set to the Nebula IP. k3s keeps a per-node password, so a second machine cannot 
 ### 3.3 Cilium
 
 Tunnel mode over the Nebula interface; pod MTU derived once from the Nebula MTU (default 1300) minus the tunnel
-header. WireGuard encryption with node-to-node enabled. Mutual authentication needs the SPIRE server and agents; it
-is beta, so it is **opt-in per policy**. Cilium's own service account can read Secrets cluster-wide unless
-`tls.readSecretsOnlyFromSecretsNamespace: true` is set; the PoC inventories what each node-side credential can do.
+header and the WireGuard overhead (`poc/stack.env`: `NEBULA_MTU` is the only number, `pod_mtu_from` the only formula). WireGuard encryption
+with node-to-node enabled. Mutual authentication needs the SPIRE server and agents; it is beta, so it is **opt-in per policy**. The SPIRE
+agent tolerates the `trust` taint: it must run on every node a workload may land on. Cilium's own service account can read Secrets
+cluster-wide unless `tls.readSecretsOnlyFromSecretsNamespace: true` is set; the PoC inventories what each node-side credential can do.
+
+**What the node-side Cilium credential can do (measured 2026-10-28).** Every Cilium agent runs under one service account, and its token sits on
+the node's disk, where the node's owner is root. That account may `update` every `CiliumNode`, and a `CiliumNode` carries the node's WireGuard
+public key: the owner of a remote node could replace another node's key (seen live with the agent token of a joined node). **Guard:**
+`poc/cilium-node-guard.yaml`, a `ValidatingAdmissionPolicy` that admits a write by that account only to the `CiliumNode` of the node its
+pod-bound token was issued on (`cilium.sh` applies it; `poc-vm` V06c). The same account may also create `CiliumEndpoints` and
+`CiliumIdentities`, which no per-node rule scopes, and the SPIRE registration entries are not tied to a node (selector `cilium:mutual-auth`,
+parented to the operator). So **mutual authentication proves that the peer node holds a certificate from the cluster's SPIRE for that
+identity; it is not evidence against the owner of a joined node** claiming another workload's identity (section 1: authorize each request in
+the application). That attack is not tested yet: a follow-up.
 
 ## 4. Trust and placement policy
 
@@ -330,7 +341,7 @@ Where each suite passed, how often, and what is still relaxed is in [POC-STATUS.
 | `make poc-ca` | two CAs (persistent and pool); pulling the pool CA cuts only the pool (13) |
 | `make poc-revoke` | `mesh host revoke` is idempotent, the negative test (`kubectl delete node` alone does not revoke), time to loss of access (10) |
 | `make poc-placement` | trust levels and Kyverno placement, the golden rule (30, 14 of them negative) |
-| `make poc-cilium` / `poc-vm` / `poc-kind` | step 2: Cilium tunnel + WireGuard over Nebula, encryption on the wire, mutual auth with SPIRE non-root and persistent: an authenticated peer passes (the deny half, an unauthenticated peer dropped, has no check yet) (24 on the Incus VMs) |
+| `make poc-cilium` / `poc-vm` / `poc-kind` | step 2: Cilium tunnel + WireGuard over Nebula (`cilium-dbg encrypt status` with every other node a peer, the kernel's peers are the published keys), the MTU set once, encryption on the wire, a remote node's Cilium token cannot rewrite another node's WireGuard key, mutual auth with SPIRE non-root and persistent: an authenticated peer passes and an unauthenticated one (its node has no SPIRE identity) is dropped by the same policy (33 on the Incus VMs) |
 | `make poc-lighthouse` | a lighthouse on a separate public server (a VM plays it): prepare, sign and deploy are idempotent, a player joins through it, `revoke` reaches it; `mesh host refresh` with no change, with a change that restarts Nebula (the API and the node come back) and with one read on reload (23) |
 | `make poc-admission` | admission with manual approval ([ADMISSION.md](ADMISSION.md)): request, approve, join, places full, the lease ends, `reap` expels, the next one in line enters, `reap --all`, a burned join token refused to a second machine, a non-cooperative copy of a bundle refused by the node guard and cut with the lease, another guest's issued name refused by its node password, a name whose node password k3s dropped refused by the guard (31) |
 | `make test` | the pool logic (`poc/pool.py`): fixed slots, 1 h lease, per-identity rules (IP normalized), daily cap, FIFO waitlist; the admission ledger (`poc/admission.py`); the scripts keep their executable bit |
@@ -369,12 +380,11 @@ The simple idea first: **it joins, and a study lab runs on it.** Security layers
 | **1. It joins** | Nebula CA and lighthouse, a one-command bundle, k3s on the Nebula IP, flannel over the Nebula interface, a real study lab (CKA 1.1) running on a joined node | `make poc-join` (17 steps) | built, measured (#4) |
 | **1b. Host your own game** | `mesh host init / invite / players / kick / revoke / refresh / down`; a lighthouse on a separate public server | `make poc-host`, `make poc-revoke`, `make poc-lighthouse` | built (#5, #7) |
 | **1c. Weaknesses of one control plane** | flapping, tolerance tuning, lossy links, control plane down | `make poc-weakness` | built, numbers in section 13 (#6) |
-| **2. Cilium + WireGuard** | tunnel mode, encryption always on, `cilium-dbg encrypt status` | `make poc-vm`, `poc-cilium`, `poc-kind` | built (#8) |
+| **2. Cilium + WireGuard** | tunnel mode, encryption always on, `cilium-dbg encrypt status`, the MTU set once | `make poc-vm`, `poc-cilium`, `poc-kind` | built (#8) |
 | 3. Per-namespace RBAC and kubeconfig | user access (section 14) | planned | design (#9) |
 | **4. Trust levels + Kyverno placement** | sections 4, 1 | `make poc-placement` | built for one owner (#10; section 10) |
 | 5. The 1 h pool and per-IP limits | section 8; `poc/pool.py` has unit tests today, and the pool CA exists (`make poc-ca`) | planned | logic and CA built, cluster side planned (#11) |
-| **6. Mutual auth by policy** | section 3 | `make poc-vm` (V92-V97) | allow half built (an authenticated peer passes); the deny half has no check yet; beta upstream (#8) |
-| 7. Signed-PR participants | section 5.1 | planned | design (#12) |
+| **6. Mutual auth by policy** | section 3 | `make poc-vm` (V90-V102) | built: an authenticated peer passes, an unauthenticated one is dropped (V101); beta upstream; not evidence against a joined node's owner (section 3.3) (#8) |
 | 8. The public opening | the runbook with the go-public checklist ([DEMO.md](DEMO.md)) | planned | design (#16) |
 
 Every step is a milestone epic, so nothing is lost.

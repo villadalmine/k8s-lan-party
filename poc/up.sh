@@ -40,7 +40,7 @@ node cp 172.31.0.3
 for n in $MACHINES; do
   docker exec "$n" sh -c 'mkdir -p /etc/nebula && cp /bundle/* /etc/nebula/ && nohup /opt/nebula/nebula -config /etc/nebula/config.yml >/var/log/nebula.log 2>&1 &'
 done
-# Host TCP over the Cilium node-to-node WireGuard: the default MSS comes from nebula1 (MTU 1300 -> 1248), but cilium_wg0 is 1055, and oversized
+# Host TCP over the Cilium node-to-node WireGuard: the default MSS comes from nebula1 (NEBULA_MTU 1300 -> 1248), but cilium_wg0 is 1055, and oversized
 # (GSO) segments are dropped silently with no ICMP, so TCP never learns. Cilium's own agent handshake (mutual auth, TCP 4250) stalls this way.
 # An advertised MSS on the mesh route keeps host segments under the WireGuard device MTU. Only with Cilium (flannel needs nothing).
 wait_for 40 docker exec cp ping -c1 -W1 "$LH_NEB" || { echo "the control plane cannot reach the lighthouse $LH_NEB at $LH_DOCKER_IP:${LH_PORT:-4242}/udp (external lighthouse installed? port open?)"; exit 4; }

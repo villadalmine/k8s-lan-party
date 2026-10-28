@@ -3,7 +3,7 @@ tipo: doc
 id: k8s-lan-party-poc
 version: 0.2.0
 fecha_alta: 2026-10-19
-fecha_ultimo_cambio: 2026-10-27
+fecha_ultimo_cambio: 2026-10-28
 categoria: plataforma
 dueno_agente: casa-orquestador
 pieza: k8s-lan-party
@@ -29,8 +29,8 @@ directory). Where each suite passed and how often is in [docs/POC-STATUS.md](../
 | `make poc-ca` | `poc-ca.sh` | 13 (B01-B13) | two CAs (persistent and pool); the pool CA is constrained to group `public`; pulling it cuts only the pool |
 | `make poc-revoke` | `poc-revoke.sh` | 10 (R01-R10) | `mesh host revoke` is one command and idempotent; the negative test (`kubectl delete node` without the blocklist does not revoke, R03); time to loss of access |
 | `make poc-placement` | `poc-placement.sh` | 30 (L01-L53), 14 of them negative | **the golden rule**: Kyverno trust-based placement plus a node-side `ValidatingAdmissionPolicy` |
-| `make poc-cilium` | `poc-cilium.sh` | 23 (C01-C97) | **step 2** on k3s in Docker: Cilium tunnel + WireGuard over Nebula, encryption on the wire, SPIRE mutual auth (non-root, PVC) |
-| `make poc-vm` | `vm/poc-vm.sh` | 24 (V01-V97) | step 2 on Incus VMs, each with its own kernel |
+| `make poc-cilium` | `poc-cilium.sh` | 23 (C01-C97) | **step 2** on k3s in Docker: Cilium tunnel + WireGuard over Nebula, encryption on the wire, SPIRE mutual auth (non-root, PVC); the deny half and the CiliumNode guard are in `poc-vm` only |
+| `make poc-vm` | `vm/poc-vm.sh` | 33 (V01-V102) | step 2 on Incus VMs, each with its own kernel, remote nodes tainted as in a real join: `cilium-dbg encrypt status` with every other node a peer, the MTU set once, a remote node's Cilium token cannot rewrite another node's WireGuard key (V06c), mutual auth allows an authenticated peer and drops an unauthenticated one (V98-V102) |
 | `make poc-kind` | `kind-cilium.sh` | 20 (K01-K97) | step 2 on kind (no Nebula): Cilium itself works on this kernel |
 | `make poc-lighthouse` | `poc-lighthouse.sh` | 23 (P01-P18, P09b, P12b-P12e) | a lighthouse on a separate public server (a VM plays it): `lighthouse-vps.sh` prepare / sign / deploy idempotent, a player joins through it, `revoke` reaches it; `mesh host refresh` with no change, with a change that needs a restart (the API comes back) and with one read on reload |
 | `make poc-admission` | `poc-admission.sh` | 31 (A01-A31) | **admission with manual approval** ([docs/ADMISSION.md](../docs/ADMISSION.md)): request, approve, join, a burned join token refused to a second machine, a non-cooperative copy of a bundle refused by the node guard, another guest's name refused by its node password, a name whose node password k3s dropped refused, places full, the lease ends, `reap` expels, the next one in line enters, `reap --all` (Incus VMs) |
@@ -39,8 +39,8 @@ directory). Where each suite passed and how often is in [docs/POC-STATUS.md](../
 | `make poc-down` | `down.sh` | | remove every container, network and the state |
 | `make test` | `test_pool.py`, `test_admission.py`, `test_admission_auto.py`, `../tests/` | | the pool logic (1 h lease, per-identity rules, daily cap, FIFO waitlist), the admission ledger (the file, the lock, names), the automatic tick (switch, panic, events and hook, outbox, metrics, 8 concurrent ticks), the PR gates, every PoC script keeps its executable bit, two state directories do not touch each other |
 
-Not covered by a check yet: the deny half of mutual auth (a peer without a SPIFFE identity is dropped), native WSL2 as a node, macOS,
-relays and symmetric NAT (issues #8, #14, #15).
+Not covered by a check yet: native WSL2 as a node, macOS, relays and symmetric NAT (issues #14, #15); the owner of a joined node claiming
+another workload's identity toward mutual auth (docs/DESIGN.md section 3.3).
 
 ## What is here
 
@@ -56,7 +56,8 @@ relays and symmetric NAT (issues #8, #14, #15).
 | `lighthouse-vps.sh` | a lighthouse on a separate public server: `prepare` (key made on the server), `sign`, `deploy`, `install`, `verify`, `sync`, `remove` |
 | `kc` | `kubectl` against the PoC control plane, whatever the runtime |
 | `install-placement.sh`, `placement/` | install Kyverno and the trust-placement policies on your own control plane |
-| `cilium.sh`, `checks-cilium.sh`, `spire-args.sh` | step 2: the Cilium install, its assertions (shared by Docker and VMs), the hardened SPIRE arguments |
+| `cilium.sh`, `checks-cilium.sh`, `spire-args.sh` | step 2: the Cilium install (`MUTUAL=yes` adds SPIRE), its assertions (shared by Docker and VMs), the hardened SPIRE arguments |
+| `cilium-node-guard.yaml` | a Cilium agent's token may write only the `CiliumNode` of its own node (where the node publishes its WireGuard key); `cilium.sh` applies it |
 | `kind-cilium.sh` | step 2 on kind |
 | `vm/` | the Incus VM flow: `up.sh`, `down.sh`, `lib-vm.sh`, `poc-vm.sh`, `poc-placement.sh`, `run-all.sh` |
 | `pool.py`, `pool.yaml`, `test_pool.py` | the capacity pool for the public demo (pure logic, simulated time) |
@@ -79,3 +80,7 @@ relays and symmetric NAT (issues #8, #14, #15).
   not keep a node out (R03 shows the machine stays in the mesh).
 - (2026-10-27) When Nebula restarts, `nebula1` loses its address and the embedded flannel makes the k3s server exit. `mesh host refresh` therefore
   reloads (SIGHUP) unless `stats` or `listen` changed, and on the control plane stops k3s before the restart and starts it again once `nebula1` is back (P12d).
+- (2026-10-28) In the VM flow `k` is `incus exec`, which reads its standard input: a `$(k ...)` inside the arguments of a command that reads a
+  pipe swallows the pipe (`echo "$out" | grep "$(k get ...)"` never matches). Read the value first, then pipe.
+- (2026-10-28) The SPIRE agent did not tolerate the `trust` taint, so on tainted remote nodes (a real join) pods got no identity and every
+  policy requiring authentication dropped them. `spire-args.sh` adds the toleration; `poc-vm` now runs with tainted remote nodes.

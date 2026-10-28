@@ -12,6 +12,10 @@ DATA_PATH=""; DATA_MOUNT=""
 SPIRE_INIT='[{"name":"chown-state","image":"docker.io/library/busybox:1.38.0","command":["sh","-c","chown -R 1000:1000 /tmp/spire-server/private'"$DATA_PATH"'"],"securityContext":{"runAsUser":0,"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"],"add":["CHOWN","DAC_OVERRIDE","FOWNER"]}},"volumeMounts":[{"name":"spire-server-socket","mountPath":"/tmp/spire-server/private"}'"$DATA_MOUNT"']}]'
 SPIRE_SELECTOR='{"node-restriction.kubernetes.io/trust":"own"}'
 SPIRE_TOL='[{"key":"node-role.kubernetes.io/control-plane","operator":"Exists","effect":"NoSchedule"}]'
+# The SPIRE agent must run on every node a workload may land on, remote ones included: they carry the taint trust=<level>:NoSchedule from
+# registration (TAINT=yes), which the chart's default agent tolerations do not cover. Without this, a pod on a friends or public node never gets
+# an identity and every policy that requires authentication drops it. The list is the chart's default plus the trust taint.
+SPIRE_AGENT_TOL='[{"key":"node.kubernetes.io/not-ready","effect":"NoSchedule"},{"key":"node-role.kubernetes.io/master","effect":"NoSchedule"},{"key":"node-role.kubernetes.io/control-plane","effect":"NoSchedule"},{"key":"node.cloudprovider.kubernetes.io/uninitialized","effect":"NoSchedule","value":"true"},{"key":"CriticalAddonsOnly","operator":"Exists"},{"key":"trust","operator":"Exists","effect":"NoSchedule"}]'
 SPIRE_SC='{"runAsNonRoot":true,"runAsUser":1000,"runAsGroup":1000,"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]}}'
 S=authentication.mutual.spire
 SPIRE_ARGS=(--set authentication.enabled=true --set $S.enabled=true --set $S.install.enabled=true
@@ -20,4 +24,5 @@ SPIRE_ARGS=(--set authentication.enabled=true --set $S.enabled=true --set $S.ins
   --set-json "$S.install.server.securityContext=$SPIRE_SC"
   --set-json "$S.install.server.initContainers=$SPIRE_INIT"
   --set-json "$S.install.server.nodeSelector=$SPIRE_SELECTOR"
-  --set-json "$S.install.server.tolerations=$SPIRE_TOL")
+  --set-json "$S.install.server.tolerations=$SPIRE_TOL"
+  --set-json "$S.install.agent.tolerations=$SPIRE_AGENT_TOL")

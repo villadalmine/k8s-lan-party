@@ -21,7 +21,7 @@ vm_up cp 2 3GiB "${VMIP[cp]}"
 CP_CERT="${CP_CERT_DURATION:-24h}"; [ "${PERSIST:-0}" != 1 ] || CP_CERT="${CP_CERT_DURATION:-4320h}"
 "$POC/issue.sh" cp "$CP_NEB" own "$CP_CERT"
 for n in $MACHINES; do push_bundle $n; start_nebula $n; done
-# Host TCP over the Cilium node-to-node WireGuard: the default MSS comes from nebula1 (MTU 1300 -> 1248), but cilium_wg0 is 1055, and oversized
+# Host TCP over the Cilium node-to-node WireGuard: the default MSS comes from nebula1 (NEBULA_MTU 1300 -> 1248), but cilium_wg0 is 1055, and oversized
 # (GSO) segments are dropped silently with no ICMP, so TCP never learns. Cilium's own agent handshake (mutual auth, TCP 4250) stalls this way.
 # An advertised MSS on the mesh route keeps host segments under the WireGuard device MTU. Only with Cilium (flannel needs nothing).
 wait_for 60 incus exec emesh-cp -- ping -c1 -W1 "$LH_NEB" || { echo "the control plane cannot reach the lighthouse $LH_NEB at $LH_DOCKER_IP:${LH_PORT:-4242}/udp (external lighthouse installed? port open?)"; exit 4; }

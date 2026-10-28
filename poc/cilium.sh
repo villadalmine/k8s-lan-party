@@ -20,3 +20,6 @@ helm_cp upgrade --install cilium cilium --repo https://helm.cilium.io --version 
   --set operator.replicas=1 \
   "${SPIRE_FLAGS[@]}" \
   --wait --timeout "${HELM_TIMEOUT:-10m}"
+# every agent shares one service account that may update every CiliumNode (where each node publishes its WireGuard key); this policy limits a
+# write by that account to the CiliumNode of the node its token was issued on (poc/cilium-node-guard.yaml, issue #8)
+k apply -f - <"$POC/cilium-node-guard.yaml" >/dev/null

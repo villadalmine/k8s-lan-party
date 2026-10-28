@@ -1,4 +1,4 @@
-# PoC status (2026-10-27)
+# PoC status (2026-10-28)
 
 Where the proof of concept stands, what was proven, and what is still open.
 the maintainer's rule for this phase: make it work first, write down every place where security was relaxed, then harden it. Phases A, B and C
@@ -21,6 +21,7 @@ flowchart LR
 | Join, 17 checks (`poc-join`), now with the narrowed firewall (J13) and the pool CA for `public` nodes | PASS x2 | earlier version PASS | n/a |
 | `poc-host` 11 / `poc-weakness` 8 | PASS x2 | earlier version PASS | n/a |
 | Cilium + WireGuard over Nebula, pod to pod, DNS, MTU, 30 MB md5, firewall check | PASS x2 (23 steps); 24 PASS on 2026-10-26 (1 run) | PASS (1 run, see report) | PASS (SPIRE steps too) |
+| **#8 closed** (`poc-vm`, 33 checks, remote nodes tainted as in a real join): `cilium-dbg encrypt status` with every other node a peer and its own published key (V06), the kernel's WireGuard peers are exactly the other nodes' keys (V06b), a remote node's Cilium token cannot rewrite another node's key (V06c, the CiliumNode guard), the CNI drop-in on every node (V06d), the MTU set once (V11), mutual auth: the twin on a node with an identity passes, the twin on a node without one is dropped with "Authentication required", and is let in once its node has an identity again (V98-V102) | PASS x2, identical output (2026-10-28) | not run (the shared checks changed: `wg_on`, `mtu_chain`) | not run |
 | Encryption on the wire (canary in clear only on `cilium_wg0`, none on `nebula1`) | PASS x2 | PASS | PASS |
 | Mutual auth (SPIRE), non-root, PVC, survives a restart (V92-V97) | PASS 10 of 10 runs after the MSS fix of 2026-10-21 (the earlier flake, 1 of 4 runs failing V92, had a root cause: see below); PASS again on 2026-10-26 with the supervised agent | PASS (1 run, see report) | PASS (3 runs) |
 | **B3** two CAs (`poc-ca`, 13 checks) | PASS x2 | not run | n/a |
@@ -99,7 +100,7 @@ Choices and limits:
 
 ## Phase-1 gap check (issues #4-#17, the "MVP phase 1" milestone)
 
-**Verdict (2026-10-26): phase 1 is not complete.** Of the 13 goals (#4-#16): **5 done** (#4, #5, #6, #7, #10), **3 partial** (#8: the deny half of mutual auth has no check; #11, #14), **5 missing** (#9, #12, #13, #15 and #16, which is missing by design). What is done is the technical core; what is missing is what turns it into an open service (RBAC and kubeconfig per user, the pool's reaper and quotas, signed-PR participants, relay/NAT tests, the public opening).
+**Verdict (2026-10-28): phase 1 is not complete.** Of the 13 goals (#4-#16): **6 done** (#4, #5, #6, #7, #8, #10), **2 partial** (#11, #14), **5 missing** (#9, #12, #13, #15 and #16, which is missing by design). What is done is the technical core; what is missing is what turns it into an open service (RBAC and kubeconfig per user, the pool's reaper and quotas, signed-PR participants, relay/NAT tests, the public opening).
 
 | Goal (issue) | Evidence | Status |
 | :--- | :--- | :--- |
@@ -109,7 +110,7 @@ Choices and limits:
 | Revocation in one command (#7) | `J17`: node deleted, cannot reach the lighthouse, does not come back | **done**: `mesh host revoke <name>` is the one command, idempotent, refuses an unknown name, covers pool nodes, and later invites inherit the blocklist; `poc-revoke` R01-R10 passes twice with identical output on WSL Docker and 10 of 10 on the Dell VMs (2026-10-26, one run); the negative test shows `kubectl delete node` alone does not revoke (the machine stays in the mesh); measured 3 to 5 s to lose access |
 | A lighthouse on a separate public server (needed by the public demo, #16) | `poc-lighthouse` P01-P18 with P09b, P12b-P12e (23 checks), a Dell VM plays the server | **done on a VM**; a real public server is the maintainer's step in DEMO.md |
 | A control plane that stays up, reachable from the internet (the demo's infrastructure, #16) | the maintainer's lab: persistent control plane (systemd, starts with the host) behind a lighthouse on a public server; a visitor from another network reached its API over Nebula on 2026-10-27 | **done for the maintainer's own setup**; admission, reaper and the page are not built (#11); the control plane certificate (180 days) is renewed by hand |
-| Cilium tunnel + WireGuard, MTU once, mutual auth by policy (#8) | `poc-vm` V01-V97 on Dell VMs; kind; WSL Docker | **partial**: Cilium + WireGuard done; mutual auth proves only the allow half (an authenticated peer passes, V92), and nothing yet asserts that an unauthenticated peer is dropped; mutual auth is beta, and its one failure mode is fixed (10 of 10 Dell runs) |
+| Cilium tunnel + WireGuard, MTU once, mutual auth by policy (#8) | `poc-vm` V01-V102 (33) on Dell VMs, twice with identical output (2026-10-28); `tests/test_mtu_once.py`; kind and WSL Docker on the earlier checks | **done**: every node a WireGuard peer by key (V06, V06b); the pod MTU derived once from `NEBULA_MTU` (V11 on every node and pod, the unit test keeps a second number out); the deny half: a peer whose node has no SPIRE identity is dropped by the same policy that lets its twin in (V101), and let in once the identity is back (V102); the first attempt's CreateContainerError is fixed and checked on every node (V06d, TROUBLESHOOTING). Found on the way and fixed: the SPIRE agent did not tolerate the `trust` taint (pods on real joined nodes would never authenticate); the Cilium agents' shared token could rewrite any node's WireGuard key (now the CiliumNode guard, V06c). Limit, not tested: mutual auth is not evidence against the owner of a joined node (DESIGN.md 3.3) |
 | Per-namespace RBAC and user kubeconfig (#9) | none | **missing** (big: issue #9) |
 | Trust levels + Kyverno placement (#10) | `poc-placement` L01-L53, Dell VMs and WSL Docker: private never on friends/public even with toleration or nodeSelector or `nodeName`; shareable may; a node cannot raise its own label with its kubelet credential (L52); the Kyverno denial message (matrix row 10) | **done** |
 | Free 1 h pool and per-IP limits (#11) | `pool.py` and `admission.py` unit tests; the pool CA (`poc-ca`); `poc-admission` A01-A31; `test_admission_auto.py` and `poc-admission-auto` AA01-AA37 | **partial**: option A, admission with manual approval, is built and tested (2 places, 1 h leases, FIFO list, cooldown and daily cap per identity, `reap` expels at lease end, [ADMISSION.md](ADMISSION.md)); phase B1, the automatic tick (approve inside the limits, expel at the end, promote the next, panic, events, notify hook, metrics), is built and tested; B2 (the public request page, anti-bot) and B3 (the opening) are design only; quotas, LimitRange and the idle kick are missing (issue #11 stays open) |
@@ -140,6 +141,7 @@ with a clear message); no `kubectl` and no workload examples (added `poc/kc`, `p
 | No cross-signing between control planes, no per-host CAs | phase 2 question, not needed for the join path | phase 2 |
 | SPIRE agent and Cilium agent run on `friends` and `public` nodes | they must, for the data plane and for identity | confidential nodes (later) |
 | Cilium mutual auth is beta | upstream | keep it opt-in per policy |
+| A joined node's Cilium token can still create `CiliumEndpoints` and `CiliumIdentities`, and every SPIRE agent may fetch every identity's certificate | upstream design: one service account for all agents; the registration entries are not tied to a node | test the forged-endpoint attack, then decide (Cilium's operator-managed identities, or no mutual-auth claim toward joined nodes); DESIGN.md 3.3 |
 
 ## Still to test
 

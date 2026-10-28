@@ -69,7 +69,7 @@ lighthouse:
 $ADV
 listen: {host: 0.0.0.0, port: 4242}
 punchy: {punch: true}
-tun: {dev: nebula1, mtu: 1300}
+tun: {dev: nebula1, mtu: $NEBULA_MTU}
 logging: {level: info}
 $STATS
 firewall:

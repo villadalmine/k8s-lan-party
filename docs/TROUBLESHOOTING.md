@@ -3,7 +3,7 @@ tipo: doc
 id: k8s-lan-party-troubleshooting
 version: 0.1.0
 fecha_alta: 2026-10-21
-fecha_ultimo_cambio: 2026-10-27
+fecha_ultimo_cambio: 2026-10-28
 categoria: plataforma
 dueno_agente: casa-orquestador
 pieza: k8s-lan-party
@@ -11,7 +11,7 @@ meta: ../meta.yml
 depende_de: [docs/REQUIREMENTS.md, docs/POC-STATUS.md]
 lo_usan: [README.md, docs/HOST-YOUR-OWN.md, docs/JOIN.md]
 docs: [docs/DESIGN.md]
-scripts: [poc/cilium.sh, poc/spire-args.sh, poc/checks-cilium.sh, poc/issue.sh]
+scripts: [poc/cilium.sh, poc/spire-args.sh, poc/checks-cilium.sh, poc/issue.sh, poc/cilium-node-guard.yaml]
 runbooks: []
 tags: [problemas, diagnostico, spire, cilium, nebula, kyverno]
 ---
@@ -131,11 +131,28 @@ it**. `poc/.state/poc.log` has the detail of the last run of any PoC script (`/t
 - Mutual auth is beta in this Cilium: keep it opt-in per policy.
 
 ### Cilium agents unhealthy or WireGuard shows no peers
-- **Diagnose:** `kubectl -n kube-system exec <cilium pod> -c cilium-agent -- cilium-dbg status --brief` and `cilium-dbg encrypt status` (expect `Wireguard`, `Number of peers: 2`).
-- **Check:** UDP 51871 allowed in the Nebula firewall; MTU chain (Nebula 1300 > pod 1150 + 80). A full-size DF ping across nodes is `V12`.
+- **Diagnose:** `kubectl -n kube-system exec <cilium pod> -c cilium-agent -- cilium-dbg status --brief` and `cilium-dbg encrypt status` (expect `Wireguard`,
+  `Number of peers:` the number of nodes minus one, and its `Public key` equal to the node's `network.cilium.io/wg-pub-key` annotation on its `CiliumNode`).
+  On the node, `wg show cilium_wg0 peers` must list exactly the other nodes' published keys (`V06b`).
+- **Check:** UDP 51871 allowed in the Nebula firewall; MTU chain (Nebula 1300 > pod 1150 + 130). A full-size DF ping across nodes is `V12`.
 
 ### Large transfers stall but small pings work
-- **Cause:** MTU: Nebula 1300, VXLAN 50, WireGuard 60. Set the pod MTU once (`MTU=1150`); do not leave the default 1500.
+- **Cause:** MTU: Nebula 1300, VXLAN 50, WireGuard up to 80. The pod MTU is derived once from `NEBULA_MTU` in `poc/stack.env` (1150); never set
+  a second number, and do not leave Cilium's default 1500.
+
+### A pod on a joined node is dropped by a policy with `authentication.mode: required` ("Authentication required")
+- **Symptom:** `cilium-dbg metrics list` on the receiving node shows `cilium_drop_count_total ... reason=Authentication required` growing, and its agent
+  logs `Failed to authenticate request ... remote error: tls: internal error` for the pod's node.
+- **Cause:** that node has no SPIRE agent, so its Cilium agent holds no certificate for the pod's identity. This is the deny half working (`V101`). If the
+  node should have one: the agent needs a toleration for every taint the node carries; joined nodes carry `trust=<level>:NoSchedule`, which the
+  chart's defaults do not cover (`spire-args.sh` adds it). `kubectl -n cilium-spire get pod -l app=spire-agent -o wide` must list every node.
+
+### Another node's WireGuard key or address changed in its `CiliumNode`
+- **Cause:** every Cilium agent runs under one service account that may update every `CiliumNode`; its token is on each node's disk. A node owner can
+  use it to rewrite another node's key.
+- **Fix:** `poc/cilium-node-guard.yaml` (applied by `cilium.sh`) admits an agent's write only to the `CiliumNode` of the node its token was issued
+  on. Check it is there: `kubectl get validatingadmissionpolicybinding cilium-agent-own-ciliumnode`. `V06c` tests it.
+
 
 ## Kyverno and placement
 

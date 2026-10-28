@@ -3,7 +3,7 @@ tipo: runbook
 id: k8s-lan-party-host-your-own
 version: 0.4.0
 fecha_alta: 2026-10-21
-fecha_ultimo_cambio: 2026-10-27
+fecha_ultimo_cambio: 2026-10-28
 categoria: plataforma
 dueno_agente: casa-orquestador
 pieza: k8s-lan-party
@@ -11,7 +11,7 @@ meta: ../meta.yml
 depende_de: [docs/REQUIREMENTS.md, docs/DESIGN.md, poc/mesh, poc/issue.sh, poc/admission.py, poc/pool.yaml]
 lo_usan: [README.md, docs/JOIN.md, docs/DEMO.md]
 docs: [docs/TROUBLESHOOTING.md, docs/GOLDEN-RULES.md, docs/ADMISSION.md]
-scripts: [poc/admission.py, poc/poc-admission.sh, poc/poc-admission-auto.sh, poc/mesh, poc/kc, poc/issue.sh, poc/revoke.sh, poc/install-placement.sh, poc/up.sh, poc/vm/up.sh, poc/poc-host.sh, poc/poc-ca.sh, poc/poc-revoke.sh, poc/poc-placement.sh]
+scripts: [poc/admission.py, poc/poc-admission.sh, poc/poc-admission-auto.sh, poc/mesh, poc/kc, poc/issue.sh, poc/revoke.sh, poc/install-placement.sh, poc/up.sh, poc/vm/up.sh, poc/poc-host.sh, poc/poc-ca.sh, poc/poc-revoke.sh, poc/poc-placement.sh, poc/cilium-node-guard.yaml]
 runbooks: []
 tags: [host, lan-party, ca, invite, revoke]
 ---
@@ -307,12 +307,15 @@ exempt (the Cilium and SPIRE agents must run on every node).
 ## 6. Encrypted pod network and mutual auth (Cilium, SPIRE)
 
 ```bash
-./vm/poc-vm.sh              # [dell]  Cilium tunnel + WireGuard over Nebula, SPIRE non-root with a PVC (24 checks); builds its own cluster
+./vm/poc-vm.sh              # [dell]  Cilium tunnel + WireGuard over Nebula, SPIRE non-root with a PVC, mutual auth allows and denies (33 checks); builds its own cluster
 ./kind-cilium.sh            # [kind]  the same checks without Nebula
 ```
 
 To run a game with Cilium instead of flannel, set `CNI=cilium` before `init` and every `invite`, then run `./cilium.sh` and `MUTUAL=yes ./cilium.sh`. Read
 [TROUBLESHOOTING.md](TROUBLESHOOTING.md) first: mutual auth is beta and has one known trap (the "sticky failure"), fixed in the PoC by a small MSS on the mesh route.
+`cilium.sh` also applies `cilium-node-guard.yaml`: every Cilium agent shares one service account, and without the guard the owner of any joined node could
+rewrite another node's WireGuard key with the token he finds on his disk. Mutual auth proves that the peer node got a certificate from your SPIRE; it does
+not protect a workload from the owner of a node that joined (DESIGN.md section 3.3).
 
 ## 7. End the game
 
