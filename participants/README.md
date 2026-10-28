@@ -23,9 +23,10 @@ The regulars of a game (**persistent participants**, trust `friends`) join by a 
 GitHub: the file holds only **public** keys, the Nebula CA and the issuer's signing key stay on the maintainer's host, and the bundle travels
 encrypted to a key only the participant has. Design: [DESIGN.md section 5.1](../docs/DESIGN.md#51-who-may-join-and-how). Issue #12.
 
-**State (2026-10-28): built and tested as a proof of concept** (`make poc-participants`, 32 checks, offline against a local TEST CA;
-`make poc-participants-e2e`, a real join and its revocation on Incus VMs). The flow against the public Sigstore runs in CI on every pull
-request (`.github/workflows/participants.yml`); no participant has joined this way yet, and `issuer.pub` is not published yet (the maintainer
+**State (2026-10-28): built and tested as a proof of concept** (`make poc-participants`, 33 checks, offline against a local TEST CA;
+`make poc-participants-e2e`, a real join and its revocation on Incus VMs). On every pull request CI checks the participant files against the public Sigstore
+(`.github/workflows/participants.yml`) and runs the same verification code on a blob it signs keyless itself (`participants-live`). **Not
+done yet:** no participant has signed from a real fork (issue #12 stays open for it), and `issuer.pub` is not published (the maintainer
 publishes it when the flow opens).
 
 ```mermaid
@@ -59,7 +60,7 @@ kind: Participant
 github: alice                 # your login, lower case: the file's own name
 github_id: 1001               # your numeric account id: gh api users/<login> --jq .id
 node: alice-pc                # 2-20 chars, a-z 0-9 -, unique, never issued before on this host
-trust: friends                # the most you may ask for; above it only by the maintainer's grant (policy.yaml)
+trust: friends                # the only trust a pull request gives (own is the maintainer's own machines, never by PR)
 resources: {cpu: 2, memory_gib: 4}
 nebula_public_key: |          # nebula-cert keygen -out-key host.key -out-pub host.pub; paste host.pub, keep host.key
   -----BEGIN NEBULA X25519 PUBLIC KEY-----
@@ -116,14 +117,15 @@ your certificate: it goes on the Nebula blocklist of every host and your node is
 | a signature by another identity, another account id, another workflow or another OIDC issuer | the certificate must name `https://github.com/<login>/k8s-lan-party/.github/workflows/sign.yml@refs/heads/...`, issuer GitHub Actions, owner id = `github_id` |
 | no `.sigstore.json`, or a file changed after it was signed | unsigned or tampered |
 | a pull request by somebody other than `<login>` that adds or changes `<login>.yaml` | a valid signed file replayed by another account |
-| `trust: own` (or anything above your ceiling) | only the maintainer raises it, with a grant in `policy.yaml` merged first; a grant in the same pull request does not count |
+| `trust: own` or `public` | `own` puts a node where the maintainer's private pods run (groups `own,control-plane`, no taint): only the maintainer's own machines, joined with `mesh host init`, never through a pull request (also refused when issuing); `public` is the automatic demo |
+| a removal by an account that is not the file's `github_id` | a renamed login re-registered by somebody else cannot remove you |
 | a node name, Nebula key or recipient somebody else has; a reserved name | unique |
 | a join pull request that changes anything else | one concern per pull request |
 | deleting somebody else's file | only that participant or the maintainer |
 
 ## For the maintainer: the issuing side
 
-`policy.yaml` is yours: who the maintainers are, the self-service ceiling (`friends`), per-login grants, reserved names, the certificate
+`policy.yaml` is yours: who the maintainers are, the trust a pull request gives (`friends`, nothing else), reserved names, the certificate
 duration and the participants' Nebula range. A pull request is always judged by the policy **on its base branch**, and only a maintainer's
 pull request may change it. A broken policy on main makes `sync` do nothing (no mass revocation).
 
@@ -148,7 +150,6 @@ publish `participants/issuer.pub` by a pull request; the private key and the Neb
   so a bundle delivered by e-mail is usually stale by the time it is used: a fresh token on request is not built yet.
 - **Renewal:** the certificate lasts `cert_duration` (two weeks); renewing it under the same node name is not built (a changed key or
   node name revokes and issues under a new name).
-- **The live path has not run end to end:** the check against the public Sigstore runs in CI, but no real fork has signed a file yet; the
-  offline suites use a local TEST CA in its place.
-- **Trust `own` by grant** issues a certificate in the groups `own,control-plane`, like the maintainer's own machines: grant it only to a
-  machine the maintainer controls.
+- **The live path has not run end to end with a real fork:** no participant has signed a file with `sign.yml` yet (it needs a second GitHub
+  account; issue #12 stays open for it). The `participants-live` job runs the same verification code against the public Sigstore on a blob
+  it signs keyless itself; the offline suites use a local TEST CA. The `participants` checks become required only after that first real run.

@@ -220,7 +220,7 @@ The PoC measures all three. The command shows the golden rule and refuses to con
    branch; the certificate's **owner account id** (Fulcio extension `1.3.6.1.4.1.57264.1.17`) must equal the file's `github_id` and the PR
    author's id, so a renamed login re-registered by somebody else inherits nothing. Then: the YAML schema (strict: unknown or duplicated keys
    are refused); the node name, the Nebula key and the recipient are unique; the requested trust level is at most the ceiling of
-   `participants/policy.yaml` **read from the base branch** (`friends`; more only by a maintainer's grant merged first); the PR author is the
+   `participants/policy.yaml` **read from the base branch** (`friends`, the only trust a pull request ever issues: `own` is the maintainer's own machines, `mesh host init`, never a remote one; review finding of 2026-10-28); the PR author is the
    file's login; a join PR touches nothing else. The checker itself is taken from the base branch, so a PR cannot loosen it. Anything
    above `public` happens only when the maintainer merges, and CODEOWNERS for `participants/` is the maintainer.
 4. **The maintainer approves by merging.** The **issuing side runs on the maintainer's host, never on GitHub** (`participants.py sync`
@@ -231,12 +231,12 @@ The PoC measures all three. The command shows the golden rule and refuses to con
    the recipient declared in the signed file**, so it can travel by any private channel (e-mail, a direct message) and is useless to anybody
    else; never a PR or issue comment, never an Actions artifact (decision 9, proposed).
 5. **Removal** is a PR that deletes their file; the next sync after the merge revokes the certificate (`mesh host revoke`: the Nebula
-   blocklist on every host, the node deleted; section 9). A file that stops passing (a grant taken away, a signature that no longer verifies)
+   blocklist on every host, the node deleted; section 9). A file that stops passing (a policy change, a signature that no longer verifies)
    is revoked the same way, and a node name is never issued twice.
 
 Built as a proof of concept (issue #12): `make poc-participants` (offline, the real cosign against a local TEST CA in place of Fulcio) and
 `make poc-participants-e2e` (a real join and its revocation on Incus VMs); the check against the public Sigstore runs on every pull request
-(`.github/workflows/participants.yml`). Not built yet: a fresh join token on request (the 8-minute token is usually stale by the time an
+(`.github/workflows/participants.yml`; its `participants-live` job runs the same verification code on a blob it signs keyless itself, since no real participant has signed yet). Not built yet: a fresh join token on request (the 8-minute token is usually stale by the time an
 e-mailed bundle is used) and renewal under the same node name ([participants/README.md](../participants/README.md), known gaps).
 
 ## 6. Endpoints the maintainer owns
@@ -348,7 +348,7 @@ Where each suite passed, how often, and what is still relaxed is in [POC-STATUS.
 | `make poc-cilium` / `poc-vm` / `poc-kind` | step 2: Cilium tunnel + WireGuard over Nebula, encryption on the wire, mutual auth with SPIRE non-root and persistent: an authenticated peer passes (the deny half, an unauthenticated peer dropped, has no check yet) (24 on the Incus VMs) |
 | `make poc-lighthouse` | a lighthouse on a separate public server (a VM plays it): prepare, sign and deploy are idempotent, a player joins through it, `revoke` reaches it; `mesh host refresh` with no change, with a change that restarts Nebula (the API and the node come back) and with one read on reload (23) |
 | `make poc-admission` | admission with manual approval ([ADMISSION.md](ADMISSION.md)): request, approve, join, places full, the lease ends, `reap` expels, the next one in line enters, `reap --all`, a burned join token refused to a second machine, a non-cooperative copy of a bundle refused by the node guard and cut with the lease, another guest's issued name refused by its node password, a name whose node password k3s dropped refused by the guard (31) |
-| `make poc-participants` | join by signed PR (section 5.1), offline: the real cosign against a **local TEST CA** that plays Fulcio (marked TEST ONLY, never committed); a valid signed PR passes; another identity, another account id, another workflow or OIDC issuer, an untrusted CA, an unsigned or tampered file, a replay by another author, a trust above the ceiling (even with a grant in the same PR), a taken or reserved node name, a join PR that touches code: each fails; a key instead of keyless fails; the issuing side re-verifies main, delivers the bundle encrypted and signed, refuses a forged one, and a removal revokes; a broken policy changes nothing (32) |
+| `make poc-participants` | join by signed PR (section 5.1), offline: the real cosign against a **local TEST CA** that plays Fulcio (marked TEST ONLY, never committed); a valid signed PR passes; another identity, another account id, another workflow or OIDC issuer, an untrusted CA, a key instead of keyless, an unsigned or tampered file, a replay by another author, trust `own` (never through a PR, also with the policy edited in the same PR or pushed straight to main), a taken or reserved node name, a join PR that touches code, a removal by a re-registered login: each fails; the issuing side re-verifies main, delivers the bundle encrypted and signed, refuses a forged one, a removal revokes, a failed revoke blocks the new certificate; a broken policy changes nothing (33) |
 | `make poc-participants-e2e` | the same flow on Incus VMs: the participant's keys made on her machine, sync issues, she opens and joins (Ready), her file leaves main, one sync and she reaches neither the lighthouse nor the API, her Node does not come back (11) |
 | `make test` | the pool logic (`poc/pool.py`): fixed slots, 1 h lease, per-identity rules (IP normalized), daily cap, FIFO waitlist; the admission ledger (`poc/admission.py`); the participants' schema, policy, PR gate and issuing plan (`poc/participants.py`); the scripts keep their executable bit |
 
