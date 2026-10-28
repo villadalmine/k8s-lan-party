@@ -7,3 +7,6 @@
 # The security design and threat model are the maintainer's call.
 /docs/DESIGN.md      @villadalmine
 /docs/THREAT-MODEL.md @villadalmine
+# Who may join and with what trust: the participants' policy and the code that checks and issues (join by signed PR).
+/participants/        @villadalmine
+/poc/participants.py  @villadalmine

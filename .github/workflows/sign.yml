@@ -1,0 +1,60 @@
+name: Sign my participant file
+
+# Runs in YOUR FORK, by hand (participants/README.md): Actions -> "Sign my participant file" -> Run workflow, on the branch of your join
+# pull request. It signs participants/<your login>.yaml with cosign keyless: GitHub gives this run an OIDC token, Fulcio turns it into a
+# short certificate that names THIS workflow in YOUR fork (and your account id), and the signature goes to the public Rekor log. The
+# bundle is committed next to the file as participants/<login>.sigstore.json, signed off (DCO) in your name because you ticked the box.
+# The pull request check (participants.yml) accepts that certificate for your login only. Nothing here is a secret.
+on:
+  workflow_dispatch:
+    inputs:
+      dco:
+        description: "I certify the Developer Certificate of Origin (the DCO file) for the commit this run adds in my name"
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  sign:
+    if: ${{ inputs.dco }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write   # push participants/<login>.sigstore.json to this branch of your fork
+      id-token: write   # the OIDC token Fulcio turns into the signing certificate
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: '3.12'
+      - run: pip install -q pyyaml==6.0.3
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6  # v4.1.2
+        with:
+          cosign-release: 'v3.1.4'
+      - name: Sign and commit
+        env:
+          OWNER: ${{ github.repository_owner }}
+          OWNER_ID: ${{ github.repository_owner_id }}
+          ACTOR: ${{ github.actor }}
+          ACTOR_ID: ${{ github.actor_id }}
+          REF: ${{ github.ref }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          set -eu
+          case "$REF" in refs/heads/*) ;; *) echo "::error::run it on the branch of your join pull request"; exit 1 ;; esac
+          # a personal fork, run by its owner: the certificate names the repository owner, and the check binds it to the PR author
+          [ "$ACTOR_ID" = "$OWNER_ID" ] || { echo "::error::run it in your own fork (this one belongs to $OWNER)"; exit 1; }
+          login=$(printf '%s' "$OWNER" | tr 'A-Z' 'a-z')
+          f="participants/$login.yaml"
+          [ -f "$f" ] || { echo "::error::$f is not on this branch: add it first (participants/README.md)"; exit 1; }
+          python3 poc/participants.py lint "$f"
+          grep -qx "github_id: $OWNER_ID" "$f" || { echo "::error::github_id in $f must be $OWNER_ID, your account id"; exit 1; }
+          cosign sign-blob --yes --bundle "participants/$login.sigstore.json" "$f"
+          git config user.name "$ACTOR"
+          git config user.email "$ACTOR_ID+$ACTOR@users.noreply.github.com"
+          git add "participants/$login.sigstore.json"
+          git commit -s -m "chore(participants): sign participants/$login.yaml"
+          git push origin "HEAD:refs/heads/$BRANCH"

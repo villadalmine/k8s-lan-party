@@ -1,9 +1,9 @@
 ---
 tipo: runbook
 id: k8s-lan-party-host-your-own
-version: 0.4.0
+version: 0.4.1
 fecha_alta: 2026-10-21
-fecha_ultimo_cambio: 2026-10-27
+fecha_ultimo_cambio: 2026-10-28
 categoria: plataforma
 dueno_agente: casa-orquestador
 pieza: k8s-lan-party
@@ -369,5 +369,5 @@ only introduces hosts could run with `tun: {disabled: true}`; that is a later ha
 
 ## What this guide does not cover yet
 
-Signed-PR admission with cosign (issue #12), OIDC logins for persistent participants, the public pool's request page (ADMISSION.md B2; the automatic tick, quotas and the idle kick are built),
+Signed-PR admission (issue #12) exists as a proof of concept for the maintainer's own game: [participants/README.md](../participants/README.md) (`participants.py sync` takes the same `EMESH_STATE`); OIDC logins for persistent participants, the public pool's request page (ADMISSION.md B2; the automatic tick, quotas and the idle kick are built),
 the relay for symmetric NAT (issue #15), and the LoadBalancer/BGP on own nodes (issue #13). See the gap table in [POC-STATUS.md](POC-STATUS.md).
