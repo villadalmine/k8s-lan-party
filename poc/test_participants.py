@@ -16,7 +16,6 @@ POLICY = """apiVersion: k8s-lan-party/v1
 kind: ParticipantPolicy
 maintainers: [maint]
 self_service_trust: friends
-grants: {GRANTS}
 reserved_nodes: [lh, cp]
 cert_duration: 336h
 fork_name: k8s-lan-party
@@ -40,8 +39,8 @@ def doc(login: str, gid: int, node: str, trust: str = "friends", n: int = 1, ext
             f"resources: {{cpu: 2, memory_gib: 4}}\nnebula_public_key: |\n{key}\nrecipient: {recipient or age(n)}\n{extra}")
 
 
-def policy(grants: str = "{}") -> bytes:
-    return POLICY.replace("{GRANTS}", grants).encode()
+def policy(extra: str = "") -> bytes:
+    return (POLICY + extra).encode()
 
 
 class Verify:
@@ -57,8 +56,8 @@ class Verify:
         return [f"{login}: bad signature"] if login in self.bad else []
 
 
-def tree(files: dict, grants: str = "{}", with_policy: bool = True) -> P.DictTree:
-    f = {"participants/policy.yaml": policy(grants)} if with_policy else {}
+def tree(files: dict, with_policy: bool = True) -> P.DictTree:
+    f = {"participants/policy.yaml": policy()} if with_policy else {}
     f.update(files)
     return P.DictTree(f)
 
@@ -106,11 +105,10 @@ class Schema(unittest.TestCase):
         self.refused(doc("alice", "true", "alice-pc"), "github_id")
 
     def test_trust_ceiling(self):
-        self.refused(doc("alice", 1001, "alice-pc", trust="own"), "only the maintainer can raise it")
+        # own = the groups own,control-plane, untainted, where the maintainer's private pods run: never through a pull request
+        self.refused(doc("alice", 1001, "alice-pc", trust="own"), "own is only for the maintainer's own machines")
         self.refused(doc("alice", 1001, "alice-pc", trust="public"), "automatic demo")
-        self.refused(doc("alice", 1001, "alice-pc", trust="root"), "trust must be")
-        granted = P.load_policy(policy("{alice: own}"))
-        self.assertEqual(self.parse(doc("alice", 1001, "alice-pc", trust="own"), pol=granted).trust, "own")
+        self.refused(doc("alice", 1001, "alice-pc", trust="root"), "trust must be friends")
 
     def test_nebula_public_key(self):
         bad = doc("alice", 1001, "alice-pc").replace("PUBLIC KEY", "PRIVATE KEY")
@@ -133,11 +131,11 @@ class PolicyFile(unittest.TestCase):
 
     def test_self_service_is_friends(self):
         with self.assertRaises(P.Refused):
-            P.load_policy(POLICY.replace("self_service_trust: friends", "self_service_trust: own").replace("{GRANTS}", "{}").encode())
+            P.load_policy(POLICY.replace("self_service_trust: friends", "self_service_trust: own").encode())
 
-    def test_grant_values(self):
+    def test_no_grants(self):  # there is no way to raise one participant above friends: a grants key is refused
         with self.assertRaises(P.Refused):
-            P.load_policy(policy("{alice: root}"))
+            P.load_policy(policy("grants: {alice: own}\n"))
 
 
 class Identity(unittest.TestCase):
@@ -178,8 +176,8 @@ class Bundle(unittest.TestCase):
 
 
 class CheckPR(unittest.TestCase):
-    def check(self, changes, base_files, head_files, author="alice", author_id=1001, verify=None, grants="{}"):
-        return P.check_pr(changes, tree(base_files, grants), tree(head_files, grants), author, author_id, verify or Verify())
+    def check(self, changes, base_files, head_files, author="alice", author_id=1001, verify=None):
+        return P.check_pr(changes, tree(base_files), tree(head_files), author, author_id, verify or Verify())
 
     def add(self, login):
         return [("A", f"participants/{login}.yaml"), ("A", f"participants/{login}.sigstore.json")]
@@ -220,15 +218,15 @@ class CheckPR(unittest.TestCase):
 
     def test_trust_above_ceiling_fails_without_maintainer(self):
         p = self.check(self.add("alice"), {}, signed("alice", 1001, "alice-pc", trust="own"))
-        self.assertTrue(any("only the maintainer can raise it" in x for x in p), p)
-        self.assertEqual(self.check(self.add("alice"), {}, signed("alice", 1001, "alice-pc", trust="own"), grants="{alice: own}"), [])
+        self.assertTrue(any("own is only for the maintainer's own machines" in x for x in p), p)
 
-    def test_grant_in_the_pr_itself_does_not_count(self):  # the base policy decides, and only the maintainer touches it
-        base, head = tree({}), tree(signed("alice", 1001, "alice-pc", trust="own"), grants="{alice: own}")
+    def test_policy_edit_in_the_pr_itself_does_not_count(self):  # the base policy decides, and only the maintainer touches it
+        head = P.DictTree({"participants/policy.yaml": policy().replace(b"[maint]", b"[maint, alice]"),
+                           **{k: v.encode() for k, v in signed("alice", 1001, "alice-pc", trust="own").items()}})
         ch = self.add("alice") + [("M", "participants/policy.yaml")]
-        p = P.check_pr(ch, base, head, "alice", 1001, Verify())
+        p = P.check_pr(ch, tree({}), head, "alice", 1001, Verify())
         self.assertTrue(any("policy.yaml: only the maintainer" in x for x in p), p)
-        self.assertTrue(any("only the maintainer can raise it" in x for x in p), p)
+        self.assertTrue(any("own is only for the maintainer's own machines" in x for x in p), p)
 
     def test_node_name_unique(self):
         base = signed("bob", 1002, "shared", n=2)
@@ -292,7 +290,7 @@ class Issuer(unittest.TestCase):
         _, valid2, problems2 = P.validate_tree(t, v2, seen)
         self.assertEqual((sorted(valid2), v2.calls), (["alice"], ["bob"]))   # alice's bytes were verified before; bob's are checked
 
-    def test_policy_change_applies_to_issued_files(self):  # a grant taken away: the schema/ceiling check runs every time
+    def test_policy_change_applies_to_issued_files(self):  # an own file on main is never valid: the schema runs every time
         t = tree(signed("alice", 1001, "alice-pc", trust="own"))
         _, valid, problems = P.validate_tree(t, Verify())
         self.assertEqual(valid, {})

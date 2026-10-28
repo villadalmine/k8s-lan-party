@@ -109,13 +109,16 @@ t_key_signed() { # a signature made with a cosign key (no certificate, no identi
   COSIGN_PASSWORD="" "$COSIGN" sign-blob --yes --key "$F/mallory-cosign.key" --signing-config "$F/signing-config-offline.json"     --bundle "$R/participants/alice.sigstore.json" "$R/participants/alice.yaml" >/dev/null 2>&1 && commit x &&
   fails_with "must carry exactly one Fulcio certificate" check pr-x alice 1001; }
 t_trust_above() { branch pr-own && pfile alice 1001 alice-pc own && sign_as alice alice 1001 && commit "alice asks for own" &&
-  fails_with "only the maintainer can raise it" check pr-own alice 1001; }
-t_grant_in_pr() { branch pr-x && pfile alice 1001 alice-pc own && sign_as alice alice 1001 &&
-  sed -i 's/^grants: {}/grants: {alice: own}/' "$R/participants/policy.yaml" && commit x &&
-  fails_with "participants/policy.yaml: only the maintainer changes it" check pr-x alice 1001 && fails_with "only the maintainer can raise it" check pr-x alice 1001; }
-t_granted() { # the maintainer merged a grant first: the same pull request now passes against that base
-  branch main-granted && sed -i 's/^grants: {}/grants: {alice: own}/' "$R/participants/policy.yaml" && commit "grant alice own" &&
-  passes check pr-own alice 1001 main-granted; }
+  fails_with "own is only for the maintainer's own machines" check pr-own alice 1001; }
+t_policy_in_pr() { # the pull request makes alice a maintainer in its own copy of the policy: the base policy still decides
+  branch pr-x && pfile alice 1001 alice-pc own && sign_as alice alice 1001 &&
+  sed -i 's/^maintainers: \[maint\]/maintainers: [maint, alice]/' "$R/participants/policy.yaml" && commit x &&
+  fails_with "participants/policy.yaml: only the maintainer changes it" check pr-x alice 1001 &&
+  fails_with "own is only for the maintainer's own machines" check pr-x alice 1001; }
+t_own_on_main() { # an own file pushed straight to main (no pull request): the issuing side refuses it too (validate = what sync checks)
+  branch main-own && pfile alice 1001 alice-pc own && sign_as alice alice 1001 && commit "own on main" || return 1
+  local o rc=0; o=$($PY validate --repo "$R" --ref main-own --cosign "$COSIGN" --test-root "$TROOT") || rc=$?; echo "$o"
+  [ "$rc" = 1 ] && echo "$o" | grep -q "^FAIL participants/alice.yaml: trust own is above" && ! echo "$o" | grep -q "^OK alice"; }
 t_unique() { branch pr-x && pfile alice 1001 bob-pc && sign_as alice alice 1001 && commit x &&
   fails_with "the node name 'bob-pc' is already bob's" check pr-x alice 1001; }
 t_schema() { branch pr-x && pfile alice 1001 cp && sign_as alice alice 1001 && commit x && fails_with "node 'cp' is reserved" check pr-x alice 1001 &&
@@ -222,13 +225,13 @@ step S07 "NEGATIVE: a signature by a CA that is not trusted fails" t_untrusted_c
 step S08 "NEGATIVE: a certificate from another OIDC issuer (a GitHub login, not Actions) fails" t_wrong_issuer
 step S09 "NEGATIVE: a certificate of another workflow in the fork fails" t_other_workflow
 step S09b "NEGATIVE: a signature made with a key instead of keyless fails" t_key_signed
-step S10 "NEGATIVE: asking for trust own (above friends) fails without the maintainer" t_trust_above
-step S11 "NEGATIVE: a grant added by the pull request itself does not count (the base policy decides)" t_grant_in_pr
-step S12 "with the maintainer's grant merged first, the same request passes" t_granted
+step S10 "NEGATIVE: asking for trust own (above friends) fails: own is never issued through a pull request" t_trust_above
+step S11 "NEGATIVE: a policy edited by the pull request itself does not count (the base policy decides)" t_policy_in_pr
+step S12 "NEGATIVE: an own file pushed straight to main is refused by the issuing side too" t_own_on_main
 step S13 "NEGATIVE: a node name another participant has fails" t_unique
 step S14 "NEGATIVE: a reserved node name and a duplicated YAML key fail" t_schema
 step S15 "NEGATIVE: a join pull request that also changes code fails" t_mixed
-step S16 "removal: the participant or the maintainer may remove a file, nobody else" t_removal_pr
+step S16 "removal: the participant's account or the maintainer may remove a file; another account, even with the same login, may not" t_removal_pr
 step S17 "a pull request without participant files passes the check (it always reports)" t_nothing
 step S18 "NEGATIVE: --test-root refuses a trusted root that is not marked TEST ONLY" t_interlock
 step S19 "the maintainer merges: one sync issues alice and bob (their own Nebula keys, persistent CA) into a 0700 outbox" t_sync_issues

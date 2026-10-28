@@ -7,7 +7,7 @@ participants/<login>.sigstore.json. Then:
 
   check     CI, on a pull request: every participant file the PR adds, changes or deletes. The signer (the certificate Fulcio issued
             to the workflow in <login>'s fork, and the numeric account id in it) must be the file's login and the PR author; the
-            schema, the unique node name and the trust ceiling (participants/policy.yaml read from the BASE branch, never from the PR)
+            schema, the unique node name and the trust ceiling, friends (participants/policy.yaml read from the BASE branch, never from the PR)
             must hold. Only the maintainer touches the policy or other people's files.
   validate  the maintainer's host: the same checks on every file of a tree (main), without a PR author.
   sync      the maintainer's host, from a timer: re-verify main, revoke what is gone, changed or no longer verifies, issue what is new.
@@ -64,7 +64,7 @@ NEBULA_PUB_RE = re.compile(r"-----BEGIN NEBULA X25519 PUBLIC KEY-----\n([A-Za-z0
 AGE_RE = re.compile(r"age1[02-9ac-hj-np-z]{58}")
 SSH_RE = re.compile(r"ssh-ed25519 (AAAAC3NzaC1lZDI1NTE5AAAAI[A-Za-z0-9+/]{43})")   # no comment: a comment is often an e-mail address
 FIELDS = {"apiVersion", "kind", "github", "github_id", "node", "trust", "resources", "nebula_public_key", "recipient"}
-POLICY_FIELDS = {"apiVersion", "kind", "maintainers", "self_service_trust", "grants", "reserved_nodes", "cert_duration", "fork_name",
+POLICY_FIELDS = {"apiVersion", "kind", "maintainers", "self_service_trust", "reserved_nodes", "cert_duration", "fork_name",
                  "nebula_net", "nebula_hosts"}
 MAX_FILE = 4096
 MAX_BUNDLE = 65536
@@ -127,15 +127,14 @@ def _int(v, lo: int, hi: int, what: str) -> int:
 class Policy:
     maintainers: tuple
     self_service_trust: str
-    grants: dict
     reserved_nodes: tuple
     cert_duration: str
     fork_name: str
     nebula_net: str
     nebula_hosts: tuple
 
-    def ceiling(self, login: str) -> str:
-        return self.grants.get(login, self.self_service_trust)
+    def ceiling(self, login: str) -> str:   # the same for every participant: there are no grants (own is never issued by PR)
+        return self.self_service_trust
 
     def is_maintainer(self, login: str) -> bool:
         return login.lower() in self.maintainers
@@ -153,10 +152,8 @@ def load_policy(data: bytes | None) -> Policy:
     if not isinstance(m, list) or not m or not all(isinstance(x, str) and LOGIN_RE.fullmatch(x) for x in m):
         raise Refused(f"{POLICY}: maintainers is a non-empty list of lower-case GitHub logins")
     if d["self_service_trust"] not in ("friends",):
-        raise Refused(f"{POLICY}: self_service_trust is friends (anything above it is a grant, one login at a time)")
-    g = d["grants"] or {}
-    if not isinstance(g, dict) or not all(isinstance(k, str) and LOGIN_RE.fullmatch(k) and v in LEVELS for k, v in g.items()):
-        raise Refused(f"{POLICY}: grants maps a lower-case login to public, friends or own")
+        raise Refused(f"{POLICY}: self_service_trust is friends: a pull request never issues own (own is the maintainer's own "
+                      "machines, mesh host init) nor public (the automatic demo)")
     r = d["reserved_nodes"]
     if not isinstance(r, list) or not all(isinstance(x, str) for x in r):
         raise Refused(f"{POLICY}: reserved_nodes is a list of names")
@@ -169,7 +166,7 @@ def load_policy(data: bytes | None) -> Policy:
     h = d["nebula_hosts"]
     if not (isinstance(h, list) and len(h) == 2 and all(isinstance(x, int) and not isinstance(x, bool) for x in h) and 5 <= h[0] <= h[1] <= 254):
         raise Refused(f"{POLICY}: nebula_hosts is [first, last] of the host numbers participants get, inside 5..254")
-    return Policy(tuple(m), d["self_service_trust"], dict(g), tuple(r), d["cert_duration"], d["fork_name"], d["nebula_net"], tuple(h))
+    return Policy(tuple(m), d["self_service_trust"], tuple(r), d["cert_duration"], d["fork_name"], d["nebula_net"], tuple(h))
 
 
 # --- one participant file --------------------------------------------------------------------------------------------------------------
@@ -209,13 +206,15 @@ def parse_participant(data: bytes, login: str, policy: Policy) -> Participant:
         raise Refused(f"{what}: node {node!r} is reserved")
     trust = d["trust"]
     if trust not in LEVELS:
-        raise Refused(f"{what}: trust must be friends or own")
+        raise Refused(f"{what}: trust must be friends")
     if trust == "public":
         raise Refused(f"{what}: trust public is the automatic demo (no pull request): ask for friends")
     ceiling = policy.ceiling(login)
     if LEVELS[trust] > LEVELS[ceiling]:
-        raise Refused(f"{what}: trust {trust} is above what {login} may ask for ({ceiling}); only the maintainer can raise it, "
-                      f"with a grant in {POLICY} on main")
+        # own puts a node in the groups own,control-plane, untainted, where the maintainer's private pods run (DESIGN.md section 4):
+        # only the maintainer's own machines are own, joined with `mesh host init`, never a remote machine through a pull request
+        raise Refused(f"{what}: trust {trust} is above what a participant may ask for ({ceiling}); own is only for the "
+                      "maintainer's own machines, never through a pull request")
     res = d["resources"]
     if not isinstance(res, dict) or set(res) != {"cpu", "memory_gib"}:
         raise Refused(f"{what}: resources has exactly cpu and memory_gib")
@@ -716,7 +715,10 @@ def sync(a) -> int:
             continue
         pub = pdir / f"{login}.pub"
         pub.write_text(p.nebula_public_key)
-        ienv = dict(env, IN_PUB=str(pub), TAINT="yes" if p.trust != "own" else "no")
+        if p.trust != "friends":   # parse_participant refuses anything else; a second lock where the CA is used
+            problems.append(f"{login}: trust {p.trust} is never issued through a pull request")
+            continue
+        ienv = dict(env, IN_PUB=str(pub), TAINT="yes")   # the trust=friends:NoSchedule taint from registration (DESIGN.md section 4)
         r = _run([a.issue_cmd, p.node, ip, p.trust, policy.cert_duration], env=ienv)
         if r.returncode != 0:
             problems.append(f"issue {login} failed (exit {r.returncode}): {r.stdout.decode(errors='replace').strip()[-200:]}")
