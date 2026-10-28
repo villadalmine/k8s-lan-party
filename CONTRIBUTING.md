@@ -150,7 +150,9 @@ Every PR gets an independent review by the `revisor-pr` agent before merging. **
 the merge. Low findings do not become one issue each:** they go to an umbrella issue per area, as sub-issues.
 
 **Merging:** squash merge only, the PR title becomes the single commit on `main` (hence a Conventional Commit),
-the branch is deleted on merge: `gh pr merge N --squash --delete-branch`. Nobody merges their own PR except the
+the branch is deleted on merge: `gh pr merge N --squash --delete-branch`. The merging account keeps its email private, so the
+squash commit carries its noreply address; the `authors` job checks it on every push to `main` (runbook
+[`docs/runbooks/github-proteger-main.md`](docs/runbooks/github-proteger-main.md), Step 3). Nobody merges their own PR except the
 maintainer for maintenance changes; an agent never merges. Chained PRs: merge without deleting the branch,
 re-point the next one to `main` and rebase with `--onto origin/main <old parent>`.
 

@@ -1,9 +1,9 @@
 ---
 tipo: runbook
 id: k8s-lan-party-github-proteger-main
-version: 1.0.0
+version: 1.1.0
 fecha_alta: 2026-10-16
-fecha_ultimo_cambio: 2026-10-27
+fecha_ultimo_cambio: 2026-10-28
 categoria: repo
 dueno_agente: casa-orquestador
 pieza: k8s-lan-party
@@ -26,6 +26,12 @@ tags: [github, ruleset, squash, main]
 protection on a private repository of a free account. The repository became public on 2026-10-27 and the ruleset,
 kept as code in [`.github/rulesets/main.json`](../../.github/rulesets/main.json), is `active` since then
 (`gh api repos/villadalmine/k8s-lan-party/rulesets` lists `main`).
+
+**Precondition: the maintainer's account keeps its email private** (github.com/settings/emails, "Keep my email addresses
+private"). A squash merge made from the web or the API is authored with the merging account's email; with the setting on,
+the author is the account's `users.noreply.github.com` address and the committer is `GitHub`. Measured on 2026-10-28 on
+throwaway PRs of a private repository: a rebase merge does not avoid it (GitHub rewrites the committer with the same email),
+so squash only stays.
 
 ## Step 0: backup
 
@@ -53,6 +59,17 @@ gh api -X POST repos/villadalmine/k8s-lan-party/rulesets --input .github/ruleset
 
 Expected: an id and `active`. Verify: `gh api repos/villadalmine/k8s-lan-party/rulesets --jq '.[].name'` lists `main`.
 Admins (repository role 5) may bypass with a pull request, for an emergency.
+
+## Step 3: after every merge, check the addresses on `main`
+
+```bash
+gh api repos/villadalmine/k8s-lan-party/commits/main   --jq '[.commit.author.email, .commit.committer.email] | map(split("@")[1])'
+```
+
+Expected: `["users.noreply.github.com", "github.com"]` (the committer is `GitHub <noreply@github.com>`). The `authors` job of
+`verify.yml` checks the same on every push to `main` and fails, printing only domains, if a commit of the owner carries
+another address. If it fails, the address is already public in the history (no force push on `main`): turn the setting on
+before the next merge, and say so in the next release notes.
 
 ## Rollback
 
