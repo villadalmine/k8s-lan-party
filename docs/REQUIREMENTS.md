@@ -43,6 +43,8 @@ Cilium step, a kernel with BPF. `edge-mesh join` refuses with exit code 4 if `/d
 | kind v0.33.0 (node image `kindest/node:v1.37.0`) on WSL2 | yes, for the Cilium and SPIRE steps only | Nebula is **not** in the path there |
 | WSL2 as a node itself (k3s inside the distro) | **not tested** | |
 | macOS with Docker Desktop | **not tested** (its VM kernel is another story) | |
+| Cloud VM, AWS EC2, Ubuntu 24.04 (kernel 7.0 `-aws`) | yes, 2026-10-28 ([DEMO-AWS.md](DEMO-AWS.md)): amd64 `t3.small` and **arm64** `t4g.small` joined with JOIN.md, nothing open inbound | 2 GiB of RAM was enough for a node with Cilium |
+| Docker on a cloud VM as the host (`RUNTIME=docker`, Docker 29.1 from Ubuntu) | yes, 2026-10-28, `m7i-flex.large` (8 GiB): control plane with Cilium and Kyverno, lighthouse on a separate `t3.micro` | the Docker network `172.31.0.0/24` overlaps an AWS default VPC: use a VPC of your own |
 | Bare-metal Linux, Killercoda | **not tested** | |
 
 ## Kernel versions tested
