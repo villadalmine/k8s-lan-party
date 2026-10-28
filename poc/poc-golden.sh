@@ -309,6 +309,6 @@ check 9 G9.1 "every certificate chains to our two CAs and every bundle points at
 check 10 G10.1 "every rule 1-9 that is built has a passing check in this run" step_g10
 
 echo "----"
-if [ -n "${GOLDEN_ENV:-}" ]; then python3 "$POC/golden_table.py" --doc "$POC/../docs/POC-STATUS.md" --env "$GOLDEN_ENV" --results "$RES" >>"$LOG" 2>&1 || echo "note: the table in docs/POC-STATUS.md was not updated (see $LOG)"; fi
+if [ -n "${GOLDEN_ENV:-}" ]; then python3 "$POC/golden.py" table --doc "$POC/../docs/POC-STATUS.md" --env "$GOLDEN_ENV" --results "$RES" >>"$LOG" 2>&1 || echo "note: the table in docs/POC-STATUS.md was not updated (see $LOG)"; fi
 if [ "$FAILS" -eq 0 ]; then echo "RESULT PASS"; else echo "RESULT FAIL ($FAILS)"; fi
 [ "$FAILS" -eq 0 ]
