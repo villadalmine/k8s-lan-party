@@ -7,7 +7,7 @@
 #   default: two plain Ubuntu VMs play the public server (emesh-pub) and the visitor (emesh-vis), on the PoC's network
 #   PUB_SSH="<ssh command to root on a public server>" PUB_ADDR=<its public address> VIS_SSH="<ssh command to root on the visitor>":
 #            real machines on other networks (a cloud VM each, as in the maintainer's run); the suite leaves nothing on them (G25)
-# Test values: ADM_LEASE seconds (default 420), one place (slots: 1). KEEP=1 leaves everything up.
+# Test values: ADM_LEASE seconds (default 720), one place (slots: 1). KEEP=1 leaves everything up.
 set -u
 export RUNTIME=incus MAX_VMS=4 CNI=flannel
 . "$(dirname "$0")/lib.sh"
@@ -16,7 +16,7 @@ export RUNTIME=incus MAX_VMS=4 CNI=flannel
 mkdir -p "$STATE"
 LOG="$CACHE/poc-page.log"; : >"$LOG"   # kept after the run for diagnosis (.cache survives down.sh; .state does not)
 MESH="$POC/mesh"; PG="$POC/page"; LHS="$POC/lighthouse-vps.sh"; PS="$PG/page-server.sh"
-LEASE="${ADM_LEASE:-420}"
+LEASE="${ADM_LEASE:-720}"   # at least 11 minutes: the player's kubeconfig token (issue #9) needs it
 export POOL_CONFIG="$STATE/pool-test.yaml"
 sed -e "s/^slots: [0-9]*/slots: 1/" -e "s/^lease_seconds: [0-9]*/lease_seconds: $LEASE/" -e "s/^cooldown_seconds: [0-9]*/cooldown_seconds: 60/" \
   "$POC/pool.yaml" >"$POOL_CONFIG"
