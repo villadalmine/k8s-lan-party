@@ -28,7 +28,7 @@ You received a **bundle** from a host. One bundle, one command.
 **Tested by following this guide literally, 2026-10-21:** a fresh Ubuntu 24.04 VM (Incus, kernel 6.8, nothing from the PoC scripts installed) joined a control plane
 with only the commands below, showed `joined: ... (trust=friends)`, reached the lighthouse and the control plane over Nebula and appeared Ready on the host; an
 expired bundle was refused with a clear message. Privileged Docker on WSL2 was run earlier with the PoC's own flow. **Native WSL2** joined on 2026-10-28 with
-these same commands (section "In WSL2"). **Not tested:** macOS, bare metal. Which host kind passes which step: [REQUIREMENTS.md](REQUIREMENTS.md), "Host kind against step".
+these same commands (section "In WSL2"). **Not tested:** macOS, bare metal. Which host kind passes which step: [REQUIREMENTS.md](REQUIREMENTS.md), "Host kind against step". **Again on AWS** ([DEMO-AWS.md](DEMO-AWS.md)): an amd64 and an arm64 VM, another network, nothing open inbound, installed the tools below and joined, Ready in about 30 s.
 
 **What you will have at the end:** your machine is a node of the host's cluster, on an encrypted private network; only workloads that their owners marked
 shareable (and that opted in to your trust level) can land on it. **Time and cost:** about 10 minutes (downloads included), free.
@@ -41,10 +41,14 @@ shareable (and that opted in to your trust level) can land on it. **Time and cos
 - On the machine, as root (versions pinned in `poc/stack.env`); these are the exact commands that were run:
 
 ```bash
-apt-get update && apt-get install -y curl ca-certificates iproute2 iputils-ping
-mkdir -p /opt/nebula && curl -sL https://github.com/slackhq/nebula/releases/download/v1.11.2/nebula-linux-amd64.tar.gz | tar xz -C /opt/nebula
-curl -sLo /usr/local/bin/k3s "https://github.com/k3s-io/k3s/releases/download/v1.37.1%2Bk3s1/k3s" && chmod +x /usr/local/bin/k3s
-cp poc/edge-mesh /usr/local/bin/edge-mesh && chmod +x /usr/local/bin/edge-mesh      # the script from this repository
+sudo -i                                                                              # everything below runs as root
+apt-get update && apt-get install -y curl ca-certificates iproute2 iputils-ping git
+ARCH=$(dpkg --print-architecture)                                                    # amd64 or arm64 (an arm64 VM, a Raspberry Pi)
+K3S_BIN=k3s; [ "$ARCH" = amd64 ] || K3S_BIN=k3s-$ARCH                                # k3s names its arm64 binary k3s-arm64
+mkdir -p /opt/nebula && curl -fsSL "https://github.com/slackhq/nebula/releases/download/v1.11.2/nebula-linux-$ARCH.tar.gz" | tar xz -C /opt/nebula
+curl -fsSLo /usr/local/bin/k3s "https://github.com/k3s-io/k3s/releases/download/v1.37.1%2Bk3s1/$K3S_BIN" && chmod +x /usr/local/bin/k3s
+git clone -q https://github.com/villadalmine/k8s-lan-party.git                      # only for the join script, poc/edge-mesh
+install -m 755 k8s-lan-party/poc/edge-mesh /usr/local/bin/edge-mesh
 /opt/nebula/nebula -version && k3s --version | head -1                               # 1.11.2 and v1.37.1+k3s1
 ```
 

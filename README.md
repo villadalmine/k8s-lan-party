@@ -43,8 +43,10 @@ See [GOLDEN-RULES.md](docs/GOLDEN-RULES.md).
 4. [docs/JOIN.md](docs/JOIN.md): join with one bundle and one command, then verify.
 5. [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md): every problem the PoC hit, with symptom, cause, fix and the command that diagnoses it.
 6. [docs/POC-STATUS.md](docs/POC-STATUS.md): what is proven and in which environment, the phase-1 gap table, what is still relaxed.
-7. [docs/DEMO.md](docs/DEMO.md): the public demo: what is applied today (a lighthouse on a public server, a persistent control plane) and what is not (the automatic pool, the page, the opening).
-8. [docs/ADMISSION.md](docs/ADMISSION.md): how other people get a place: manual approval with a waiting list and limits, and the automatic tick with its panic switch, events and metrics (built); the public request page and the opening (design).
+7. [docs/DEMO-AWS.md](docs/DEMO-AWS.md): the whole game on AWS with Terraform (lighthouse, host, an amd64 and an arm64 player, a hard lifetime,
+   a teardown that checks nothing is left billing): accessible to anyone with a cloud account, not the most sovereign (AWS owns that hardware).
+8. [docs/DEMO.md](docs/DEMO.md): the public demo: what is applied today (a lighthouse on a public server, a persistent control plane) and what is not (the automatic pool, the page, the opening).
+9. [docs/ADMISSION.md](docs/ADMISSION.md): how other people get a place: manual approval with a waiting list and limits, and the automatic tick with its panic switch, events and metrics (built); the public request page and the opening (design).
 
 ## Three ways in
 
@@ -126,7 +128,8 @@ timer (`mesh host auto on`, then `mesh host auto --once` every minute; `mesh hos
 Today `mesh host` runs the host side in Docker or in Incus VMs on your machine (`export RUNTIME=incus` for VMs); a lighthouse on a public
 server is `poc/lighthouse-vps.sh` ([HOST-YOUR-OWN: a public lighthouse](docs/HOST-YOUR-OWN.md#a-public-lighthouse-on-a-separate-server), tested by
 `make poc-lighthouse` and applied on the maintainer's own server). Phase 1 is not complete: nobody can join a public pool yet. The full, tested walk-through (CAs, invite, join, placement,
-revoke) is [docs/HOST-YOUR-OWN.md](docs/HOST-YOUR-OWN.md); the one-command revocation is `./poc/mesh host revoke <name>`.
+revoke) is [docs/HOST-YOUR-OWN.md](docs/HOST-YOUR-OWN.md); the one-command revocation is `./poc/mesh host revoke <name>`. No machine of your own: the
+same guide on AWS, step by step, is [docs/DEMO-AWS.md](docs/DEMO-AWS.md). `make poc-golden` checks a running game against every golden rule.
 
 The **CA key** is a file in your state directory (`.state/ca/ca.key` in the PoC). **Back it up**: if you lose it you must
 re-issue every player. Try the whole host flow locally first: `make poc-host`.

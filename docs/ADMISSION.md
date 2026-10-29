@@ -141,7 +141,7 @@ Every command runs from the repository's `poc/` directory (`./mesh host --help` 
 
 ### How someone is expelled
 
-`reap` is the one way, by hand or from a timer (`* * * * * cd <repo>/poc && RUNTIME=incus ./mesh host reap`). **Every minute is a security
+`reap` is the one way, by hand or from a timer (`* * * * * cd <repo>/poc && ./mesh host reap`; `RUNTIME`, `CNI` and `TAINT` come from `.state/game.env`, which `mesh host init` wrote). **Every minute is a security
 requirement, not a convenience:** `reap` also burns join tokens and rewrites the node guard (see "the life of a name" below). First it runs `mesh host burn`; then for each ended lease
 it runs `mesh host kick <name>`: cordon, drain, the certificate fingerprint on the Nebula blocklist of every host (and the external lighthouse when it
 is reachable), delete the node, take its name off the **node guard**, and **sweep every Node that is not named after a live bundle** (below), and

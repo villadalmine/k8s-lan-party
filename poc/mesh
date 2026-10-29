@@ -30,6 +30,7 @@
 #   events: admission/events.jsonl; ADMISSION_NOTIFY_CMD="<command>" is called with <type> <summary> for each one (no shell)
 # The CA key lives in .state/ca/ca.key: back it up; if you lose it you must re-issue every player.
 set -eu
+. "$(dirname "$0")/game-env.sh"
 . "$(dirname "$0")/lib.sh"
 usage() { sed -n '2,31p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
 [ $# -ge 1 ] || usage
@@ -39,7 +40,7 @@ next_ip() { # first free Nebula IP from .5 up (1 lighthouse, 2 control plane, 3 
 }
 
 case "$1 ${2:-}" in
-  "host init") HOST_ONLY=1 "$UP" ;;
+  "host init") HOST_ONLY=1 "$UP" && record_game ;;   # the game's RUNTIME, CNI and TAINT go to .state/game.env (lib.sh)
   "host invite")
     name="${3:-}"; [ -n "$name" ] || usage; ttl=2h; trust=friends; shift 3
     # the name becomes a node name, a certificate name and a directory (the same rule as admission.py)
@@ -47,6 +48,7 @@ case "$1 ${2:-}" in
     while [ $# -gt 0 ]; do case "$1" in --ttl) ttl="$2"; shift 2 ;; --trust) trust="$2"; shift 2 ;; *) usage ;; esac; done
     case "$trust" in friends|public) ;; *) echo "trust must be friends or public (own is for your own machines)"; exit 2 ;; esac
     [ ! -d "$STATE/bundles/$name" ] || { echo "a player called $name already exists"; exit 3; }
+    game_mismatch || exit 2
     # the player's kubeconfig token lives exactly as long as the certificate (the lease); the TokenRequest API refuses less than 10 minutes, and the token is counted from the certificate's end after the invite's own seconds: 11m
     secs=$(python3 "$POC/participant.py" seconds "$ttl" 2>/dev/null) || { echo "invalid --ttl '$ttl': 90s, 15m, 2h, 1h30m"; exit 2; }
     [ "$secs" -ge 660 ] || { echo "--ttl $ttl is too short: the player's kubeconfig token needs at least 11m (the TokenRequest API minimum is 10m, and the invite itself takes some seconds)"; exit 2; }

@@ -9,7 +9,7 @@ dueno_agente: casa-orquestador
 pieza: k8s-lan-party
 meta: ../meta.yml
 depende_de: [docs/REQUIREMENTS.md, docs/DESIGN.md, poc/mesh, poc/issue.sh, poc/admission.py, poc/pool.yaml]
-lo_usan: [README.md, docs/JOIN.md, docs/DEMO.md]
+lo_usan: [README.md, docs/JOIN.md, docs/DEMO.md, docs/DEMO-AWS.md]
 docs: [docs/TROUBLESHOOTING.md, docs/GOLDEN-RULES.md, docs/ADMISSION.md]
 scripts: [poc/admission.py, poc/poc-admission.sh, poc/poc-admission-auto.sh, poc/mesh, poc/kc, poc/issue.sh, poc/revoke.sh, poc/install-placement.sh, poc/up.sh, poc/vm/up.sh, poc/poc-host.sh, poc/poc-ca.sh, poc/poc-revoke.sh, poc/poc-placement.sh, poc/poc-nat.sh, poc/lighthouse-vps.sh, poc/gateway.sh, poc/vm/poc-bgp.sh, poc/cilium-node-guard.yaml, poc/node-trust-freeze.yaml]
 runbooks: []
@@ -29,6 +29,9 @@ your private workloads off other people's machines, and one command that throws 
 
 **Time and cost:** about 30 minutes the first time (a few minutes for each machine to come up, most of it downloads), nothing to pay: no cloud, no account. It
 needs a Linux machine with Incus (or Docker) and roughly 9 GiB of free RAM for three machines (the lighthouse 1 GiB, the control plane 3 GiB, each node 3 GiB).
+
+**No machine of your own?** [DEMO-AWS.md](DEMO-AWS.md) runs this guide on AWS with Terraform (a lighthouse, a host, an amd64 and an arm64 player, a hard
+lifetime): accessible, and not the most sovereign, because AWS owns that hardware.
 
 Read [REQUIREMENTS.md](REQUIREMENTS.md) first. Every command below runs from the repository's `poc/` directory.
 
@@ -67,8 +70,9 @@ Smoke test the toolchain first (about 6 minutes, cleans up after itself):
 ./kc get nodes              # the control plane, Ready
 ```
 
-Run `TAINT=yes ./mesh host init` (and `TAINT=yes` on each `invite`) if you will use trust-based placement (section 5): every player's node then registers with the
-trust taint.
+Run `TAINT=yes ./mesh host init` if you will use trust-based placement (section 5): every player's node then registers with the
+trust taint. `init` records `RUNTIME`, `CNI` and `TAINT` in `.state/game.env`, and every later `mesh` and `kc` command of this game (an invite,
+an approval, the timer of section 2) uses them; an invite with another `CNI` or `TAINT` is refused (exit 2).
 
 This creates, in `poc/.state/`:
 
@@ -107,8 +111,8 @@ nobody took 10 minutes after the invite, and only a guard rewrite between the to
 from taking the name. `reap` (and `burn`, `players`, `invite`, `revoke`) rewrite it. From a timer, on the machine that holds the state:
 
 ```bash
-# crontab -e   (every minute; RUNTIME as in section 0)
-* * * * * cd /path/to/k8s-lan-party/poc && RUNTIME=incus ./mesh host reap >/dev/null 2>&1
+# crontab -e   (every minute; RUNTIME, CNI and TAINT come from .state/game.env)
+* * * * * cd /path/to/k8s-lan-party/poc && ./mesh host reap >/dev/null 2>&1
 ```
 
 `invite` prints a note when nothing rewrote the guard in the last 90 seconds. Without the timer the gap is known and small: it needs a name issued but
@@ -314,7 +318,7 @@ exempt (the Cilium and SPIRE agents must run on every node).
 ./kind-cilium.sh            # [kind]  the same checks without Nebula
 ```
 
-To run a game with Cilium instead of flannel, set `CNI=cilium` before `init` and every `invite`, then run `./cilium.sh` and `MUTUAL=yes ./cilium.sh`. Read
+To run a game with Cilium instead of flannel, set `CNI=cilium` before `init` (later commands inherit it), then run `./cilium.sh` and `MUTUAL=yes ./cilium.sh`. Read
 [TROUBLESHOOTING.md](TROUBLESHOOTING.md) first: mutual auth is beta and has one known trap (the "sticky failure"), fixed in the PoC by a small MSS on the mesh route.
 `cilium.sh` also applies `cilium-node-guard.yaml`: every Cilium agent shares one service account, and without the guard the owner of any joined node could
 rewrite another node's WireGuard key with the token he finds on his disk. Mutual auth proves that the peer node got a certificate from your SPIRE; it does
@@ -349,8 +353,9 @@ A small VPS is enough. `poc/lighthouse-vps.sh` installs it and keeps it in step 
 ```bash
 # on the machine that holds your CA (poc/.state/ca) and the server's ssh key; it does all three phases
 poc/lighthouse-vps.sh install play.example.org --ssh "ssh -i ~/.ssh/server_key root@203.0.113.7"
+# a cloud image logs you in as a user with sudo: --ssh "ssh ubuntu@203.0.113.7 sudo" (tested on AWS, DEMO-AWS.md)
 # open udp/4242 on the server's firewall (that is yours; nothing else is needed besides ssh), then bring up the game with that lighthouse:
-RUNTIME=incus PERSIST=1 poc/mesh host init        # the choice was recorded in .state/lighthouse.env; no lh machine is created
+RUNTIME=incus PERSIST=1 poc/mesh host init        # with Docker: RUNTIME=docker poc/mesh host init (PERSIST is Incus only); no lh machine is created
 poc/lighthouse-vps.sh verify --ssh "ssh -i ~/.ssh/server_key root@203.0.113.7"
 ```
 
@@ -362,7 +367,8 @@ What the three phases do, and why they are separate commands:
 | `sign <host> lh.pub` | where the CA is | signs that public key (group `lighthouse`, 180 days by default; `--duration` changes it) into `.state/bundles/lh`. The private key never leaves the server |
 | `deploy --ssh ... [bundle-dir]` | where the server's ssh key is | pushes `ca.crt`, the certificate and the config, installs the systemd unit, starts or reloads it, and waits until it is active |
 
-`install` runs the three in a row when one machine has both the CA and the ssh key; otherwise run `prepare` where the key is, copy `lh.pub` to the CA machine,
+The machine that runs `mesh` keeps needing that ssh access: `revoke` pushes the new blocklist through it, also when a timer runs `reap`. Give that
+machine a key of its own, authorized on the server, rather than relying on an agent forwarded from your PC. `install` runs the three in a row when one machine has both the CA and the ssh key; otherwise run `prepare` where the key is, copy `lh.pub` to the CA machine,
 `sign`, copy `.state/bundles/lh` back and `deploy`. Every phase is idempotent (a second run prints no `changed:` line, `P03`, `P06`, `P08`). After `mesh host revoke`,
 `lighthouse-vps.sh sync --ssh ...` pushes the new blocklist to the server (revoke does it itself; when it cannot reach the server it still revokes everywhere else and ends with exit 5, saying the lighthouse still lacks the blocklist: `N26`; `P16`/`P17`). `remove` stops the
 service and deletes its keys and config.

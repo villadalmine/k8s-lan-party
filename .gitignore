@@ -7,3 +7,10 @@ __pycache__/
 poc/.state/
 poc/.cache/
 poc/results/
+
+# examples/aws: local Terraform state and inputs (they name your account and your address)
+examples/aws/.terraform/
+examples/aws/*.tfstate
+examples/aws/*.tfstate.*
+examples/aws/*.tfvars
+examples/aws/.terraform.tfstate.lock.info
