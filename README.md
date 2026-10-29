@@ -57,9 +57,9 @@ Live list: `gh issue list --repo villadalmine/k8s-lan-party --state open`; proof
 - [#36](https://github.com/villadalmine/k8s-lan-party/issues/36) `down.sh` leaves a participant container in the Docker flow.
 - [#26](https://github.com/villadalmine/k8s-lan-party/issues/26) and [#16](https://github.com/villadalmine/k8s-lan-party/issues/16) the public request page and the open demo are not open yet.
 - [#9](https://github.com/villadalmine/k8s-lan-party/issues/9) and [#11](https://github.com/villadalmine/k8s-lan-party/issues/11) per-player namespaces and the 1 h pool with limits: in review (PR #30), not merged at the time of writing.
-- [#13](https://github.com/villadalmine/k8s-lan-party/issues/13) gateway and BGP on own nodes: built and tested against a test router; the issue is still open.
+- Gateway and BGP on own nodes ([#13](https://github.com/villadalmine/k8s-lan-party/issues/13), closed): built and tested against a test router with `make poc-bgp`; applying BGP to a real router is each host's decision.
 - Umbrellas for low findings: [#20](https://github.com/villadalmine/k8s-lan-party/issues/20) (PoC and scripts), [#3](https://github.com/villadalmine/k8s-lan-party/issues/3) (docs).
-- `make poc-golden` lists checks marked `DEP #N` (rules 2 and 3 wait for #9 and #8, rule 7 for #13); they are never counted as passes.
+- `make poc-golden` lists checks marked `DEP #N`, never counted as passes: rules 3 and 7 are being turned into real checks; rule 2 waits for #9 (PR #30).
 
 ## Documentation, in reading order
 
