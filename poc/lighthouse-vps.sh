@@ -6,7 +6,9 @@
 #   lighthouse-vps.sh install <public-host> --ssh "<ssh command>"      all three phases (CA and ssh key on the same machine)
 #   lighthouse-vps.sh prepare <public-host> --ssh "<ssh command>" [--out DIR]    on the machine with the server's ssh key:
 #                                              install nebula, make the lighthouse key ON the server, write DIR/lh.pub
-#   lighthouse-vps.sh sign <public-host> <lh.pub> [--duration 4320h]   on the machine with the CA (.state/ca): sign it -> .state/bundles/lh
+#   lighthouse-vps.sh sign <public-host> <lh.pub> [--duration 4320h] [--relay|--no-relay]   on the machine with the CA (.state/ca): sign it
+#                                              -> .state/bundles/lh. --relay: the lighthouse is also a Nebula relay for players behind
+#                                              symmetric NAT, and every bundle issued from now on names it (remembered; --no-relay undoes it)
 #   lighthouse-vps.sh deploy --ssh "<ssh command>" [BUNDLE_DIR]        push certificate + config, start or reload (BUNDLE_DIR default: .state/bundles/lh)
 #   lighthouse-vps.sh sync --ssh "<ssh command>"                       after `mesh host revoke`: push the new blocklist to the lighthouse
 #   lighthouse-vps.sh verify --ssh "<ssh command>"                     service, UDP port, certificate days left, CA chain
@@ -16,17 +18,19 @@
 # The server's firewall is yours: open UDP 4242 (and nothing else besides ssh). The private key is generated on the server.
 set -eu
 . "$(dirname "$0")/lib.sh"
-usage() { sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
+usage() { sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
 [ $# -ge 1 ] || usage
 cmd="$1"; shift
-RSH=""; OUT="./lighthouse-out"; DUR="${LH_CERT_DURATION:-4320h}"; ARGS=()
+RSH=""; OUT="./lighthouse-out"; DUR="${LH_CERT_DURATION:-4320h}"; ARGS=(); RELAY_SET=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --ssh) RSH="$2"; shift 2 ;; --out) OUT="$2"; shift 2 ;; --duration) DUR="$2"; shift 2 ;;
+    --relay) RELAY_SET=yes; shift ;; --no-relay) RELAY_SET=no; shift ;;
     *) ARGS+=("$1"); shift ;;
   esac
 done
 set -- "${ARGS[@]+"${ARGS[@]}"}"
+[ -z "$RELAY_SET" ] || [ "$cmd" = sign ] || [ "$cmd" = install ] || { echo "--relay / --no-relay belong to sign and install (the relay is part of the certificate and config it writes), not to $cmd"; exit 2; }
 
 r() { $RSH bash -s; }    # a script on stdin runs there (word splitting of $RSH is intended: it is a command line)
 need_ssh() { [ -n "$RSH" ] || { echo "$cmd needs --ssh \"<ssh command>\""; exit 2; }; }
@@ -78,6 +82,11 @@ sign() { # sign <public-host> <lh.pub>
   sum=$(sha256sum <"$pub" | cut -d' ' -f1)
   { grep -v '^LH_EXTERNAL=' "$STATE/lighthouse.env" 2>/dev/null || true; printf 'LH_EXTERNAL=%q\n' "$host"; } >"$STATE/lighthouse.env.new"
   mv "$STATE/lighthouse.env.new" "$STATE/lighthouse.env"
+  if [ -n "$RELAY_SET" ]; then   # remembered: issue.sh reads LH_RELAY from lighthouse.env for this config and every later bundle
+    local was; was=$(sed -n 's/^LH_RELAY=//p' "$STATE/lighthouse.env"); [ -n "$was" ] || was=no
+    { grep -v '^LH_RELAY=' "$STATE/lighthouse.env" || true; echo "LH_RELAY=$RELAY_SET"; } >"$STATE/lighthouse.env.new" && mv "$STATE/lighthouse.env.new" "$STATE/lighthouse.env"
+    [ "$was" = "$RELAY_SET" ] || echo "changed: relay $([ "$RELAY_SET" = yes ] && echo on || echo off) (bundles issued from now on follow; deploy it, then 'mesh host refresh cp')"
+  fi
   cur="$STATE/bundles/lh"
   if [ -f "$cur/host.crt" ] && [ "$(cat "$cur/pub.sha256" 2>/dev/null)" = "$sum" ] &&
      python3 - "$CACHE/nebula-cert" "$cur/host.crt" <<'PY'; then
@@ -120,9 +129,10 @@ ProtectHome=yes
 [Install]
 WantedBy=multi-user.target
 UNIT
-  # `stats` and `listen` are read only at start: when they differ from what runs, a reload is not enough
+  # `stats` and `listen` are read only at start: when they differ from what runs, a reload is not enough. `relay` too: turning the relay on
+  # or off restarts the lighthouse (tunnels come back in seconds), so it never depends on what Nebula re-reads on SIGHUP
   local restart=0 old new
-  old=$(echo 'grep -E "^(stats|listen):" /etc/nebula/config.yml 2>/dev/null || true' | r); new=$(grep -E "^(stats|listen):" "$B/config.yml" || true)
+  old=$(echo 'grep -E "^(stats|listen|relay):" /etc/nebula/config.yml 2>/dev/null || true' | r); new=$(grep -E "^(stats|listen|relay):" "$B/config.yml" || true)
   [ "$old" = "$new" ] || restart=1
   local out; out=$( { rput "$B/ca.crt" /etc/nebula/ca.crt 644; rput "$B/host.crt" /etc/nebula/host.crt 644
                       rput "$B/config.yml" /etc/nebula/config.yml 600; rput "$unit" /etc/systemd/system/nebula.service 644; } )
@@ -136,7 +146,7 @@ state() { systemctl is-active nebula 2>/dev/null || true; }
 if [ "\$(state)" = activating ]; then for i in \$(seq 20); do sleep 1; [ "\$(state)" = active ] && break; done; fi
 if [ "\$(state)" != active ]; then systemctl reset-failed nebula 2>/dev/null || true; systemctl restart nebula; echo "changed: nebula started"
 elif echo '$out' | grep -q nebula.service; then systemctl restart nebula; echo "changed: nebula restarted (unit)"
-elif [ '$restart' = 1 ] && [ -n '$out' ]; then systemctl restart nebula; echo "changed: nebula restarted (stats or listen section)"
+elif [ '$restart' = 1 ] && [ -n '$out' ]; then systemctl restart nebula; echo "changed: nebula restarted (stats, listen or relay section)"
 elif [ -n '$out' ]; then systemctl reload nebula; echo "changed: nebula reloaded (certificate or config)"; fi
 for i in \$(seq 25); do [ "\$(state)" = active ] && break; sleep 1; done
 [ "\$(state)" = active ] || { echo "FAIL: nebula is not active; last log lines:"; journalctl -u nebula --no-pager -n 8 | cut -c1-200; exit 1; }
@@ -154,6 +164,8 @@ nebula-cert verify -ca /etc/nebula/ca.crt -crt /etc/nebula/host.crt >/dev/null 2
 d=$(nebula-cert print -json -path /etc/nebula/host.crt | python3 -c 'import sys,json,datetime as d;n=json.load(sys.stdin)[0]["details"]["notAfter"];print((d.datetime.fromisoformat(n.replace("Z","+00:00"))-d.datetime.now(d.timezone.utc)).days)')
 [ "${d:-0}" -ge 30 ] && ok "certificate valid for $d more days" || no "certificate has only ${d:-0} days left: run sign and deploy"
 grep -q 'am_lighthouse: true' /etc/nebula/config.yml && ok "config says am_lighthouse: true" || no "config is not a lighthouse"
+if grep -q 'am_relay: true' /etc/nebula/config.yml; then ok "relay on: players behind symmetric NAT go through this server (it carries their traffic)"
+else ok "relay off"; fi
 exit $fail
 EOF
 }

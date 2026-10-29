@@ -11,7 +11,7 @@ meta: ../meta.yml
 depende_de: [docs/DESIGN.md]
 lo_usan: [README.md]
 docs: [docs/DESIGN.md, docs/GOLDEN-RULES.md, docs/POC-STATUS.md, docs/HOST-YOUR-OWN.md, docs/JOIN.md, docs/TROUBLESHOOTING.md]
-scripts: [poc/poc-join.sh, poc/poc-host.sh, poc/poc-weakness.sh, poc/poc-ca.sh, poc/poc-revoke.sh, poc/poc-placement.sh, poc/poc-cilium.sh, poc/poc-lighthouse.sh, poc/kind-cilium.sh, poc/vm/poc-vm.sh, poc/vm/run-all.sh, poc/up.sh, poc/down.sh, poc/issue.sh, poc/revoke.sh, poc/mesh, poc/edge-mesh, poc/lighthouse-vps.sh, poc/pool.py, poc/admission.py, poc/poc-admission.sh, poc/poc-admission-auto.sh, poc/participants.py, poc/poc-participants.sh, poc/poc-participants-e2e.sh, poc/poc-golden.sh, poc/golden.py, poc/game-env.sh]
+scripts: [poc/poc-join.sh, poc/poc-host.sh, poc/poc-weakness.sh, poc/poc-ca.sh, poc/poc-revoke.sh, poc/poc-placement.sh, poc/poc-cilium.sh, poc/poc-lighthouse.sh, poc/kind-cilium.sh, poc/vm/poc-vm.sh, poc/vm/run-all.sh, poc/up.sh, poc/down.sh, poc/issue.sh, poc/revoke.sh, poc/mesh, poc/edge-mesh, poc/lighthouse-vps.sh, poc/pool.py, poc/admission.py, poc/poc-admission.sh, poc/poc-admission-auto.sh, poc/participants.py, poc/poc-participants.sh, poc/poc-participants-e2e.sh, poc/poc-nat.sh, poc/poc-golden.sh, poc/golden.py, poc/game-env.sh]
 tags: [poc, determinista, nebula, k3s, cilium, kyverno]
 ---
 
@@ -38,12 +38,14 @@ directory). Where each suite passed and how often is in [docs/POC-STATUS.md](../
 | `make poc-admission-auto` | `poc-admission-auto.sh` | 37 (AA01-AA37) | **the automatic pool, phase B1** ([docs/ADMISSION.md](../docs/ADMISSION.md)): `auto on`, one tick approves two and the third waits, the outbox bundle, both join, a copy of a bundle refused by the node guard, one tick expels at the end (no stray Node left) and only then promotes, the copy's tunnel cut, a burned token refused, auto off only expels, the daily cap refuses a third request, `panic`, the notify hook in order, the metrics (Incus VMs) |
 | `make poc-participants` | `poc-participants.sh` | 33 (S00-S30, S09b, S28b) | **join by signed PR** (issue #12, [participants/README.md](../participants/README.md)), offline: the real cosign against a **local TEST CA** playing Fulcio; the PR gate (identity, account id, schema, unique node, trust ceiling from the base policy) passes a valid PR and refuses another identity, a key instead of keyless, an unsigned or tampered file, a replay, trust `own` (never through a PR), a removal by a re-registered login; the issuing side (`participants.py sync`, the real `issue.sh`/`revoke.sh` against a stub control plane) re-verifies main, delivers the bundle age-encrypted and cosign-signed, refuses a forged one, and a removal revokes and a failed revoke blocks the new certificate |
 | `make poc-participants-e2e` | `poc-participants-e2e.sh` | 11 (E01-E11) | the same on Incus VMs: the participant's keys made on her machine, she opens her bundle and joins (Ready), her file leaves main, one sync and she reaches neither the lighthouse nor the API |
+| `make poc-nat` | `poc-nat.sh` | 26 (N01-N26) | **relay and NAT** (issue #15, Incus): two routers, the control plane behind one, a player behind the other; port-preserving NAT gives a direct tunnel; symmetric NAT on both sides gives no path without a relay (negative); `lighthouse-vps.sh sign --relay`: the player reaches the control plane through the lighthouse, which really carries the bytes and does not bypass the far end's firewall; a real player joins, Ready, the API reaches its kubelet; `revoke` cuts it, relay included (and exits 5 when the lighthouse could not be told). Latency, bandwidth and the relay's cost in `results/nat-measurements.txt` (DESIGN.md 15.1). `poc-nat.sh down` removes it |
 | `vm/run-all.sh` | | 89 | join, host, weakness, CAs, revoke and placement on Incus VMs in one go |
 | `make poc-down` | `down.sh` | | remove every container, network and the state |
 | `make test` | `test_pool.py`, `test_admission.py`, `test_admission_auto.py`, `../tests/` | | the pool logic (1 h lease, per-identity rules, daily cap, FIFO waitlist), the admission ledger (the file, the lock, names), the automatic tick (switch, panic, events and hook, outbox, metrics, 8 concurrent ticks), the participants' schema, policy, PR gate and issuing plan, the PR gates, every PoC script keeps its executable bit, two state directories do not touch each other |
 
-Not covered by a check yet: the deny half of mutual auth (a peer without a SPIFFE identity is dropped), native WSL2 as a node, macOS,
-relays and symmetric NAT (issues #8, #14, #15).
+Not covered by a check yet: the deny half of mutual auth (a peer without a SPIFFE identity is dropped, issue #8) and macOS (issue #14). Native
+WSL2 as a node was run by hand (docs/REQUIREMENTS.md, the host matrix); the refusal of a joiner without root or `/dev/net/tun` is
+`tests/test_join_refusal.py`.
 
 ## What is here
 
