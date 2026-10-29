@@ -27,7 +27,8 @@ You received a **bundle** from a host. One bundle, one command.
 
 **Tested by following this guide literally, 2026-10-21:** a fresh Ubuntu 24.04 VM (Incus, kernel 6.8, nothing from the PoC scripts installed) joined a control plane
 with only the commands below, showed `joined: ... (trust=friends)`, reached the lighthouse and the control plane over Nebula and appeared Ready on the host; an
-expired bundle was refused with a clear message. Privileged Docker on WSL2 was run earlier with the PoC's own flow. **Not tested:** native WSL2, macOS, bare metal.
+expired bundle was refused with a clear message. Privileged Docker on WSL2 was run earlier with the PoC's own flow. **Native WSL2** joined on 2026-10-28 with
+these same commands (section "In WSL2"). **Not tested:** macOS, bare metal. Which host kind passes which step: [REQUIREMENTS.md](REQUIREMENTS.md), "Host kind against step". **Again on AWS** ([DEMO-AWS.md](DEMO-AWS.md)): an amd64 and an arm64 VM, another network, nothing open inbound, installed the tools below and joined, Ready in about 30 s.
 
 **What you will have at the end:** your machine is a node of the host's cluster, on an encrypted private network; only workloads that their owners marked
 shareable (and that opted in to your trust level) can land on it. **Time and cost:** about 10 minutes (downloads included), free.
@@ -40,10 +41,14 @@ shareable (and that opted in to your trust level) can land on it. **Time and cos
 - On the machine, as root (versions pinned in `poc/stack.env`); these are the exact commands that were run:
 
 ```bash
-apt-get update && apt-get install -y curl ca-certificates iproute2 iputils-ping
-mkdir -p /opt/nebula && curl -sL https://github.com/slackhq/nebula/releases/download/v1.11.2/nebula-linux-amd64.tar.gz | tar xz -C /opt/nebula
-curl -sLo /usr/local/bin/k3s "https://github.com/k3s-io/k3s/releases/download/v1.37.1%2Bk3s1/k3s" && chmod +x /usr/local/bin/k3s
-cp poc/edge-mesh /usr/local/bin/edge-mesh && chmod +x /usr/local/bin/edge-mesh      # the script from this repository
+sudo -i                                                                              # everything below runs as root
+apt-get update && apt-get install -y curl ca-certificates iproute2 iputils-ping git
+ARCH=$(dpkg --print-architecture)                                                    # amd64 or arm64 (an arm64 VM, a Raspberry Pi)
+K3S_BIN=k3s; [ "$ARCH" = amd64 ] || K3S_BIN=k3s-$ARCH                                # k3s names its arm64 binary k3s-arm64
+mkdir -p /opt/nebula && curl -fsSL "https://github.com/slackhq/nebula/releases/download/v1.11.2/nebula-linux-$ARCH.tar.gz" | tar xz -C /opt/nebula
+curl -fsSLo /usr/local/bin/k3s "https://github.com/k3s-io/k3s/releases/download/v1.37.1%2Bk3s1/$K3S_BIN" && chmod +x /usr/local/bin/k3s
+git clone -q https://github.com/villadalmine/k8s-lan-party.git                      # only for the join script, poc/edge-mesh
+install -m 755 k8s-lan-party/poc/edge-mesh /usr/local/bin/edge-mesh
 /opt/nebula/nebula -version && k3s --version | head -1                               # 1.11.2 and v1.37.1+k3s1
 ```
 
@@ -66,9 +71,9 @@ Exit codes you can meet:
 | 2 | wrong usage or no bundle directory | `edge-mesh join <bundle-dir> --accept-golden-rule` |
 | 3 | golden rule not accepted | add `--accept-golden-rule` after reading it |
 | 4 | no `/dev/net/tun` | use a VM, `docker run --privileged`, or WSL2 |
-| 5 | cannot reach the lighthouse | UDP 4242 to the host must be allowed; ask the host for the relay option (not built yet) |
+| 5 | cannot reach the lighthouse | UDP 4242 to the host must be allowed (the host's relay does not help here: it is reached over the same port) |
 | 6 | not running as root | run it with `sudo` |
-| 7 | the control plane rejected the token, or the node did not register in 90 s | the token works until a node registered with it (the host then burns it) or 8 minutes pass: ask the host for a new invite (under a new name) |
+| 7 | the control plane rejected the token, or the node did not register in 90 s | the token works until a node registered with it (the host then burns it) or 8 minutes pass: ask the host for a new invite (under a new name). "The kubelet did not start on this machine" with its last error means this machine cannot run the node (see WSL2 below) |
 
 ### In a VM [dell]
 
@@ -82,9 +87,34 @@ For a quick local try use the host's own simulation instead: `./mesh play <name>
 With Cilium, `/sys/fs/bpf` must be a shared mount inside the container (`mount -t bpf bpf /sys/fs/bpf; mount --make-rshared /`);
 see TROUBLESHOOTING.md.
 
-### In WSL2 [not tested]
+### In WSL2 [wsl]
 
-Native WSL2 as a node was not run. The WSL2 *host* works for the Docker flow above.
+**Tested 2026-10-28** (WSL2 kernel 6.18, a fresh Ubuntu 24.04 distro on Windows 11): `joined`, node Ready about 4 s later, a pod ran on it
+and `kubectl exec` reached it; the WSL2 machine sat behind the Windows NAT and the control plane behind a symmetric NAT, so the tunnel went
+through the host's relay. Two things to know first:
+
+- **Use a distro without Docker Desktop's WSL integration.** Docker Desktop mounts its resources folder into the distros it integrates with,
+  and that mount line has a space the kubelet cannot parse; there the join ends with exit 7 ("the kubelet did not start on this machine ...
+  wrong number of fields (expected 6, got 7)"). A distro of its own takes two commands in PowerShell:
+
+```powershell
+curl.exe -LO https://cloud-images.ubuntu.com/wsl/releases/24.04/current/ubuntu-noble-wsl-amd64-wsl.rootfs.tar.gz   # check it against SHA256SUMS there
+wsl --import k8s-lan-party $HOME\wsl\k8s-lan-party .\ubuntu-noble-wsl-amd64-wsl.rootfs.tar.gz --version 2
+```
+
+- **Every WSL2 distro (and Docker Desktop) shares one network namespace.** The iptables chains the node adds are seen by all of them and
+  stay after you leave. Clean them when you are done (below).
+
+Then, in that distro as root (`wsl -d k8s-lan-party -u root`), the commands of "What you need" (the image already has `curl`), and the join:
+
+```bash
+edge-mesh join /path/to/bundle --accept-golden-rule        # [wsl]
+```
+
+Leaving, in the same distro: stop the agent and Nebula (`pgrep -a 'k3s|nebula'`, then `kill <pid>`, the `sh -c while ...` supervisor first), and
+remove the chains: `iptables-save | grep -iv -e KUBE- -e CNI- -e flannel | iptables-restore` (the same with `ip6tables-save` /
+`ip6tables-restore`; the fresh image has no iptables: run them from a distro that has it, the namespace is the same). Then
+`wsl --unregister k8s-lan-party` removes the rest.
 
 ## Verify (from your machine)
 
@@ -109,7 +139,7 @@ to your level land on it. A private pod aimed at your node is refused at admissi
 ## Leaving
 
 Ask the host to `kick` you (they blocklist your certificate and remove the node). To clean your own machine afterwards, stop Nebula and k3s and
-delete `/etc/nebula` and `/var/lib/rancher` **[not tested as a script]**; in a VM or container, delete the machine.
+delete `/etc/nebula` and `/var/lib/rancher` **[not tested as a script]**; in a VM or container, delete the machine; in WSL2 see "In WSL2" above.
 
 If your bundle expires, your tunnel closes by itself (Nebula `disconnect_invalid`); ask for a new bundle.
 

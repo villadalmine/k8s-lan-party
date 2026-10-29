@@ -24,9 +24,9 @@ EOF
 }
 bring_up() { "$UP" && dx cp ping -c1 -W2 "$LH_NEB"; }
 nodeip_is() { [ "$(k get node "$1" -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}')" = "$2" ]; }
-mtu_ok() { # Nebula 1300, flannel VXLAN takes 50 more: pods get 1250; a near-full-size packet crosses the tunnel
-  [ "$(dx n1 cat /sys/class/net/nebula1/mtu)" = 1300 ] && [ "$(dx n1 cat /sys/class/net/flannel.1/mtu)" = 1250 ] \
-    && dx n1 ping -c1 -W2 -s 1200 "$N2_NEB"
+mtu_ok() { # Nebula NEBULA_MTU (stack.env); flannel derives its VXLAN device from it (50 less); a near-full-size packet crosses the tunnel
+  [ "$(dx n1 cat /sys/class/net/nebula1/mtu)" = "$NEBULA_MTU" ] && [ "$(dx n1 cat /sys/class/net/flannel.1/mtu)" = $((NEBULA_MTU - 50)) ] \
+    && dx n1 ping -c1 -W2 -s $((NEBULA_MTU - 100)) "$N2_NEB"
 }
 dns_ready() { [ "$(k -n kube-system get deploy coredns -o jsonpath='{.status.readyReplicas}')" = 1 ]; }
 bytes() { dx "$1" cat "/sys/class/net/$2/statistics/$3_bytes"; }
@@ -52,7 +52,7 @@ step J06 "a pod on n2 reaches a pod on n1 across nodes" k exec p2 -- wget -qO- -
 dns_resolves() { k exec p2 -- nslookup kubernetes.default.svc.cluster.local; }
 wait_for 120 dns_ready
 step J07 "DNS inside a pod resolves cluster services" wait_for 90 dns_resolves
-step J08 "MTU: Nebula 1300, pod network 1250, a 1200-byte packet crosses the tunnel" mtu_ok
+step J08 "MTU: Nebula $NEBULA_MTU, pod network $((NEBULA_MTU - 50)), a $((NEBULA_MTU - 100))-byte packet crosses the tunnel" mtu_ok
 
 # measurements: idle 30 s, then a 50 MB pod-to-pod transfer; the lighthouse must stay tiny (no relay in use)
 snap idle-start; sleep 30; snap idle-end

@@ -1,0 +1,47 @@
+# The trust of a node is set by the issuing side only. Every joined machine holds credentials that may write its Node: the kubelet's
+# (system:node:<name>; NodeRestriction keeps it off the node-restriction.kubernetes.io/ labels) and k3s's own controller credential
+# (/var/lib/rancher/k3s/agent/k3scontroller.kubeconfig, user system:k3s-controller), whose role may `patch nodes/status` on EVERY node. A
+# status patch may change metadata.labels (the API server resets only spec), and NodeRestriction and the node guard match system:node:* only.
+# Without this policy the owner of a joined node could label his node `own` (BGP instance, private pods of the maintainer) or take `own`
+# away from the maintainer's nodes (found in the review of PR #28, reproduced in poc-bgp G09b and poc-placement L52b).
+# So: on a Node or its status, the labels under node-restriction.kubernetes.io/ and the `trust` taint change only for system:masters (the
+# host's admin credential: `mesh host`, issue.sh, up.sh); for everybody else they must stay as they were. Other labels, annotations and the
+# status are untouched, so the kubelet, k3s and the node lifecycle controller keep working. Applied by up.sh and vm/up.sh when the control
+# plane comes up, before any node joins.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: edge-mesh-node-trust-frozen
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+    - apiGroups: [""]
+      apiVersions: ["v1"]
+      operations: ["UPDATE"]
+      resources: ["nodes", "nodes/status"]
+  matchConditions:
+  - name: not-the-issuing-side
+    expression: "!('system:masters' in request.userInfo.groups)"
+  variables:
+  - name: labels
+    expression: "has(object.metadata.labels) ? object.metadata.labels.filter(k, k.startsWith('node-restriction.kubernetes.io/')).map(k, k + '=' + object.metadata.labels[k]) : []"
+  - name: oldLabels
+    expression: "has(oldObject.metadata.labels) ? oldObject.metadata.labels.filter(k, k.startsWith('node-restriction.kubernetes.io/')).map(k, k + '=' + oldObject.metadata.labels[k]) : []"
+  - name: taints
+    expression: "has(object.spec.taints) ? object.spec.taints.filter(t, t.key == 'trust').map(t, t.key + '=' + (has(t.value) ? t.value : '') + ':' + t.effect) : []"
+  - name: oldTaints
+    expression: "has(oldObject.spec.taints) ? oldObject.spec.taints.filter(t, t.key == 'trust').map(t, t.key + '=' + (has(t.value) ? t.value : '') + ':' + t.effect) : []"
+  validations:
+  - expression: "variables.labels.all(l, l in variables.oldLabels) && variables.oldLabels.all(l, l in variables.labels)"
+    message: "the node-restriction.kubernetes.io/ labels of a Node (its trust) are set by the issuing side only (edge-mesh node trust freeze)"
+  - expression: "variables.taints.all(t, t in variables.oldTaints) && variables.oldTaints.all(t, t in variables.taints)"
+    message: "the trust taint of a Node is set by the issuing side only (edge-mesh node trust freeze)"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: edge-mesh-node-trust-frozen
+spec:
+  policyName: edge-mesh-node-trust-frozen
+  validationActions: [Deny]

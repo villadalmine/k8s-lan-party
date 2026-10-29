@@ -43,11 +43,15 @@ See [GOLDEN-RULES.md](docs/GOLDEN-RULES.md).
 4. [docs/JOIN.md](docs/JOIN.md): join with one bundle and one command, then verify.
 5. [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md): every problem the PoC hit, with symptom, cause, fix and the command that diagnoses it.
 6. [docs/POC-STATUS.md](docs/POC-STATUS.md): what is proven and in which environment, the phase-1 gap table, what is still relaxed.
-7. [docs/DEMO.md](docs/DEMO.md): the public demo: what is applied today (a lighthouse on a public server, a persistent control plane) and what is not (the automatic pool, the page, the opening).
-8. [docs/ADMISSION.md](docs/ADMISSION.md): how other people get a place: manual approval with a waiting list and limits, the automatic tick with its panic switch, events and metrics, and the public request page with its threat model (built); the opening (design).
-9. [docs/PUBLIC-PAGE.md](docs/PUBLIC-PAGE.md): the public page, **optional** (only for a pool open to strangers): do you need it, how to run it on your server, the JSON API for browsers, scripts and agents.
+7. [docs/DEMO-AWS.md](docs/DEMO-AWS.md): the whole game on AWS with Terraform (lighthouse, host, an amd64 and an arm64 player, a hard lifetime,
+   a teardown that checks nothing is left billing): accessible to anyone with a cloud account, not the most sovereign (AWS owns that hardware).
+8. [docs/DEMO.md](docs/DEMO.md): the public demo: what is applied today (a lighthouse on a public server, a persistent control plane) and what is not (the automatic pool, the page, the opening).
+9. [docs/ADMISSION.md](docs/ADMISSION.md): how other people get a place: manual approval with a waiting list and limits, the automatic tick with its panic switch, events and metrics, and the public request page with its threat model (built); the opening (design).
+10. [docs/PUBLIC-PAGE.md](docs/PUBLIC-PAGE.md): the public page, **optional** (only for a pool open to strangers): do you need it, how to run it on your server, the JSON API for browsers, scripts and agents.
 
 ## Three ways in
+
+**Start here to try it on your own machine: [docs/TRY-IT.md](docs/TRY-IT.md)**, a tested recipe per platform (Incus VMs, Docker, kind, WSL2, a cloud VM, and mixes of them).
 
 ### 1. Try it locally (a simulation, about 4 minutes)
 
@@ -125,7 +129,8 @@ page where strangers ask by themselves is optional: [docs/PUBLIC-PAGE.md](docs/P
 Today `mesh host` runs the host side in Docker or in Incus VMs on your machine (`export RUNTIME=incus` for VMs); a lighthouse on a public
 server is `poc/lighthouse-vps.sh` ([HOST-YOUR-OWN: a public lighthouse](docs/HOST-YOUR-OWN.md#a-public-lighthouse-on-a-separate-server), tested by
 `make poc-lighthouse` and applied on the maintainer's own server). Phase 1 is not complete: nobody can join a public pool yet. The full, tested walk-through (CAs, invite, join, placement,
-revoke) is [docs/HOST-YOUR-OWN.md](docs/HOST-YOUR-OWN.md); the one-command revocation is `./poc/mesh host revoke <name>`.
+revoke) is [docs/HOST-YOUR-OWN.md](docs/HOST-YOUR-OWN.md); the one-command revocation is `./poc/mesh host revoke <name>`. No machine of your own: the
+same guide on AWS, step by step, is [docs/DEMO-AWS.md](docs/DEMO-AWS.md). `make poc-golden` checks a running game against every golden rule.
 
 The **CA key** is a file in your state directory (`.state/ca/ca.key` in the PoC). **Back it up**: if you lose it you must
 re-issue every player. Try the whole host flow locally first: `make poc-host`.
@@ -134,7 +139,7 @@ re-issue every player. Try the whole host flow locally first: `make poc-host`.
 
 | Symptom | Cause | Fix |
 | :--- | :--- | :--- |
-| `edge-mesh join` exits 5: "cannot reach the lighthouse ... UDP 4242" | UDP to the lighthouse is blocked (corporate firewall, hotel) | allow outbound UDP 4242, or ask the host for the relay option |
+| `edge-mesh join` exits 5: "cannot reach the lighthouse ... UDP 4242" | UDP to the lighthouse is blocked (corporate firewall, hotel) | allow outbound UDP 4242 (the host's relay is reached over the same port, so it does not help here) |
 | The handshake is refused: "certificate is in the block list" | the host kicked or revoked you | ask for a new invite |
 | Nebula refuses your certificate as expired or not yet valid | the invite ran out, or your clock is wrong | check the time (NTP); ask for a new invite |
 | The agent log says `unauthorized` | the join token expired, or a node already registered with it and the host burned it | ask for a new invite |

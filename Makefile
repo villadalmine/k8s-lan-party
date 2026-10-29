@@ -7,7 +7,7 @@ BASE     ?= origin/main
 PR_BODY  ?=
 PR_TITLE ?=
 
-.PHONY: poc-lighthouse poc-cilium help labels-check test verify-ci pr-check install-hooks uninstall-hooks poc-join poc-host poc-weakness poc-down poc-ca poc-placement poc-kind poc-vm poc-revoke poc-admission poc-admission-auto poc-participants poc-participants-e2e poc-page
+.PHONY: poc-lighthouse poc-cilium help labels-check test verify-ci pr-check install-hooks uninstall-hooks poc-join poc-host poc-weakness poc-down poc-ca poc-placement poc-kind poc-vm poc-revoke poc-admission poc-admission-auto poc-participants poc-participants-e2e poc-nat poc-bgp poc-golden poc-page
 
 help:
 	@grep -E '^[a-z-]+:.*##' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-14s %s\n", $$1, $$2}'
@@ -65,6 +65,9 @@ poc-kind: ## step 2 on kind (no Nebula): Cilium + WireGuard + hardened SPIRE; ne
 poc-vm: ## step 2 on Incus VMs (Linux host with Incus): the same checks with distro kernels; vm/run-all.sh runs step 1, the CAs and placement
 	poc/vm/poc-vm.sh
 
+poc-bgp: ## issue #13: the gateway (Envoy Gateway, cert-manager TLS) and BGP only on own nodes, a test FRR router; remote nodes never announce; needs Incus
+	poc/vm/poc-bgp.sh
+
 poc-lighthouse: ## a lighthouse on a separate public server (a VM plays it): prepare/sign/deploy idempotent, a player joins through it, revoke reaches it; needs Incus
 	poc/poc-lighthouse.sh
 
@@ -82,6 +85,10 @@ poc-participants: ## join by signed PR (issue #12), offline: cosign against a LO
 
 poc-participants-e2e: ## join by signed PR end to end: the participant's own keys, sync issues, open + join, removal revokes access; needs Incus
 	poc/poc-participants-e2e.sh
+poc-golden: ## issue #23: one check per golden rule against the game this machine hosts (yours or a stranger's); GOLDEN_ENV="<column>" writes the table in docs/POC-STATUS.md
+	poc/poc-golden.sh
+poc-nat: ## issue #15: symmetric NAT on both sides falls back to a Nebula relay on the lighthouse; direct and relayed paths measured; needs Incus
+	poc/poc-nat.sh
 
 poc-page: ## the public page (phase B2, docs/PUBLIC-PAGE.md): a visitor on another machine asks, waits, collects a sealed bundle, joins, is expelled; panic closes it; needs Incus (PUB_SSH/VIS_SSH: real machines)
 	poc/poc-page.sh

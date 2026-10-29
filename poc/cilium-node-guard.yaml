@@ -1,0 +1,32 @@
+# The Cilium agents share one service account (kube-system/cilium), and that account may update every CiliumNode. A CiliumNode carries the
+# node's WireGuard public key and addresses, which every other node uses to encrypt to it. The owner of a remote node is root there and can read
+# the agent's token from his disk, so without this policy he could rewrite another node's key or addresses (issue #8). With it, a write by the
+# agent account is admitted only for the CiliumNode of the node its token was issued on (the pod-bound token carries the node name).
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: cilium-agent-own-ciliumnode
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+    - apiGroups: [cilium.io]
+      apiVersions: ["*"]
+      operations: [CREATE, UPDATE, DELETE]
+      resources: [ciliumnodes, ciliumnodes/status]
+  matchConditions:
+  - name: cilium-agent
+    expression: request.userInfo.username == 'system:serviceaccount:kube-system:cilium'
+  validations:
+  - expression: >-
+      'authentication.kubernetes.io/node-name' in request.userInfo.extra &&
+      request.userInfo.extra['authentication.kubernetes.io/node-name'][0] == request.name
+    message: a Cilium agent may write only the CiliumNode of its own node
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: cilium-agent-own-ciliumnode
+spec:
+  policyName: cilium-agent-own-ciliumnode
+  validationActions: [Deny]

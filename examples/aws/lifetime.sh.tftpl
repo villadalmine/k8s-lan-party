@@ -1,0 +1,22 @@
+#!/bin/bash
+# First boot only (cloud-init user data). The machine powers itself off at the deadline, even after a reboot (Persistent=true runs a
+# missed timer at boot); the instance's shutdown behaviour is "terminate", so powering off ends it.
+hostnamectl set-hostname '${hostname}'
+cat >/etc/systemd/system/k8slp-lifetime.service <<'EOF'
+[Unit]
+Description=k8s-lan-party demo: the lifetime is over, power off (AWS then terminates the instance)
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/systemctl poweroff
+EOF
+cat >/etc/systemd/system/k8slp-lifetime.timer <<'EOF'
+[Unit]
+Description=k8s-lan-party demo: end of the hard lifetime
+[Timer]
+OnCalendar=${deadline} UTC
+Persistent=true
+[Install]
+WantedBy=timers.target
+EOF
+systemctl daemon-reload
+systemctl enable --now k8slp-lifetime.timer

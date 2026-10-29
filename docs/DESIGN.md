@@ -1,7 +1,7 @@
 ---
 tipo: doc
 id: k8s-lan-party-design
-version: 0.5.0
+version: 0.5.1
 fecha_alta: 2026-10-16
 fecha_ultimo_cambio: 2026-10-28
 categoria: plataforma
@@ -12,7 +12,7 @@ estado: MVP fase 1 (decisiones del maintainer 2026-10-16; abiertas al final)
 depende_de: []
 lo_usan: [docs/GOLDEN-RULES.md, README.md]
 docs: [README.md, CONTRIBUTING.md, docs/GOLDEN-RULES.md, docs/REFERENCES.md, docs/POC-STATUS.md]
-scripts: []
+scripts: [poc/poc-nat.sh, poc/lighthouse-vps.sh]
 runbooks: []
 tags: [diseno, nebula, k3s, cilium, wireguard, kyverno, seguridad, mvp, regla-de-oro]
 ---
@@ -107,7 +107,7 @@ Out of scope for phase 1: marketplaces, billing, storage, GPUs, scheduling fairn
 | **Nebula** | join/"login" (node identity: certificate from our CA with expiry and groups) and NAT traversal/connectivity | yes; it always encrypts (Noise) and cannot be turned off, which is fine: the team does not manage it | Tailscale, Headscale, NetBird, zrok, ngrok, ClusterMesh |
 | **Cilium, tunnel mode** (VXLAN/Geneve over the Nebula IPs) | the CNI; joiners configure nothing extra. MTU is set once. Native routing is **not** the default; it is an optional optimisation for the maintainer's own nodes | yes | flannel (kept only as plan B) |
 | **Cilium WireGuard** (transparent encryption) | encrypt pod-to-pod across nodes, plus node-to-node | **always on** | app-level TLS for transit |
-| **Cilium mutual authentication** (SPIFFE/SPIRE, "mTLS") | authenticate workload identity; WireGuard provides the encryption | per policy, `authentication.mode: required`, when a user asks (beta: prove it in the PoC) | a service mesh |
+| **Cilium mutual authentication** (SPIFFE/SPIRE, "mTLS") | authenticate workload identity between nodes that are honest; not evidence against a joined node's owner (section 3.3, issue #29); WireGuard provides the encryption | per policy, `authentication.mode: required`, when a user asks (beta: prove it in the PoC) | a service mesh |
 | **Kyverno + labels + taints** | placement by trust (section 4) | yes | goodwill |
 
 Each layer does one job. Nebula does not do placement; Cilium does not do the identity of machines; Kyverno does
@@ -136,9 +136,39 @@ set to the Nebula IP. k3s keeps a per-node password, so a second machine cannot 
 ### 3.3 Cilium
 
 Tunnel mode over the Nebula interface; pod MTU derived once from the Nebula MTU (default 1300) minus the tunnel
-header. WireGuard encryption with node-to-node enabled. Mutual authentication needs the SPIRE server and agents; it
-is beta, so it is **opt-in per policy**. Cilium's own service account can read Secrets cluster-wide unless
-`tls.readSecretsOnlyFromSecretsNamespace: true` is set; the PoC inventories what each node-side credential can do.
+header and the WireGuard overhead (`poc/stack.env`: `NEBULA_MTU` is the only number, `pod_mtu_from` the only formula). WireGuard encryption
+with node-to-node enabled. Mutual authentication needs the SPIRE server and agents; it is beta, so it is **opt-in per policy**. The SPIRE
+agent tolerates the `trust` taint: it must run on every node a workload may land on. Cilium's own service account can read Secrets
+cluster-wide unless `tls.readSecretsOnlyFromSecretsNamespace: true` is set; the PoC inventories what each node-side credential can do.
+
+**What the node-side Cilium credential can do (measured 2026-10-28).** Every Cilium agent runs under one service account, and its token sits on
+the node's disk, where the node's owner is root. That account may `update` every `CiliumNode`, and a `CiliumNode` carries the node's WireGuard
+public key: the owner of a remote node could replace another node's key (seen live with the agent token of a joined node). **Guard:**
+`poc/cilium-node-guard.yaml`, a `ValidatingAdmissionPolicy` that admits a write by that account only to the `CiliumNode` of the node its
+pod-bound token was issued on (`cilium.sh` applies it; `poc-vm` V06c). The same account may also create `CiliumEndpoints` and
+`CiliumIdentities`, which no per-node rule scopes, and the SPIRE registration entries are not tied to a node (selector `cilium:mutual-auth`,
+parented to the operator). So **mutual authentication proves that the peer node holds a certificate from the cluster's SPIRE for that
+identity; it is not evidence against the owner of a joined node** claiming another workload's identity (section 1: authorize each request in
+the application). That attack is not tested yet: a follow-up (issue #29).
+
+**The k3s controller credential (found in the review of PR #28, 2026-10-28).** Every joined machine also holds
+`/var/lib/rancher/k3s/agent/k3scontroller.kubeconfig` (user `system:k3s-controller`). Its ClusterRole in k3s v1.37.1 reads nodes, pods, endpoints,
+endpointslices, namespaces and network policies cluster-wide and has exactly one write: `patch nodes/status`, on every Node. The API server resets only
+`spec` on a status update, so a status patch may change `metadata.labels`, and NodeRestriction and the node guard match `system:node:*` only. So a joined
+node could have labelled itself `own` or taken `own` away from the maintainer's nodes. **Guard:** `poc/node-trust-freeze.yaml`, a
+`ValidatingAdmissionPolicy` (fail closed) on `nodes` and `nodes/status`: the `node-restriction.kubernetes.io/` labels and the `trust` taint change only
+for `system:masters` (the host), everything else (other labels, annotations, the status) stays writable so kubelets, k3s and the lifecycle controller keep
+working. Applied by `up.sh` before any node joins; `poc-bgp` G09b and `poc-placement` L52b test it. Still open on that credential, by design of k3s:
+the rest of `status` (conditions, capacity, addresses of any Node) is writable by it, and the reads above include every pod spec. Accepted for a node
+you do not own, as the paragraph above says.
+
+**The SPIRE agent (found in the same review).** Running it on joined nodes (a toleration, so their pods get an identity) puts its service account token
+there. The chart's ClusterRole is `get` on `pods`, `nodes` and `nodes/proxy` cluster-wide (measured by `poc-vm` V103 as an RBAC inventory). `nodes/proxy`
+lets the API server relay a GET to any node's kubelet (`/pods`, container logs), so the owner of a joined node can read the pod specs and logs of the
+maintainer's own nodes with it. The chart offers no way to narrow that role, and the SPIRE Kubernetes workload attestor needs that permission to ask the
+local kubelet about its pods (not re-measured by removing it), so mutual authentication toward joined nodes and this exposure come together. The
+decision is the maintainer's: accept it as golden-rule exposure (nothing private belongs where such a node can be reached through the API), a kubelet-side
+authorizer, or no SPIRE agent on joined nodes (then no mutual auth for their pods). Open: see the issue linked in POC-STATUS.
 
 ## 4. Trust and placement policy
 
@@ -166,14 +196,16 @@ Mechanics (all of them required):
    (`nodeName` skips the scheduler, so it would skip `nodeAffinity` and `NoSchedule`); policies run with `failurePolicy: Fail`.
 6. **Kyverno on shareable workloads**: no `hostPath`, `privileged`, host namespaces or added capabilities; **no
    Secret volumes or `secretKeyRef`**; `automountServiceAccountToken: false`; resource limits; image allow-list.
-7. **Cilium**: deny by default per namespace, plus mutual auth where a policy asks for it.
+7. **Cilium**: deny by default per namespace, plus mutual auth where a policy asks for it (it does not stand against a joined node's owner: section 3.3).
 
 ![The pattern with Kyverno and trust levels](diagrams/placement-kyverno.svg)
 
 *Diagram 2 ([source](diagrams/placement-kyverno.mmd)): the correct pattern. What the PoC implements of it today (one owner, a ValidatingAdmissionPolicy on Nodes) is in section 10.*
 
 **Node-side credentials.** Whoever owns a node also holds what lives on it outside NodeRestriction: the k3s controller and kube-proxy
-identities (the controller can read pod specs cluster-wide and patch node status) and the CNI's service account. That is accepted,
+identities (the controller can read pod specs cluster-wide and patch the status of any Node, which can carry label changes) and the CNI's service account. The
+trust of a node is frozen against all of them: `poc/node-trust-freeze.yaml` lets only `system:masters` (the host) change the `node-restriction.kubernetes.io/`
+labels or the `trust` taint, on a Node or its status (`poc-bgp` G09b, `poc-placement` L52b). That is accepted,
 unfixable risk on a node you do not own, so **the automatic public demo runs on its own disposable control plane** that holds
 nothing of the maintainer's (no secrets, no real workloads), never on the cluster that has the maintainer's own nodes.
 
@@ -246,6 +278,17 @@ peering policy has a `nodeSelector` for `own` nodes, and the IP pools select Ser
 `serviceSelector`, not a node selector); Services that need the pool run only on the maintainer's own nodes. **Remote nodes never announce.** TLS comes from cert-manager,
 issued automatically. The encryption layers do not conflict because each protects a different stretch: client to
 gateway (TLS), gateway to pods (WireGuard, plus mutual auth where asked), and Nebula underneath everything.
+
+**How the PoC builds it (`make poc-bgp`, issue #13).** The gateway is Envoy Gateway: its controller and its Envoy proxies (an `EnvoyProxy`
+with `nodeSelector` on the trust label) run only on `own` nodes, and so do cert-manager and the backend. The listener's certificate comes from
+the `Gateway` itself (`cert-manager.io/cluster-issuer` annotation; a local CA in the test, ACME in real life): nobody writes a `Certificate`.
+Cilium's BGP control plane is on, with a `CiliumBGPClusterConfig` whose `nodeSelector` is `trust=own`: a remote node gets no BGP instance at
+all. Four things keep it that way, each tested: a kubelet cannot set the `node-restriction.kubernetes.io/` label on its own Node (NodeRestriction),
+and no other credential on a joined machine can either (`poc/node-trust-freeze.yaml`, below; G09, G09b); the Cilium
+agent's token (which a remote owner can read from his disk) may not write any BGP object, the pool, a Node or a Service; and the edge router
+peers only with the addresses of `own` nodes, so root on a remote machine that speaks BGP to it gets no session. The test router is an FRR
+container in the test's own network; the real router is configured by the maintainer, never by a test. The AI part (model routes, token
+limits) sits on top of this gateway later (Envoy AI Gateway extends Envoy Gateway); placement, BGP and TLS do not change with it.
 
 **The public lighthouse** is a member of the mesh: it has a `nebula1` address and outbound `any`. Since 2026-10-28 every host accepts `tcp/6443`,
 WireGuard and VXLAN only from the member groups (`own`, `friends`, `public`), one rule per group, so a compromised lighthouse server reaches the hosts with
@@ -345,12 +388,14 @@ Where each suite passed, how often, and what is still relaxed is in [POC-STATUS.
 | `make poc-weakness` | flapping, tolerance, a lossy link, control plane down, the supervised k3s agent (8) |
 | `make poc-ca` | two CAs (persistent and pool); pulling the pool CA cuts only the pool (13) |
 | `make poc-revoke` | `mesh host revoke` is idempotent, the negative test (`kubectl delete node` alone does not revoke), time to loss of access (10) |
-| `make poc-placement` | trust levels and Kyverno placement, the golden rule (30, 14 of them negative) |
-| `make poc-cilium` / `poc-vm` / `poc-kind` | step 2: Cilium tunnel + WireGuard over Nebula, encryption on the wire, mutual auth with SPIRE non-root and persistent: an authenticated peer passes (the deny half, an unauthenticated peer dropped, has no check yet) (24 on the Incus VMs) |
+| `make poc-placement` | trust levels and Kyverno placement, the golden rule (31, 15 of them negative; L52b: no identity but the host can change a node's trust labels) |
+| `make poc-cilium` / `poc-vm` / `poc-kind` | step 2: Cilium tunnel + WireGuard over Nebula (`cilium-dbg encrypt status` with every other node a peer, the kernel's peers are the published keys), the MTU set once, encryption on the wire, a remote node's Cilium token cannot rewrite another node's WireGuard key, mutual auth with SPIRE non-root and persistent: an authenticated peer passes and an unauthenticated one (its node has no SPIRE identity) is dropped by the same policy (34 on the Incus VMs, V103 inventories the SPIRE agent's reach) |
+| `make poc-bgp` | the maintainer's endpoints (section 6): Envoy Gateway and cert-manager only on `own` nodes, TLS issued from the Gateway by itself, BGP only from `own` nodes to a test router, a remote node never announces (no BGP instance, cannot select itself with the kubelet's or the k3s controller's credential, its Cilium token writes no BGP object, the router refuses it) (20, 6 of them negative) |
 | `make poc-lighthouse` | a lighthouse on a separate public server (a VM plays it): prepare, sign and deploy are idempotent, a player joins through it, `revoke` reaches it; `mesh host refresh` with no change, with a change that restarts Nebula (the API and the node come back) and with one read on reload (23) |
 | `make poc-admission` | admission with manual approval ([ADMISSION.md](ADMISSION.md)): request, approve, join, places full, the lease ends, `reap` expels, the next one in line enters, `reap --all`, a burned join token refused to a second machine, a non-cooperative copy of a bundle refused by the node guard and cut with the lease, another guest's issued name refused by its node password, a name whose node password k3s dropped refused by the guard (31) |
 | `make poc-participants` | join by signed PR (section 5.1), offline: the real cosign against a **local TEST CA** that plays Fulcio (marked TEST ONLY, never committed); a valid signed PR passes; another identity, another account id, another workflow or OIDC issuer, an untrusted CA, a key instead of keyless, an unsigned or tampered file, a replay by another author, trust `own` (never through a PR, also with the policy edited in the same PR or pushed straight to main), a taken or reserved node name, a join PR that touches code, a removal by a re-registered login: each fails; the issuing side re-verifies main, delivers the bundle encrypted and signed, refuses a forged one, a removal revokes, a failed revoke blocks the new certificate; a broken policy changes nothing (33) |
 | `make poc-participants-e2e` | the same flow on Incus VMs: the participant's keys made on her machine, sync issues, she opens and joins (Ready), her file leaves main, one sync and she reaches neither the lighthouse nor the API, her Node does not come back (11) |
+| `make poc-nat` | relay and NAT ([issue #15](https://github.com/villadalmine/k8s-lan-party/issues/15)): a control plane and a player behind two different routers; port-preserving NAT gives a direct tunnel; symmetric NAT on both sides gives none (the negative test) until `lighthouse-vps.sh sign --relay`; then the player reaches the control plane through the relay on the lighthouse, the relay really carries the bytes and does not bypass the far end's firewall, a real player joins (node Ready, the API reaches its kubelet) and `revoke` cuts it, relay included; latency and bandwidth of both paths recorded (26) |
 | `make test` | the pool logic (`poc/pool.py`): fixed slots, 1 h lease, per-identity rules (IP normalized), daily cap, FIFO waitlist; the admission ledger (`poc/admission.py`); the participants' schema, policy, PR gate and issuing plan (`poc/participants.py`); the scripts keep their executable bit |
 
 **What the PoC implements of section 4.** The PoC runs one owner's cluster (the maintainer's), so it implements the single-owner case:
@@ -360,7 +405,7 @@ instead of deleting a Node that registered without it. Private pods are pinned t
 `own` is denied. The `owner=<github-user>` label and the relative trust of section 1 (several owners in one cluster) are not built yet.
 
 **Not built yet** (the phase-1 gap table in POC-STATUS.md has the evidence): the rest of the pool (quotas, idle kick, the public request
-page; the manual admission, its reaper and the automatic tick exist, [ADMISSION.md](ADMISSION.md)), per-namespace RBAC and kubeconfig per user, relay and NAT tests, the gateway and BGP on own nodes, and
+page; the manual admission, its reaper and the automatic tick exist, [ADMISSION.md](ADMISSION.md)), per-namespace RBAC and kubeconfig per user, and
 the public opening. Join by signed PR is built; the PoC cannot use the real Fulcio offline, so its fixture uses a local TEST CA with
 `--insecure-ignore-tlog`, **only there and marked as such** (`participants.py --test-root` refuses a trusted root without the TEST marker),
 and the real flow runs in CI on every pull request.
@@ -388,11 +433,12 @@ The simple idea first: **it joins, and a study lab runs on it.** Security layers
 | **1. It joins** | Nebula CA and lighthouse, a one-command bundle, k3s on the Nebula IP, flannel over the Nebula interface, a real study lab (CKA 1.1) running on a joined node | `make poc-join` (17 steps) | built, measured (#4) |
 | **1b. Host your own game** | `mesh host init / invite / players / kick / revoke / refresh / down`; a lighthouse on a separate public server | `make poc-host`, `make poc-revoke`, `make poc-lighthouse` | built (#5, #7) |
 | **1c. Weaknesses of one control plane** | flapping, tolerance tuning, lossy links, control plane down | `make poc-weakness` | built, numbers in section 13 (#6) |
-| **2. Cilium + WireGuard** | tunnel mode, encryption always on, `cilium-dbg encrypt status` | `make poc-vm`, `poc-cilium`, `poc-kind` | built (#8) |
+| **2. Cilium + WireGuard** | tunnel mode, encryption always on, `cilium-dbg encrypt status`, the MTU set once | `make poc-vm`, `poc-cilium`, `poc-kind` | built (#8) |
 | 3. Per-namespace RBAC and kubeconfig | user access (section 14) | planned | design (#9) |
 | **4. Trust levels + Kyverno placement** | sections 4, 1 | `make poc-placement` | built for one owner (#10; section 10) |
 | 5. The 1 h pool and per-IP limits | section 8; `poc/pool.py` has unit tests today, and the pool CA exists (`make poc-ca`) | planned | logic and CA built, cluster side planned (#11) |
-| **6. Mutual auth by policy** | section 3 | `make poc-vm` (V92-V97) | allow half built (an authenticated peer passes); the deny half has no check yet; beta upstream (#8) |
+| **6. Mutual auth by policy** | section 3 | `make poc-vm` (V90-V102) | built: an authenticated peer passes, an unauthenticated one is dropped (V101); beta upstream; not evidence against a joined node's owner (section 3.3) (#8) |
+| **6b. Gateway and BGP on own nodes** | section 6 | `make poc-bgp` | built (#13) |
 | **7. Signed-PR participants** | section 5.1 | `make poc-participants`, `make poc-participants-e2e`, CI `participants` | built as a PoC (#12) |
 | 8. The public opening | the runbook with the go-public checklist ([DEMO.md](DEMO.md)) | planned | design (#16) |
 
@@ -475,8 +521,8 @@ One test per row, deterministic. **Step 1** means the local PoC tests it now; **
 
 | # | What fails | What the user sees, and what we tell them | Tested |
 | :-: | :--- | :--- | :--- |
-| 1 | UDP to the lighthouse is blocked (corporate firewall) | `edge-mesh join` exits 5: "cannot reach the lighthouse; UDP 4242 must be allowed; ask for the relay option" | step 1: J16 |
-| 2 | Symmetric NAT on both sides | falls back to a relay; latency measured | later: needs a relay (section 16) |
+| 1 | UDP to the lighthouse is blocked (corporate firewall) | `edge-mesh join` exits 5: "cannot reach the lighthouse; UDP 4242 must be allowed" (a relay does not help: it is reached over the same port) | step 1: J16 |
+| 2 | Symmetric NAT on both sides | without a relay the two never connect; with the lighthouse as relay they connect through it; latency and bandwidth measured (section 15.1) | `make poc-nat`: N15 (no relay, no path), N19-N25 (through the relay) |
 | 3 | Nebula certificate expired or not yet valid (clock skew) | Nebula refuses the certificate; check NTP | step 1: J15 (expiry) |
 | 4 | Certificate revoked or blocklisted (after a kick) | handshake refused: "certificate is in the block list" | step 1: J17 |
 | 5 | MTU or fragmentation: handshake works, big packets hang | pod network MTU fixed at 1250 (Nebula 1300 minus 50) | step 1: J08 |
@@ -504,7 +550,7 @@ One test per row, deterministic. **Step 1** means the local PoC tests it now; **
 | Node to API | yes (the control plane) | light: kilobytes per second per node |
 | `kubectl` | yes | negligible |
 | The lighthouse | yes, for discovery only | tiny: handshakes |
-| **Relays** | **yes, and they carry full traffic** | the bandwidth risk: every relayed byte lands on the relay host |
+| **Relays** | **yes, and they carry full traffic** | the bandwidth risk: every relayed byte lands on the relay host, in and out: about 2.35 bytes of relay traffic per byte of payload (measured, 15.1) |
 | Image pulls | no (nodes pull from the registry directly) | the largest transfers, but not through the operator |
 | The operator's public services (demo page, invite API) | yes | small |
 
@@ -531,14 +577,38 @@ Measured by `make poc-join` on one machine (Docker, WSL2); steady state, from th
 | 50 MiB pod to pod: receiver's Nebula tunnel | 56897207 received | |
 | 50 MiB pod to pod: lighthouse, whole container (eth0), both directions | 696 | the transfer did not go through the lighthouse |
 
-Relay use: not measured in step 1 (no relay is configured); the lighthouse counters above show that a direct path carries the data. The control plane's own traffic is in the idle rows: the node-to-API cost per node is a few KB/s. (50 MB pod-to-pod over nebula: 1 s.)
+Relay use is not in step 1 (no relay is configured there); the lighthouse counters above show that a direct path carries the data. The control plane's own traffic is in the idle rows: the node-to-API cost per node is a few KB/s. (50 MB pod-to-pod over nebula: 1 s.)
+
+**Direct against relayed, measured by `make poc-nat`** (issue #15; Incus VMs on the maintainer's lab host, 2026-10-28: the last two runs of the final
+script passed with identical output, and earlier versions of the suite passed six times; the ranges below cover them all). The control plane sits behind one router, the player behind another; the lighthouse
+(1 vCPU, 1 GiB) is the relay. Each transfer is 50 MiB with `iperf3` over Nebula, once each way; the lighthouse's interface counters are read
+around the two transfers (100 MiB of payload in all).
+
+| Path | Nebula ping (avg) | Throughput, each way | Lighthouse traffic during the 100 MiB | Lighthouse Nebula CPU |
+| :--- | ---: | ---: | ---: | ---: |
+| direct (port-preserving NAT on both sides, hole punching) | 1.5 to 1.9 ms | 140 to 210 Mbit/s | about 1 KB (0 %) | 0 to 40 ms |
+| relayed (symmetric NAT on both sides) | 1.8 to 2.6 ms | 140 to 210 Mbit/s | about 235 MiB (233 to 235 % of the payload) | 1.1 to 1.2 s |
+
+What it means for the operator: **a relayed byte costs the relay host about 2.35 bytes** (it comes in and goes out again, plus Nebula, UDP and
+TCP acknowledgements) and about 11 ms of one core per MiB on this hardware. On one machine the relay adds under a millisecond and is not the
+bottleneck (both paths land on the same two values, 140 or 210 Mbit/s, run to run: the VMs' own limit); on the internet the relayed path is player to VPS to control plane, so its
+latency is the sum of the two legs and its throughput the smaller of them and of the VPS's link. An idle relayed node (about 1 to 4 KB/s,
+the idle rows above) costs the VPS 2 to 9 KB/s, a few GB a month per node; a lab moving data between relayed nodes costs 2.35 times that data.
 
 
 ## 16. Relay and tolerance profile
 
-**Relay (learned from WireKube and Nebula's docs):** a relay is the guaranteed path and direct is the optimisation. The
-lighthouse VPS also runs a Nebula relay (`relay: am_relay: true`); players list it under `relay: relays:` (`use_relays` already defaults to true). Relays carry full
-traffic, so the VPS bandwidth is the budget (section 15). Not built in step 1; the error matrix row 2 tracks it.
+**Relay (learned from WireKube and Nebula's docs):** a relay is the guaranteed path and direct is the optimisation. **Built (issue #15):**
+`lighthouse-vps.sh sign --relay` makes the lighthouse a Nebula relay (`relay: {am_relay: true}`) and remembers it, so every bundle issued
+after that (and `mesh host refresh` of a running machine) names it (`relay: {relays: [<lighthouse>]}`; `use_relays` stays at its default, true).
+Nebula tries the direct addresses and falls back to the relay when the handshake does not get through; while a direct path exists the
+lighthouse carries none of the data (N10). `make poc-nat` proves both halves and the negative (symmetric NAT on both sides and no relay: no path at all). Relays carry full traffic, so the VPS bandwidth is the budget (section 15.1).
+
+What a participant can and cannot do with the relay: it forwards Nebula packets end to end encrypted, so the relay host reads none of it;
+the far end's Nebula firewall still decides what gets in (N21: through the relay, `6443` answers and an unlisted port does not); a revoked
+certificate is on the lighthouse's blocklist, so it is relayed no more (N25 checks the lighthouse's own copy and that she cannot reach it; N26: if the host cannot push the blocklist to the lighthouse, `revoke` ends with exit 5 and says so instead of reporting success). What it does allow is spending the VPS's bandwidth: any admitted
+host can push traffic through it for as long as its certificate lives (the pool's 1 h lease bounds it). Alerting on the relay's bandwidth
+(the lighthouse publishes Nebula's metrics on its loopback) and a rate limit on the VPS are the operator's protections; neither is built.
 
 **Tolerance profile** (to be set from the measurements in 13.1, not before): the per-pod `tolerationSeconds` for
 `node.kubernetes.io/unreachable` and `not-ready` (default 300 s, asserted by `make poc-weakness` W04); the node lifecycle
