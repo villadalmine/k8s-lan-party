@@ -60,3 +60,7 @@ take, what we do differently. Where a lesson changed the design it is marked **a
 | [Akash](https://akash.network/) | A decentralised compute marketplace with its own token. | We are a place to learn together: no tokens, no billing, no marketplace. |
 | [BOINC](https://boinc.berkeley.edu/) | Volunteer computing: donated cycles for a project's own work units. | We do not run a central project's jobs on volunteers; each person runs their own labs. |
 | [Killercoda](https://killercoda.com/) and Instruqt | Hosted lab environments. | We are self-hosted end to end: you (or a friend) host the game, nothing runs in a vendor's cloud. |
+
+## Networking guide
+
+The sources of [NETWORKING.md](NETWORKING.md) (Cilium BGP Control Plane and L2 announcements, agentgateway, Envoy AI Gateway / Agent Router, Gateway API, Nebula) are listed in its section 7, opened 2026-10-29.
