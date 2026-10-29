@@ -32,7 +32,7 @@ the player's own PC, so the player can see everything it runs; keep private thin
    (the default). A `private` workload runs only on nodes owned by its owner (trust is relative to the owner). Kyverno, labels and taints enforce it; nothing
    depends on goodwill. By default a user's pods run only on their own nodes.
 3. **One job per layer.** Nebula: join and connectivity. Cilium tunnel: the CNI. Cilium WireGuard: transit
-   encryption, always on. Cilium mutual auth: identity, per policy. Kyverno: placement.
+   encryption, always on. Cilium mutual auth: identity, per policy (not against a joined node's owner: DESIGN.md section 3.3). Kyverno: placement.
 4. **Joining is one bundle and one command**, and credentials travel encrypted: Nebula handshake, then the k3s token
    over TLS with the CA pinned. Tokens are per node, expire, and are burned server-side once the node registers (a k3s token is not one-time by itself). The shared `K3S_TOKEN` is never handed out.
 5. **Revocation is one command** and is hard: certificate on the Nebula blocklist, node deleted, token dead.

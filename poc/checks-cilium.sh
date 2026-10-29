@@ -13,13 +13,26 @@ cilium_pod() { k -n kube-system get pod -l k8s-app=cilium --field-selector "spec
 cexec() { local n="$1"; shift; k -n kube-system exec "$(cilium_pod "$n")" -c cilium-agent -- "$@"; }
 node_ready() { [ "$(k get node "$(nn "$1")" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null)" = True ]; }
 all_ready() { node_ready cp && node_ready n1 && node_ready n2; }
+remote_tainted() { [ "$(k get node "$(nn n1)" -o jsonpath="{.spec.taints[?(@.key=='trust')].value}")" = friends ] \
+  && [ "$(k get node "$(nn n2)" -o jsonpath="{.spec.taints[?(@.key=='trust')].value}")" = public ]; }
 cilium_ds_ready() { [ "$(k -n kube-system get ds cilium -o jsonpath='{.status.numberReady}')" = 3 ]; }
 agents_ok() { local n; for n in cp n1 n2; do cexec "$n" cilium-dbg status --brief | grep -qx OK || return 1; done; }
-wg_on() { # every agent: WireGuard, interface cilium_wg0, two peers (the other two nodes)
-  local n out; for n in cp n1 n2; do
-    out=$(cexec "$n" cilium-dbg encrypt status) || return 1
+wg_on() { # every agent: WireGuard on cilium_wg0, its own public key is the one it published, and every other node is a peer
+  local n out key total; total=$(k get nodes --no-headers | wc -l); [ "$total" -ge 3 ] || return 1
+  for n in cp n1 n2; do
+    # (the key is read before the pipe: in the VM flow `k` is `incus exec`, which would swallow the pipe's input)
+    out=$(cexec "$n" cilium-dbg encrypt status) || return 1; key=$(wg_key_of "$n"); [ -n "$key" ] || return 1
     echo "$out"; echo "$out" | grep -q 'Encryption: Wireguard' || return 1
-    echo "$out" | grep -q 'Number of peers: 2' || return 1
+    echo "$out" | grep -qE "^[[:space:]]*Number of peers: $((total - 1))[[:space:]]*$" || return 1
+    echo "$out" | grep -qF "Public key: $key" || return 1
+  done
+}
+wg_key_of() { k get ciliumnode "$(nn "$1")" -o jsonpath='{.metadata.annotations.network\.cilium\.io/wg-pub-key}'; }
+wg_peers_match() { # the peers are exactly the other nodes, by key: what the kernel holds (wg show) against what each node published (VM flow: wg on the node)
+  local n m want got; for n in cp n1 n2; do
+    want=$(for m in cp n1 n2; do [ "$m" = "$n" ] || wg_key_of "$m"; echo; done | grep . | sort)
+    got=$(nx "$n" wg show cilium_wg0 peers | sort)
+    echo "$n peers: $(echo "$got" | tr '\n' ' ')"; [ -n "$want" ] && [ "$want" = "$got" ] || return 1
   done
 }
 wg_handshake() { # the peers actually shook hands (a configured peer that never connects is the silent failure)
@@ -66,9 +79,11 @@ on_the_wire() { # while the pod fetches the canary: the clear text exists inside
   echo "canary seen inside (cilium_wg0): $inside; on $NEB_IF: $wire; WireGuard UDP lines on $NEB_IF: $pk"
   [ "$inside" -gt 0 ] && [ "$wire" -eq 0 ] && [ "$pk" -gt 0 ]
 }
-mtu_chain() { # Nebula 1300 > pod MTU + WireGuard overhead (80 worst case); the pod's eth0 has the configured MTU
-  local nm pm; nm=$(nx n1 cat "/sys/class/net/$NEB_IF/mtu"); pm=$(k exec cli -- cat /sys/class/net/eth0/mtu)
-  echo "nebula=$nm pod=$pm"; [ "$pm" = "$POD_MTU" ] && [ $((pm + 80)) -le "$nm" ]
+mtu_chain() { # MTU set once: every node's Nebula interface has NEBULA_MTU, and both test pods have the MTU derived from what was measured
+  # (pod_mtu_from in stack.env: minus VXLAN 50 and WireGuard 80, rounded down), so nothing else in the chain is a number of its own
+  local n nm pm p; for n in cp n1 n2; do nm=$(nx "$n" cat "/sys/class/net/$NEB_IF/mtu"); echo "$n nebula=$nm"; [ "$nm" = "$NEBULA_MTU" ] || return 1; done
+  for p in web cli; do pm=$(k exec "$p" -- cat /sys/class/net/eth0/mtu); echo "$p pod=$pm"; [ "$pm" = "$(pod_mtu_from "$nm")" ] || return 1; done
+  [ $((pm + 50 + 80)) -le "$nm" ]
 }
 df_ping() { # a full-size packet crosses (DF set), one byte more is refused at the source. Cilium subtracts the WireGuard
   # overhead from the pod route, so the limit is the route MTU the pod sees, not eth0's
@@ -157,6 +172,79 @@ spire_survives_restart() {
   [ -n "$before" ] && [ "$before" = "$after" ] && [ "${before##*entries=}" -ge 3 ]
 }
 mutual_after_restart() { wait_for 120 mutual_works; }
+spire_agent_reach() { # what the SPIRE agent's service account may read, measured as an RBAC inventory (impersonation from the host, nothing is read
+  # with the token): the chart's ClusterRole is get on pods, nodes and nodes/proxy, cluster-wide. nodes/proxy is what lets the apiserver relay a
+  # GET to ANY node's kubelet (/pods, container logs), so the agent that now runs on joined nodes (spire-args.sh) can read pod specs and logs of
+  # the maintainer's nodes. It cannot be dropped without breaking mutual auth: the k8s workload attestor asks the local kubelet for the pods
+  # through the kubelet's own authn/authz, which needs that permission. Recorded, not fixed: DESIGN.md 3.3, POC-STATUS, issue #29's family.
+  local sa=system:serviceaccount:cilium-spire:spire-agent v r ans
+  for r in nodes/proxy pods nodes; do ans=$(k auth can-i get "$r" --as="$sa"); echo "get $r: $ans"; [ "$ans" = yes ] || return 1; done
+  for v in create update patch delete; do for r in nodes/proxy pods nodes secrets; do ans=$(k auth can-i "$v" "$r" --as="$sa"); echo "$v $r: $ans"; [ "$ans" = no ] || return 1; done; done
+  ans=$(k auth can-i get secrets --as="$sa"); echo "get secrets: $ans"; [ "$ans" = no ]
+}
+
+# --- mutual authentication, the deny half (issue #8). The same policy (web needs mutual auth from app=cli) must DROP a peer that cannot authenticate.
+# The unauthenticated peer: a pod on a node whose SPIRE agent is gone, so that node's Cilium agent holds no certificate for the pod's identity and the
+# handshake fails. Its twin, same labels and so the same identity, on a node that has a SPIRE agent is the control: the only difference is the node's
+# authentication, not the policy and not the identity. Then the agent comes back and the same pod is let in (the drop was authentication, nothing else).
+AUTH_DENY_NODE=n2; AUTH_OK_NODE=cp
+spire_agent_skip() { # spire_agent_skip <node>|none: the SPIRE agent DaemonSet leaves that node out (none: every node again)
+  if [ "$1" = none ]; then k -n cilium-spire patch ds spire-agent --type json -p '[{"op":"remove","path":"/spec/template/spec/affinity"}]' || return 1
+  else k -n cilium-spire patch ds spire-agent --type merge -p '{"spec":{"template":{"spec":{"affinity":{"nodeAffinity":{"requiredDuringSchedulingIgnoredDuringExecution":{"nodeSelectorTerms":[{"matchFields":[{"key":"metadata.name","operator":"NotIn","values":["'"$(nn "$1")"'"]}]}]}}}}}}}' || return 1; fi
+  k -n cilium-spire rollout status ds spire-agent --timeout=240s
+}
+spire_agent_on() { [ -n "$(k -n cilium-spire get pod -l app=spire-agent --field-selector "spec.nodeName=$(nn "$1"),status.phase=Running" -o name)" ]; }
+deny_setup() { # the SPIRE agent off the deny node, and two twin pods (app=cli, probe=auth: a new identity, never authenticated before)
+  spire_agent_skip "$AUTH_DENY_NODE" && ! spire_agent_on "$AUTH_DENY_NODE" && spire_agent_on "$AUTH_OK_NODE" || return 1
+  local p n; for p in "auth-ok $AUTH_OK_NODE" "auth-no $AUTH_DENY_NODE"; do set -- $p
+    k apply -f - <<YAML || return 1
+apiVersion: v1
+kind: Pod
+metadata: {name: $1, labels: {app: cli, probe: auth}}
+spec:
+  nodeName: $(nn "$2")
+  tolerations: [{operator: Exists}]
+  containers: [{name: c, image: $NETSHOOT_IMAGE, command: ["sleep","3600"]}]
+YAML
+  done
+  k wait --for=condition=Ready pod/auth-ok pod/auth-no --timeout=180s
+}
+twins_same_identity() { # both twins carry one Cilium identity, and it is not cli's (so no earlier authentication can be reused)
+  local a b c; a=$(k get cep auth-ok -o jsonpath='{.status.identity.id}'); b=$(k get cep auth-no -o jsonpath='{.status.identity.id}'); c=$(k get cep cli -o jsonpath='{.status.identity.id}')
+  echo "auth-ok=$a auth-no=$b cli=$c"; [ -n "$a" ] && [ "$a" = "$b" ] && [ "$a" != "$c" ]
+}
+twin_reaches() { k exec "$1" -- curl -sf --max-time 3 "http://$(web_ip):8080/canary" | grep -q "$CANARY"; }
+auth_drops() { cexec n1 cilium-dbg metrics list | awk '/cilium_drop_count_total/ && /direction=INGRESS/ && /reason=Authentication required/ {print int($NF)}' | head -1; }
+auth_ok_twin() { twin_reaches auth-ok; }
+auth_denied_twin() { # three tries over 30 s: no answer, and the receiving node counted drops with reason "Authentication required"
+  local before after i; before=$(auth_drops); before=${before:-0}
+  for i in 1 2 3; do twin_reaches auth-no && { echo "auth-no got through on try $i"; return 1; }; sleep 7; done
+  after=$(auth_drops); after=${after:-0}; echo "drops 'Authentication required' on $(nn n1): $before -> $after"
+  [ "$after" -gt "$before" ]
+}
+auth_restored() { spire_agent_skip none && spire_agent_on "$AUTH_DENY_NODE" && wait_for 120 twin_reaches auth-no; }
+
+# --- the CiliumNode guard (poc/cilium-node-guard.yaml): every Cilium agent shares one service account that may update every CiliumNode, and a
+# CiliumNode carries the node's WireGuard key. The owner of a remote node reads that token from his own disk (root there).
+agent_token() { # agent_token <node>: the Cilium agent's service account token, read from the node's disk as its owner would
+  local uid; uid=$(k -n kube-system get pod "$(cilium_pod "$1")" -o jsonpath='{.metadata.uid}')
+  nx "$1" sh -c "cat /var/lib/kubelet/pods/$uid/volumes/kubernetes.io~projected/*/token"
+}
+as_agent_of() { # as_agent_of <node> <kubectl args...>: kubectl on that node with its Cilium agent's token (VM flow: k3s kubectl on the node)
+  local n="$1"; shift; local t; t=$(agent_token "$n") || return 1
+  nx "$n" k3s kubectl --server "https://$CP_NEB:6443" --certificate-authority /var/lib/rancher/k3s/agent/server-ca.crt --token "$t" "$@" 2>&1
+}
+rewrite_wg_key() { # rewrite_wg_key <as-node> <target-node> <key>: replace the target's published WireGuard key with the as-node's agent token
+  local t obj; t=$(agent_token "$1") && obj=$(as_agent_of "$1" get ciliumnode "$(nn "$2")" -o json) || return 1   # both before the pipe (incus exec reads stdin)
+  echo "$obj" | sed 's#"network.cilium.io/wg-pub-key": "[^"]*"#"network.cilium.io/wg-pub-key": "'"$3"'"#' \
+    | nx "$1" k3s kubectl --server "https://$CP_NEB:6443" --certificate-authority /var/lib/rancher/k3s/agent/server-ca.crt --token "$t" replace -f - 2>&1
+}
+node_guard_holds() { # from n2: cp's key cannot be replaced (and stays what it was); n2's own CiliumNode can still be written (same key back)
+  local before out; before=$(wg_key_of cp)
+  out=$(rewrite_wg_key n2 cp AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=); echo "n2 -> cp: $out"
+  echo "$out" | grep -q 'may write only the CiliumNode of its own node' && [ "$(wg_key_of cp)" = "$before" ] || return 1
+  out=$(rewrite_wg_key n2 n2 "$(wg_key_of n2)"); echo "n2 -> n2: $out"; echo "$out" | grep -q replaced
+}
 spire_delegate_ok() { # every Cilium agent talks to its SPIRE agent: the admin socket exists and the delegate stream has been quiet (no
   # "failed to init watcher", no "no identity issued") for 25 s. A policy with authentication applied BEFORE this point can fail its first
   # authentication ("no SPIFFE ID for spiffe://spiffe.cilium/identity/N") and Cilium does not retry that flow: it stays dropped.
@@ -185,4 +273,10 @@ host_tcp() { # host-to-host TCP over the node addresses (the Cilium agents' own 
   else docker run --rm --network container:n1 "$NETSHOOT_IMAGE" sh -c 'head -c 2000000 /dev/zero | timeout 20 nc -q1 -w15 '"$N2_NEB"' 9998' || rc=1; fi
   if [ "$RUNTIME" = incus ]; then nx n2 sh -c 'kill $(pidof nc) 2>/dev/null; true'; else docker rm -f htl >/dev/null 2>&1; fi
   return $rc
+}
+cni_dropin_everywhere() { # the fix of the first attempt (Cilium pods in CreateContainerError, docs/TROUBLESHOOTING.md): containerd looks for CNI where
+  # Cilium writes, with the k3s plugins still on the path. vm/up.sh writes it on the control plane, `edge-mesh join` on every joining node.
+  local n f=/var/lib/rancher/k3s/agent/etc/containerd/config-v3.toml.d/10-cni.toml
+  for n in cp n1 n2; do nx "$n" grep -q "conf_dir = '/etc/cni/net.d'" "$f" && nx "$n" grep -q "/var/lib/rancher/k3s/data/cni" "$f" || return 1; done
+  ! k -n kube-system get pod -l k8s-app=cilium -o jsonpath='{range .items[*]}{.status.containerStatuses[*].state.waiting.reason}{" "}{.status.initContainerStatuses[*].state.waiting.reason}{"\n"}{end}' | grep -q CreateContainerError
 }

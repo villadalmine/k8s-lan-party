@@ -40,7 +40,7 @@ node cp 172.31.0.3
 for n in $MACHINES; do
   docker exec "$n" sh -c 'mkdir -p /etc/nebula && cp /bundle/* /etc/nebula/ && nohup /opt/nebula/nebula -config /etc/nebula/config.yml >/var/log/nebula.log 2>&1 &'
 done
-# Host TCP over the Cilium node-to-node WireGuard: the default MSS comes from nebula1 (MTU 1300 -> 1248), but cilium_wg0 is 1055, and oversized
+# Host TCP over the Cilium node-to-node WireGuard: the default MSS comes from nebula1 (NEBULA_MTU 1300 -> 1248), but cilium_wg0 is 1055, and oversized
 # (GSO) segments are dropped silently with no ICMP, so TCP never learns. Cilium's own agent handshake (mutual auth, TCP 4250) stalls this way.
 # An advertised MSS on the mesh route keeps host segments under the WireGuard device MTU. Only with Cilium (flannel needs nothing).
 wait_for 40 docker exec cp ping -c1 -W1 "$LH_NEB" || { echo "the control plane cannot reach the lighthouse $LH_NEB at $LH_DOCKER_IP:${LH_PORT:-4242}/udp (external lighthouse installed? port open?)"; exit 4; }
@@ -58,6 +58,8 @@ wait_for 120 docker exec cp kubectl get --raw /readyz
 docker exec cp sed "s#127.0.0.1:6443#$CP_NEB:6443#" /etc/rancher/k3s/k3s.yaml >"$STATE/kubeconfig"
 wait_for 90 docker exec cp kubectl get node cp   # the API answers before the node object exists
 k label node cp node-restriction.kubernetes.io/trust=own --overwrite >/dev/null
+# from here on, a node's trust (labels node-restriction.kubernetes.io/*, the trust taint) changes only with the host's admin credential (node-trust-freeze.yaml)
+k apply -f - <"$POC/node-trust-freeze.yaml" >/dev/null
 
 [ "${HOST_ONLY:-0}" = 1 ] && { echo "host up"; exit 0; }
 # 2. outside nodes: issue the bundle (cert + config + join token), then ONE command on the node

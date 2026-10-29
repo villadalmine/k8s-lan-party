@@ -11,7 +11,7 @@ meta: ../meta.yml
 depende_de: [docs/REQUIREMENTS.md, docs/DESIGN.md, poc/mesh, poc/issue.sh, poc/admission.py, poc/pool.yaml]
 lo_usan: [README.md, docs/JOIN.md, docs/DEMO.md, docs/DEMO-AWS.md]
 docs: [docs/TROUBLESHOOTING.md, docs/GOLDEN-RULES.md, docs/ADMISSION.md]
-scripts: [poc/admission.py, poc/poc-admission.sh, poc/poc-admission-auto.sh, poc/mesh, poc/kc, poc/issue.sh, poc/revoke.sh, poc/install-placement.sh, poc/up.sh, poc/vm/up.sh, poc/poc-host.sh, poc/poc-ca.sh, poc/poc-revoke.sh, poc/poc-placement.sh, poc/poc-nat.sh, poc/lighthouse-vps.sh]
+scripts: [poc/admission.py, poc/poc-admission.sh, poc/poc-admission-auto.sh, poc/mesh, poc/kc, poc/issue.sh, poc/revoke.sh, poc/install-placement.sh, poc/up.sh, poc/vm/up.sh, poc/poc-host.sh, poc/poc-ca.sh, poc/poc-revoke.sh, poc/poc-placement.sh, poc/poc-nat.sh, poc/lighthouse-vps.sh, poc/gateway.sh, poc/vm/poc-bgp.sh, poc/cilium-node-guard.yaml, poc/node-trust-freeze.yaml]
 runbooks: []
 tags: [host, lan-party, ca, invite, revoke]
 ---
@@ -311,12 +311,29 @@ exempt (the Cilium and SPIRE agents must run on every node).
 ## 6. Encrypted pod network and mutual auth (Cilium, SPIRE)
 
 ```bash
-./vm/poc-vm.sh              # [dell]  Cilium tunnel + WireGuard over Nebula, SPIRE non-root with a PVC (24 checks); builds its own cluster
+./vm/poc-vm.sh              # [dell]  Cilium tunnel + WireGuard over Nebula, SPIRE non-root with a PVC, mutual auth allows and denies (34 checks); builds its own cluster
 ./kind-cilium.sh            # [kind]  the same checks without Nebula
 ```
 
 To run a game with Cilium instead of flannel, set `CNI=cilium` before `init` (later commands inherit it), then run `./cilium.sh` and `MUTUAL=yes ./cilium.sh`. Read
 [TROUBLESHOOTING.md](TROUBLESHOOTING.md) first: mutual auth is beta and has one known trap (the "sticky failure"), fixed in the PoC by a small MSS on the mesh route.
+`cilium.sh` also applies `cilium-node-guard.yaml`: every Cilium agent shares one service account, and without the guard the owner of any joined node could
+rewrite another node's WireGuard key with the token he finds on his disk. Mutual auth proves that the peer node got a certificate from your SPIRE; it does
+not protect a workload from the owner of a node that joined (DESIGN.md section 3.3).
+
+## 6b. Your endpoints: gateway, TLS and BGP on your own nodes only
+
+```bash
+./vm/poc-bgp.sh             # [dell]  Envoy Gateway + cert-manager on own nodes, BGP from own nodes only to a test FRR router (20 checks); builds its own cluster
+```
+
+On your own game (Cilium with `BGP=yes ./cilium.sh`): `ROUTER_IP=<your router> OWN_IP=<your own node's address on its network> ./gateway.sh bgp`, then
+`./gateway.sh install`. The BGP configuration selects nodes labelled `trust=own`, so a joined node never gets a BGP instance; on your router, list only
+your own nodes as neighbours (a joined machine whose owner speaks BGP to it must get no session). A neighbour address alone can be spoofed on a shared
+segment: on the real router also set a session password and GTSM (`ttl-security hops 1`) for each neighbour (the test router keeps the bare address, it is a
+throwaway). `up.sh` also applies `node-trust-freeze.yaml` (only your admin credential can change a node's trust labels or taint: without it any joined
+machine could relabel nodes through k3s's own controller credential); on a control plane you built by hand, apply it before the first node joins. Swap the test CA in `gateway/gateway.yaml` for your
+ACME issuer. `gateway.sh router` is the test router only (an Incus container): never point it, or the suite, at your real router.
 
 ## 7. End the game
 

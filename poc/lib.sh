@@ -208,3 +208,55 @@ fw_blocks() {
   fw_unlisten
   [ "$r" = 0 ]
 }
+
+# --- conformance of poc/node-trust-freeze.yaml (issue #13, review of PR #28): a node's trust is set by the issuing side only. Every joined machine
+# also holds k3s's controller credential (k3scontroller.kubeconfig, user system:k3s-controller), whose ClusterRole may `patch nodes/status` on EVERY Node
+# (and only read everything else it has). Standard tooling cannot drive that exact credential through the status subresource: kubectl reads before it
+# patches (`get nodes/status`, which the role lacks). So the status path is exercised with a stand-in identity that holds a role like it plus the read,
+# and the real credential is tried on the Node itself. The policy only tells the host (system:masters) from everybody else.
+node_kc() { # node_kc <node> <kubectl args...>: kubectl on that joined machine with the controller credential k3s leaves there
+  local n="$1"; shift
+  dx "$n" sh -c 'if command -v kubectl >/dev/null; then K=kubectl; else K="k3s kubectl"; fi; exec $K --kubeconfig /var/lib/rancher/k3s/agent/k3scontroller.kubeconfig "$@"' sh "$@" 2>&1
+}
+trust_of() { k get node "$1" -o jsonpath='{.metadata.labels.node-restriction\.kubernetes\.io/trust}'; }
+freeze_probe_role() { # a stand-in for the controller's role on node status, plus the read kubectl needs; removed again by the caller
+  k apply -f - >/dev/null <<'YAML'
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata: {name: edge-mesh-freeze-probe}
+rules:
+- {apiGroups: [""], resources: [nodes, nodes/status], verbs: [get, patch]}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata: {name: edge-mesh-freeze-probe}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: edge-mesh-freeze-probe}
+subjects: [{apiGroup: rbac.authorization.k8s.io, kind: User, name: edge-mesh-freeze-probe}]
+YAML
+}
+probe_can() { [ "$(k auth can-i patch nodes/status --as=edge-mesh-freeze-probe)" = yes ]; }
+as_probe() { k --as=edge-mesh-freeze-probe "$@" 2>&1; }
+trust_frozen() { # trust_frozen <joined-node> <its-level>
+  local n="$1" lvl="$2" out rc msg='edge-mesh node trust freeze' args
+  # 1. the real controller credential, on the joined machine: it is that identity, and it cannot change a trust label on a Node (RBAC or the policy)
+  out=$(node_kc "$n" auth whoami); echo "$out"; echo "$out" | grep -q 'system:k3s-controller' || return 1
+  for args in "label node $n node-restriction.kubernetes.io/trust=own --overwrite" "label node cp node-restriction.kubernetes.io/trust- "; do
+    # shellcheck disable=SC2086
+    out=$(node_kc "$n" $args); rc=$?; echo "[$args] rc=$rc: $out"; [ "$rc" -ne 0 ] || return 1
+  done
+  # 2. an identity that CAN patch node status (the controller's reach), through the subresource: the policy refuses a trust label change, own or
+  # another node's, and lets a status-only patch through; the host (system:masters) is not refused by it
+  freeze_probe_role || return 1; wait_for 30 probe_can || return 1
+  local lab='{"metadata":{"labels":{"node-restriction.kubernetes.io/trust":"own"}}}' unl='{"metadata":{"labels":{"node-restriction.kubernetes.io/trust":null}}}'
+  out=$(as_probe patch node "$n" --subresource=status --type=merge -p "$lab"); rc=$?; echo "[status: $n -> own] rc=$rc: $out"
+  [ "$rc" -ne 0 ] && echo "$out" | grep -q "$msg" || return 1
+  out=$(as_probe patch node cp --subresource=status --type=merge -p "$unl"); rc=$?; echo "[status: cp -> no trust label] rc=$rc: $out"
+  [ "$rc" -ne 0 ] && echo "$out" | grep -q "$msg" || return 1
+  out=$(as_probe patch node "$n" --type=merge -p "$lab"); rc=$?; echo "[node: $n -> own] rc=$rc: $out"; [ "$rc" -ne 0 ] || return 1
+  out=$(as_probe patch node "$n" --subresource=status --type=merge -p '{"status":{"conditions":[{"type":"EdgeMeshProbe","status":"True"}]}}'); rc=$?
+  echo "[status-only] rc=$rc: $out"; [ "$rc" -eq 0 ] || return 1
+  [ "$(trust_of "$n")" = "$lvl" ] && [ "$(trust_of cp)" = own ] || return 1
+  # 3. positive control: the host can change a label under the prefix (so the refusals are the policy's), and puts it back
+  k label node "$n" node-restriction.kubernetes.io/trust-probe=x >/dev/null && k label node "$n" node-restriction.kubernetes.io/trust-probe- >/dev/null || return 1
+  k delete clusterrolebinding/edge-mesh-freeze-probe clusterrole/edge-mesh-freeze-probe >/dev/null
+}

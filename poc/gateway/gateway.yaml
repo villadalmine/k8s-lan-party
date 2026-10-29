@@ -1,0 +1,134 @@
+# The maintainer's gateway (DESIGN.md section 6, issue #13): Envoy Gateway's data plane pinned to `own` nodes, one HTTPS listener whose
+# certificate cert-manager issues by itself from the Gateway (no Certificate object is written by hand), a LoadBalancer Service labelled for the
+# BGP pool (bgp.yaml), and a backend that also runs only on own nodes. Placeholders (@...@) are filled by poc/gateway.sh.
+#
+# TLS: a local CA for the test (self-signed root -> CA issuer). A real deployment swaps the ClusterIssuer for ACME; nothing else changes.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: lan-party-selfsigned
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: lan-party-ca
+  namespace: cert-manager
+spec:
+  isCA: true
+  commonName: lan-party test CA
+  secretName: lan-party-ca
+  duration: 720h
+  privateKey: {algorithm: ECDSA, size: 256}
+  issuerRef: {name: lan-party-selfsigned, kind: ClusterIssuer, group: cert-manager.io}
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: lan-party-ca
+spec:
+  ca: {secretName: lan-party-ca}
+---
+# Where the Envoy proxies run: own nodes only (and one replica: the PoC has one own node)
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: EnvoyProxy
+metadata:
+  name: own-nodes-only
+  namespace: envoy-gateway-system
+spec:
+  provider:
+    type: Kubernetes
+    kubernetes:
+      envoyDeployment:
+        replicas: 1
+        pod:
+          nodeSelector:
+            node-restriction.kubernetes.io/trust: own
+      envoyService:
+        type: LoadBalancer
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: lan-party
+spec:
+  controllerName: gateway.envoyproxy.io/gatewayclass-controller
+  parametersRef:
+    group: gateway.envoyproxy.io
+    kind: EnvoyProxy
+    name: own-nodes-only
+    namespace: envoy-gateway-system
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gateway
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: lan-party
+  namespace: gateway
+  annotations:
+    cert-manager.io/cluster-issuer: lan-party-ca
+spec:
+  gatewayClassName: lan-party
+  # the generated Service (and pods) carry this label: it is what the BGP pool and the advertisement select
+  infrastructure:
+    labels:
+      edge-mesh/expose: gateway
+  listeners:
+  - name: https
+    protocol: HTTPS
+    port: 443
+    hostname: "@GW_HOST@"
+    tls:
+      mode: Terminate
+      certificateRefs:
+      - name: gateway-tls
+    allowedRoutes:
+      namespaces: {from: Same}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hello
+  namespace: gateway
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: hello}}
+  template:
+    metadata: {labels: {app: hello}}
+    spec:
+      nodeSelector:
+        node-restriction.kubernetes.io/trust: own
+      automountServiceAccountToken: false
+      containers:
+      - name: c
+        image: busybox:1.36
+        command: ["sh", "-c", "mkdir -p /www && echo @GW_BODY@ >/www/index.html && exec httpd -f -p 8080 -h /www"]
+        ports: [{containerPort: 8080}]
+        resources:
+          requests: {cpu: 10m, memory: 16Mi}
+          limits: {cpu: 100m, memory: 32Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hello
+  namespace: gateway
+spec:
+  selector: {app: hello}
+  ports: [{port: 8080, targetPort: 8080}]
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: hello
+  namespace: gateway
+spec:
+  parentRefs: [{name: lan-party}]
+  hostnames: ["@GW_HOST@"]
+  rules:
+  - backendRefs: [{name: hello, port: 8080}]

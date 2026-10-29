@@ -128,7 +128,7 @@ Not needed, proved by the Cilium suite: `TCP 4240` (Cilium health) and `TCP 4250
 Everything else between hosts is refused (`J13`, `V15`, `C14`). `FW=open` restores any/any, for debugging only.
 
 **Addresses in the PoC.** Nebula range `10.77.0.0/24` (lighthouse `.1`, control plane `.2`, players from `.3`); it must not overlap the pod network
-(`10.42.0.0/16`, the k3s default). Nebula MTU 1300, pod MTU 1150 (1300 - VXLAN 50 - WireGuard 60, rounded down).
+(`10.42.0.0/16`, the k3s default). Nebula MTU 1300, pod MTU 1150: `NEBULA_MTU` in `poc/stack.env` is the only number and `pod_mtu_from` the only formula (minus VXLAN 50 and WireGuard 80, rounded down to 50).
 
 ## Time
 
