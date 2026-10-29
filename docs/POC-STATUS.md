@@ -69,7 +69,7 @@ lacks what the check needs. Each column is one environment, written by `GOLDEN_E
 | 6 | G6.1 | the API listens on the control plane's Nebula IP only | PASS | PASS |
 | 6 | G6.2 | outside the mesh the API does not answer; inside it does | PASS | PASS |
 | 7 | G7.1 | the maintainer's endpoints (AI gateway, LoadBalancer with BGP) run only on own nodes | DEP #13 | DEP #13 |
-| 8 | G8.1 | persistent participants join only by a signed PR | DEP #12 | DEP #12 |
+| 8 | G8.1 | a participant who joins by signed PR gets friends only: own and public are refused by the schema, and the policy says friends (poc/participants.py) | PASS | PASS |
 | 8 | G8.2 | every public certificate comes from the pool CA and lives at most the lease (pool.yaml) | PASS | PASS |
 | 9 | G9.1 | every certificate was issued by one of our two CAs and every bundle points at our lighthouse | PASS | PASS |
 | 10 | G10.1 | every rule 1-9 that is built has a passing check in this run | PASS | PASS |
