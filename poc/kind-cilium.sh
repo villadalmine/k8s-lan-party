@@ -5,7 +5,7 @@
 set -u
 . "$(dirname "$0")/lib.sh"
 KIND_NODE_IMAGE="${KIND_NODE_IMAGE:-kindest/node:v1.37.0}"
-NEB_IF=eth0; POD_MTU=1150
+NEB_IF=eth0   # POD_MTU comes from stack.env (derived from NEBULA_MTU): the same value as on the mesh
 nn() { case "$1" in cp) echo emesh-control-plane;; n1) echo emesh-worker;; n2) echo emesh-worker2;; esac; }
 k() { kubectl --context kind-emesh "$@"; }
 nx() { local n="$1"; shift; docker exec "$(nn "$n")" "$@"; }
@@ -34,8 +34,8 @@ step K06 "test pods Running on different nodes" wait_for 240 pods_ready
 step K07 "pod on n2 reaches pod on n1 across nodes" wait_for 60 cross_node
 step K08 "DNS inside a pod resolves cluster services" wait_for 120 dns_ok
 step K09 "on the wire: the clear text exists inside the node (cilium_wg0, VXLAN payload) and never on the underlay interface" on_the_wire
-pod_mtu() { [ "$(k exec cli -- cat /sys/class/net/eth0/mtu)" = 1150 ]; }
-step K10 "MTU: pod eth0 is 1150" pod_mtu
+pod_mtu() { [ "$(k exec cli -- cat /sys/class/net/eth0/mtu)" = "$POD_MTU" ]; }
+step K10 "MTU: pod eth0 is $POD_MTU" pod_mtu
 step K11 "MTU: a full-size DF packet crosses, one byte more is refused" df_ping
 step K12 "30 MB pod-to-pod over WireGuard arrives intact" big_transfer
 mutual_up() { . "$POC/spire-args.sh"; helm upgrade cilium cilium --repo https://helm.cilium.io --version "$CILIUM_VERSION" -n kube-system --kube-context kind-emesh --reuse-values "${SPIRE_ARGS[@]}" --wait --timeout 4m; }

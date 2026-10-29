@@ -7,7 +7,7 @@ BASE     ?= origin/main
 PR_BODY  ?=
 PR_TITLE ?=
 
-.PHONY: poc-lighthouse poc-cilium help labels-check test verify-ci pr-check install-hooks uninstall-hooks poc-join poc-host poc-weakness poc-down poc-ca poc-placement poc-kind poc-vm poc-revoke poc-admission poc-admission-auto poc-participants poc-participants-e2e poc-nat
+.PHONY: poc-lighthouse poc-cilium help labels-check test verify-ci pr-check install-hooks uninstall-hooks poc-join poc-host poc-weakness poc-down poc-ca poc-placement poc-kind poc-vm poc-revoke poc-admission poc-admission-auto poc-participants poc-participants-e2e poc-nat poc-bgp
 
 help:
 	@grep -E '^[a-z-]+:.*##' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-14s %s\n", $$1, $$2}'
@@ -64,6 +64,9 @@ poc-kind: ## step 2 on kind (no Nebula): Cilium + WireGuard + hardened SPIRE; ne
 
 poc-vm: ## step 2 on Incus VMs (Linux host with Incus): the same checks with distro kernels; vm/run-all.sh runs step 1, the CAs and placement
 	poc/vm/poc-vm.sh
+
+poc-bgp: ## issue #13: the gateway (Envoy Gateway, cert-manager TLS) and BGP only on own nodes, a test FRR router; remote nodes never announce; needs Incus
+	poc/vm/poc-bgp.sh
 
 poc-lighthouse: ## a lighthouse on a separate public server (a VM plays it): prepare/sign/deploy idempotent, a player joins through it, revoke reaches it; needs Incus
 	poc/poc-lighthouse.sh

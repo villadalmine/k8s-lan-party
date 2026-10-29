@@ -24,7 +24,7 @@ step C07 "pod on n2 reaches pod on n1 across nodes" wait_for 60 cross_node
 step C08 "DNS inside a pod resolves cluster services" wait_for 120 dns_ok
 docker pull -q "$NETSHOOT_IMAGE" >/dev/null 2>&1
 step C09 "on the wire: the clear text exists inside the node (cilium_wg0, VXLAN payload) and never on the Nebula interface" on_the_wire
-step C10 "MTU: Nebula 1300 >= pod 1150 + WireGuard overhead" mtu_chain
+step C10 "MTU set once: Nebula $NEBULA_MTU on every node, the pod MTU ($POD_MTU) derived from it on every pod" mtu_chain
 step C11 "MTU: a full-size DF packet crosses, one byte more is refused" df_ping
 step C12 "30 MB pod-to-pod over WireGuard over Nebula arrives intact" big_transfer
 step C13 "Nebula firewall allow-list: only the documented ports appear on the Nebula interface" underlay_ports

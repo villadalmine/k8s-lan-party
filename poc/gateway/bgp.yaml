@@ -1,0 +1,64 @@
+# The maintainer's endpoints (DESIGN.md section 6, issue #13): the Cilium BGP control plane runs only on `own` nodes and announces only the
+# Services that carry the expose label. Placeholders (@...@) are filled by poc/gateway.sh from poc/stack.env.
+#
+# Who may announce: the CiliumBGPClusterConfig's nodeSelector. A node outside it gets no BGP instance at all (no CiliumBGPNodeConfig, no
+# session). The selector is the trust label under the `node-restriction.kubernetes.io/` prefix, which a kubelet cannot set on its own Node
+# (NodeRestriction), so a remote node cannot put itself under it.
+# What gets an address: a CiliumLoadBalancerIPPool has no node selector (its API selects Services, not nodes), so the pool selects Services by
+# the same expose label; the Services that carry it are the gateway's, and the gateway runs only on own nodes (gateway.yaml).
+apiVersion: cilium.io/v2
+kind: CiliumBGPClusterConfig
+metadata:
+  name: own-nodes-only
+spec:
+  nodeSelector:
+    matchLabels:
+      node-restriction.kubernetes.io/trust: own
+  bgpInstances:
+  - name: own
+    localASN: @OWN_ASN@
+    peers:
+    - name: router
+      peerASN: @ROUTER_ASN@
+      peerAddress: @ROUTER_IP@
+      peerConfigRef:
+        name: router
+---
+apiVersion: cilium.io/v2
+kind: CiliumBGPPeerConfig
+metadata:
+  name: router
+spec:
+  families:
+  - afi: ipv4
+    safi: unicast
+    advertisements:
+      matchLabels:
+        edge-mesh/bgp: gateway
+---
+# Only LoadBalancer addresses of exposed Services; never the pod CIDRs (a remote node's pods are not the router's business).
+apiVersion: cilium.io/v2
+kind: CiliumBGPAdvertisement
+metadata:
+  name: gateway
+  labels:
+    edge-mesh/bgp: gateway
+spec:
+  advertisements:
+  - advertisementType: Service
+    service:
+      addresses: [LoadBalancerIP]
+    selector:
+      matchLabels:
+        edge-mesh/expose: gateway
+---
+apiVersion: cilium.io/v2
+kind: CiliumLoadBalancerIPPool
+metadata:
+  name: gateway
+spec:
+  blocks:
+  - cidr: @LB_POOL_CIDR@
+  serviceSelector:
+    matchLabels:
+      edge-mesh/expose: gateway
