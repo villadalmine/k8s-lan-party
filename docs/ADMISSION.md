@@ -8,13 +8,13 @@ categoria: plataforma
 dueno_agente: casa-orquestador
 pieza: k8s-lan-party
 meta: ../meta.yml
-estado: opcion A, fase B1 (pool automatico) y el lado cluster del pool (namespace, kubeconfig, cuotas, idle kick) construidos y probados (VMs Incus); B2 y B3 solo diseno
+estado: opcion A, fase B1 (pool automatico) y el lado cluster del pool (namespace, kubeconfig, cuotas, idle kick) construidos y probados (VMs Incus), y fase B2 (pagina publica, opcional) construida y probada (VMs Incus y nube); B3 solo diseno
 depende_de: [docs/DESIGN.md, poc/pool.yaml, poc/pool.py, poc/admission.py, poc/mesh, poc/participant.py, poc/participant-policy.yaml]
 lo_usan: [README.md, docs/DEMO.md, docs/POC-STATUS.md, docs/HOST-YOUR-OWN.md]
-docs: [docs/DEMO.md, docs/HOST-YOUR-OWN.md, docs/DESIGN.md]
-scripts: [poc/admission.py, poc/pool.py, poc/pool.yaml, poc/mesh, poc/issue.sh, poc/revoke.sh, poc/poc-admission.sh, poc/poc-admission-auto.sh, poc/poc-pool.sh, poc/participant.py, poc/participant-policy.yaml, poc/edge-mesh, poc/test_admission.py, poc/test_admission_auto.py, poc/test_pool.py, poc/test_participant.py, poc/test_edge_mesh.py]
+docs: [docs/DEMO.md, docs/HOST-YOUR-OWN.md, docs/DESIGN.md, docs/PUBLIC-PAGE.md]
+scripts: [poc/admission.py, poc/pool.py, poc/pool.yaml, poc/mesh, poc/issue.sh, poc/revoke.sh, poc/poc-admission.sh, poc/poc-admission-auto.sh, poc/poc-pool.sh, poc/participant.py, poc/participant-policy.yaml, poc/edge-mesh, poc/test_admission.py, poc/test_admission_auto.py, poc/test_pool.py, poc/test_participant.py, poc/test_edge_mesh.py, poc/poc-page.sh, poc/test_page.py, poc/page/page.py, poc/page/puller.py, poc/page/seal.py, poc/page/visit.py, poc/page/page-server.sh]
 runbooks: [docs/DEMO.md]
-tags: [admision, pool, lista-de-espera, anti-bot, demo, automatico, panic, eventos, metricas]
+tags: [admision, pool, lista-de-espera, anti-bot, demo, automatico, panic, eventos, metricas, pagina-publica, modelo-de-amenazas]
 ---
 
 # Admission: how other people get a place in the mesh
@@ -24,8 +24,8 @@ tags: [admision, pool, lista-de-espera, anti-bot, demo, automatico, panic, event
 no human in the loop, with a switch, a panic button, events, a notify hook and metrics (`make test`, `make poc-admission-auto` on Incus VMs).
 **The cluster side of the pool is built and tested (2026-10-28, issues #9 and #11)**: every approved player gets a namespace `play-<name>` with a
 quota and a kubeconfig of their own that dies with the lease, the tick expels an idle lease early, a request over the rate limit is refused, and the
-lease end removes node, namespace and token (`make poc-pool`, below). **B2 (the public page that takes requests) and B3 (the opening) are design
-only.** Phase 1 is still not complete (the gap table in [POC-STATUS.md](POC-STATUS.md)).
+lease end removes node, namespace and token (`make poc-pool`, below). **Phase B2 (the public page that takes requests) is built and tested (2026-10-28) and optional**: only a pool open to
+strangers needs it ([PUBLIC-PAGE.md](PUBLIC-PAGE.md)); `make test` and `make poc-page`, with a visitor on another network. **B3 (the opening) is design only.** Phase 1 is still not complete (the gap table in [POC-STATUS.md](POC-STATUS.md)).
 
 The maintainer decided on 2026-10-27: **start with A** (a human approves every place) and keep a written path to **B** (a public, automatic pool);
 later the same day: **build B in phases (B1, B2, B3) so that bots run it** without the maintainer stepping in.
@@ -206,7 +206,7 @@ reach the API). The certificate expires at the same hour anyway (`disconnect_inv
 ## B. The automatic pool, in phases
 
 The maintainer decided on 2026-10-27 to build the automatic pool in phases, so that bots run it and nobody has to step in: **B1** (the automatic tick,
-built, this section), **B2** (a public page that takes requests, design only), **B3** (the opening, design only). The rules do not change between phases:
+built, this section), **B2** (a public page that takes requests, built, optional), **B3** (the opening, design only). The rules do not change between phases:
 2 places, 1 h leases, a FIFO list, at most 2 leases a day per identity (rolling 24 h), a cooldown, identities by IP (/32 or /24, IPv6 /64).
 
 ```mermaid
@@ -234,7 +234,7 @@ flowchart LR
 **What is automatic now:** promotion from the list, the bundle into the outbox, the warning 5 minutes before the end, the expulsion at the end, the
 promotion of the next one, and an event for each of those (to a log and to a hook the host wires to its bot). **What is not yet:** taking requests from
 the public (B1 requests are still typed by the host or by the host's own bot: `mesh host request`) and handing the bundle to the visitor (the host
-delivers `outbox/<name>.tar.gz`; in B2 a service does it). So the anti-bot layers of B2 are not needed yet: nobody outside can put a request in the list.
+delivers `outbox/<name>.tar.gz`). B1 alone needs no anti-bot layer: nobody outside can put a request in the list. B2 (below) adds both, with them.
 
 | Command | What it does | Exit codes |
 | :--- | :--- | :--- |
@@ -318,68 +318,106 @@ frees the place only once `kick` confirmed no stray Node is left, and the blockl
 | three ask, one tick approves two and carol waits; `play-alice` and `play-bob` with Pod Security restricted, quota, limits, RBAC and the guard; alice's kubeconfig (0600, Nebula address, the cluster CA, a token of exactly the lease, nothing of the node's); alice and bob join; alice's unlabelled pod is private and pinned to her own node, aimed at bob's node it is refused, a shareable one runs there; her pods reach each other but not bob's (NetworkPolicy); the kubelet's credential cannot act there; rows 6, 7, 8, 9 and 11 of the error matrix for real (exit 10 to 14 and their messages); no secret anywhere, no node, no quota lifted, no RoleBinding, no token, no relabel; Pod Security and the guard refuse a privileged pod, a NodePort, externalIPs and a pod pinned to the control plane; a second request from alice's address deferred; the rate limit; `X-Forwarded-For`; bob runs nothing and is expelled as idle, carol takes his place; carol's lease ended by hand: her token answers 401 at once, long before its expiry; a place free but alice-2 held (approve exit 6, the tick admits nobody); the lease ends: node, namespace and token gone, certificate blocklisted and expired; the cooldown, then the place reused; `reap --all` leaves no participant namespace | `make poc-pool` (PL01-PL25, PL07b, PL09b, PL13b, PL17b, PL21b), Incus VMs; `POOL_LEASE` (900 s), `POOL_IDLE` (240 s), `POOL_COOLDOWN` (60 s) shorten the test |
 | `auto` off by default; a tick with auto off approves nobody; `auto on`; one tick approves alice and bob, carol waits; a no-op tick; the outbox bundle is 0600, the same files, a certificate of exactly the lease; a copy of bob's bundle on a second machine (plain k3s agent, its own name, LAN and IPv6 addresses) reaches the API and is refused by the node guard; both join and are Ready; the next tick burns the tokens; `expiring` once; the leases end and one tick expels both, leaves no Node but the control plane and only then promotes carol; the outbox files go; the copy, started again, cannot reach the API; a machine presenting alice's burned token is refused; carol joins; with auto off the tick only warns and expels; `auto on` approves the same identity's second lease; its third request is refused by the daily cap; panic, panic again (no event), panic holds (exit 7), `--clear`; the hook got every event in order without IP, key or path; the metrics | `make poc-admission-auto` (AA01-AA37), Incus VMs; `ADM_LEASE` (default 1200 s) and `ADM_COOLDOWN` (default 60 s) shorten the test |
 
-### B2. A public page that takes requests (design only)
+### B2. A public page that takes requests (built and tested, optional)
 
-> Nothing of B2 is built. It keeps B1 working, has its own test, and is applied only with the maintainer's OK. The anti-bot layers come **with** the
-> public intake, never after it.
+**Built 2026-10-28** (`poc/page/`; how to run it: [PUBLIC-PAGE.md](PUBLIC-PAGE.md), which also says **when you need it: only for a pool open to
+strangers you cannot contact**). It keeps B1 as it is (the tick still approves, expels and promotes) and adds the intake and the delivery. Opening it
+on the maintainer's public server is issue #16 (the maintainer's OK for DNS and the border), not this phase.
 
 ```mermaid
 flowchart LR
-  V["visitor"] -->|"HTTPS: request, proof of work, own public key"| P["public page (VPS): queue + status, NO signing key"]
-  P -->|"position, estimated time"| V
-  H["home: admission.py + pool CA"] -->|"outbound only: pull new requests"| P
-  H -->|"push: certificate for the visitor's public key + join token"| P
-  P -->|"visitor fetches with a claim code"| V
+  V["visitor: browser, script or agent; own keys"] -->|"HTTPS: proof of work, request (two public keys)"| P["public server: Caddy + page.py (no CA, no token in clear, no API access)"]
+  P -->|"claim code (shown once; the page keeps its hash), position, estimate"| V
+  H["host: puller.py + mesh + CA"] -->|"outbound only, every minute: pull new requests"| P
+  H -->|"report: numbers, positions, the bundle sealed to the visitor's seal key"| P
+  P -->|"the sealed bundle, once, for the claim code"| V
   T["timer: auto --once (B1)"] --> H
-  V -->|"Nebula UDP 4242"| L["lighthouse (VPS)"]
+  V -->|"Nebula UDP 4242"| L["lighthouse (same server): cannot reach the API"]
 ```
 
-**The page: the list, the position and an estimate.** A small page on the public server shows the free places, the length of the list and, after a
-request, the position and an estimated time (`position / slots * lease`, corrected by the leases' real end times). `admission-status` and
-`admission-metrics` already give the numbers.
+**What runs where.** The page (`page.py`, Python standard library) listens on `127.0.0.1:8088` behind Caddy, as a systemd unit with a throw-away user,
+no capabilities, a read-only system and **outbound connections to the loopback only** (`IPAddressDeny=any`). The puller (`puller.py`) runs on the
+host next to `mesh`, from a timer, and only connects out. The visitor's side is `visit.py` (or curl, or the page's one script in a browser).
 
-**Credentials: the page holds none.** Two designs were weighed:
+**Credentials: the page holds none** (the design choice of 2026-10-27, kept):
 
-| | the home pulls from a queue (**chosen**) | the public server signs with a request key of minimal scope |
+| | the home pulls from a queue (**built**) | the public server signs with a request key of minimal scope |
 | :--- | :--- | :--- |
-| what lives on the internet-facing machine | requests and status only | a signing key (even a pool CA limited to `public`) |
-| if that machine is taken over | an attacker can spam or empty the queue (a denial of service) | an attacker can mint `public` certificates for as many machines as they like, bypassing every limit, until the pool CA is dropped |
+| what lives on the internet-facing machine | requests, numbers, opaque sealed bundles, the SHA-256 of the puller's token, its own proof-of-work key | a signing key (even a pool CA limited to `public`) |
+| if that machine is taken over | an attacker can spam or empty the queue, or hand visitors garbage (a denial of service); it cannot sign, cannot read a bundle, cannot reach the API | an attacker can mint `public` certificates for as many machines as they like, bypassing every limit, until the pool CA is dropped |
 | home network | outbound connections only, nothing new is opened | nothing at home, but the key is on the VPS |
 
-The pull model also fixes the bundle's secrecy: the visitor makes their own Nebula key (`nebula-cert keygen`, or the page does it in the browser) and
-sends only the **public** key. The home signs it with `IN_PUB` (already in `issue.sh`, used for the lighthouse), so the bundle that travels back through
-the public server has **no private key** (the B1 outbox bundle still has one: B1 is delivered by the host). The join token does travel; it lives
-8 minutes at most, is burned once the node registers, and is useless without the private key (the API only answers on the Nebula IP). So does the
-player's kubeconfig token (issue #9): it lives the lease and works only from inside the mesh, but any member of the mesh can reach the API, so
-whoever copies it from the public server and has a place of their own could act in that player's namespace: B2 must encrypt the result to the
-visitor's key, or keep the token out of what travels. The visitor fetches the
-result with a random claim code shown only to them; the server stores its hash. Test: the page answers with the same numbers as `admission-status`;
-the server's disk holds no `*.key`.
+The visitor makes **two key pairs** on their own machine: the Nebula key (`nebula-cert keygen`; the host signs its public half with `IN_PUB`, so the
+bundle has **no private key**: `mesh host invite --pub`, picked up from `admission/pubkeys/<name>.pub`) and a **seal key** (`openssl genpkey -algorithm
+X25519`). The bundle still carries the join token and the node password, so the puller **seals** it to the seal key (`seal.py`: X25519 with a
+one-time key, HKDF-SHA256, AES-256-CTR, HMAC-SHA256 checked before decrypting; keys only in files and on stdin, never on a command line): the
+server never sees a join token or the player's kubeconfig token (issue #9) in clear. The visitor collects it once with a random claim code (128 bits) shown only to them; the page stores its
+SHA-256. The page's numbers are the ones of `admission-status`, which the puller reads with `mesh host admission-status --json` (names are never
+published: each visitor sees only their own position).
 
-**Anti-bot and fairness, in layers (each with its honest limit):**
+**Anti-bot and fairness, in layers (each with its honest limit).** No CAPTCHA and no JavaScript requirement: the same API and the same limits for a
+person, a script and an agent (the maintainer's rule of 2026-10-28: an agent may use the page).
 
-| Layer | What it does | What it does not stop |
-| :--- | :--- | :--- |
-| identity caps | `identity_ipv4_prefix: 24`, IPv6 /64, behind a trusted proxy only; the per-identity request rate limit (`rate_window_seconds`, `rate_max_requests`, already in pool.py) | many honest people behind one carrier NAT share one identity; a VPN or residential proxies give many identities |
-| self-hosted proof of work | before a request is taken the browser solves a small puzzle (ALTCHA/hashcash style: the server hands out a random challenge signed with an HMAC and a difficulty; the client finds `n` so that `sha256(challenge + n)` starts with enough zero bits; the server checks it with Python's `hashlib` and `hmac`). No third-party service, no tracking | it costs a bot CPU seconds, not a wall: a patient bot pays and gets in |
-| optional GitHub lane | sign in with GitHub (OAuth), accounts older than a minimum age (for example 90 days), the cap counted **per account**; DESIGN.md section 8 already sketches it | someone with several old accounts; it needs an OAuth app (the maintainer's step) |
-| cooldown and daily cap | `cooldown_seconds`, `daily_leases_per_identity` (built; with auto on a request over the cap is refused) | identities that rotate |
-| "fresh first" queue | a request from an identity that had a lease in the last 24 h goes **behind** everybody who has not had one; only then FIFO | nothing on its own; it shares out what the other layers let through |
+| Layer | Built | What it does | What it does not stop |
+| :--- | :--- | :--- | :--- |
+| self-hosted proof of work | yes | an HMAC-signed challenge that expires in 5 minutes and is spent on first use; `sha256(challenge:nonce)` with 18 leading zero bits (`page.yaml`), checked with `hashlib` | a patient bot pays CPU seconds and gets in |
+| per-address limits on the page | yes | 3 accepted requests an hour, 2 minutes between two, one open request per address, 20 wrong claim codes per 10 minutes; `X-Forwarded-For` only from the proxy on the loopback | many honest people behind one carrier NAT share one address; a VPN or residential proxies give many |
+| global ceilings | yes | the page takes at most 60 requests an hour and 100 open ones; the puller takes at most 10 a run, 30 an hour and lets the list grow to 20 (`--max-*`) | a flood of real requests fills them: honest people wait |
+| the pool's own limits | yes (A, B1) | `cooldown_seconds`, `daily_leases_per_identity` (a request over the cap is refused), the slots and the lease | identities that rotate |
+| `identity_ipv4_prefix: 24` | a parameter | one /24 is one identity | decided at the opening (B3) |
+| optional GitHub lane | no | sign in with GitHub, old accounts, caps per account (DESIGN.md section 8) | needs an OAuth app (the maintainer's step) |
+| "fresh first" queue | no | identities without a lease in the last 24 h go first | |
 
-**What none of this solves, and what we would do then.** Carrier-grade NAT (honest people blocked by a neighbour's use), VPNs and residential proxies
-(one person, many identities), and patient bots (they pay the proof of work and wait their turn). The answers are blunt on purpose: **a global daily
-cap** (at most N leases a day in total, so abuse has a ceiling), **manual approval for part of the places** (for example one of the two places stays A),
-a higher proof-of-work difficulty, or the GitHub lane only. The pool's isolation still holds whatever gets through: a `public` node gets only shareable
-workloads, its certificate dies in an hour, and the pool CA can sign nothing but `public`. And `mesh host panic` (built in B1) closes everything at once;
-in B2 the page also says "closed" and the puller stops; as the last resort the pool CA is dropped from the trust bundle (`poc-ca.sh` proves only the pool
-goes down). Practise it before announcing.
+**What none of this solves, and what we would do then.** Carrier-grade NAT, VPNs and residential proxies, patient bots. The answers are blunt on
+purpose: lower the global ceilings, raise the difficulty, keep part of the places manual (A), the GitHub lane. The pool's isolation still holds
+whatever gets through: a `public` node gets only shareable workloads, its certificate dies with the lease, the pool CA signs nothing but `public`.
+`mesh host panic` closes everything at once: the next puller run tells the page, which says **closed**, refuses requests (503), drops every sealed
+bundle and every open request, and the puller pulls nothing while panic is on. The page also says closed when the puller has not reported for
+5 minutes, and the operator of the server has its own switch (`page-server.sh close`). As the last resort the pool CA is dropped from the trust
+bundle (`poc-ca.sh` proves only the pool goes down).
+
+#### B2: threats and their tests
+
+Written for the review of 2026-10-28 ("make the page safe, nothing hackable"): each threat, what stops it, and the test that fails if it does not.
+`T..` are classes of `poc/test_page.py` (`make test`, no network); `G..` are steps of `make poc-page` (Incus VMs, or a server and a visitor in the cloud).
+
+| # | Threat | What stops it | Test |
+| :--- | :--- | :--- | :--- |
+| 1 | replay or reuse of a proof of work; a forged, expired or easier challenge | HMAC over the challenge (a key made on the server), expiry, difficulty no lower than the page asks, the challenge spent on first use even when the request is then refused | T01, G16 |
+| 2 | brute force or enumeration of a claim code | 128 random bits; only its SHA-256 stored; every record compared with `hmac.compare_digest`; a wrong and a malformed code are the same 404; 20 failures per address in 10 minutes, then 429 for that address, the right code too; one claim only (then 410); a ready bundle expires after 8 minutes | T02, G19, G21 |
+| 3 | jumping the queue or taking someone else's place | positions come only from the control plane; a body with any extra field is refused; one open request per address; a name once; a key once; the claim code is the only handle; puller endpoints need the token (the page keeps its hash; failures count like wrong codes) | T03, G16-G18 |
+| 4 | spoofing the address with `X-Forwarded-For` | the page believes the header only from `trusted_proxies` (the loopback), takes the right-most hop the proxy appended, and Caddy replaces what the client sent | T04, G19 |
+| 5 | a malicious or malformed Nebula key (a CA, a certificate, an Ed25519 or P-256 key, another length, trailing data, two blocks, a weak point, someone else's key) | strict parsing (`seal.py`) on the page **and again on the host**: one PEM block of one type, strict base64, 32 bytes, canonical, not small-order; the file is rebuilt from the bytes; a key already in any bundle (the lighthouse's too) or request is refused; `mesh host invite --pub` checks it once more before `nebula-cert sign` | T05, T07T08 |
+| 6 | names: injection, path traversal, `cp`/`lh`, an existing node | `[a-z][a-z0-9-]{1,19}` in full and the reserved names, on the page and again on the host; a name with a bundle, a public key file or a request is refused; the key file is created with `O_EXCL`, never over an existing one | T06, T07T08 |
+| 7 | injection into the host's command line | the puller calls `mesh` with an argument list (no shell) and only with checked values; the note is fixed text | T07T08 |
+| 8 | a compromised page drives the host | the puller trusts nothing it reads (every field checked again), caps per run, per hour and the list's length, and never signs: the tick approves within the slots; a bundle is sent only if it has exactly the four expected files, no private key, and a certificate for the visitor's key | T07T08 |
+| 9 | denial of service | body limits (4 KB: 413), `Content-Length` required (no chunked: 411), JSON only (415), no duplicate keys, no NaN, deep nesting refused; 32 connections at once (then an immediate 503), at most 4 at once from one origin that is not the proxy, a 10 s timeout per read and a 20 s deadline for the whole request, so a body that drips one byte at a time is cut; bounded lists on disk (open requests, records, spent challenges); per-address and global ceilings; Caddy's per-route size limits (16 KB for visitors; 512 KB for the puller's report, which carries the sealed bundles) and its global `read_body` timeout | T09, T09b (the drip), G09b |
+| 10 | XSS, injection in the page, clickjacking, CSRF, CORS | the HTML carries no value from a visitor (numbers and fixed sentences, escaped anyway); one external script (`script-src 'self'`), no inline script or handler, `textContent` only; CSP `default-src 'none'`, `frame-ancestors 'none'`, `form-action 'none'`, nosniff, no referrer, HSTS (Caddy); JSON-only bodies and no cookies (no CSRF); no CORS header on any answer, OPTIONS is 405 | T10, G07 |
+| 11 | secrets or the Kubernetes API reachable from the public server | no CA, no token in clear, no private key but the lighthouse's own and Caddy's; the puller's token never leaves the host; the page's process may connect to the loopback only; every host accepts 6443, WireGuard and VXLAN only from the member groups, never from the lighthouse (`issue.sh`) | T11, G06, G10, G13, G24 |
+| 12 | the page stays open when it should not | closed until the first report, on panic (the puller stops pulling), when the puller is silent for 5 minutes, and by the operator's switch | T12, G08, G25 |
+| 13 | odd inputs | 300 random bodies, values and paths against every endpoint: no 5xx, the page keeps answering | T13 |
+| 14 | a bad report (a bug, or a compromised host side) | strict shape, allowed transitions only, a `ready` needs a well-formed envelope | T14 |
+| 15 | someone else opens the bundle, or changes it | sealed to the visitor's seal key; the MAC is checked before decrypting; `visit.py` refuses a bundle with unexpected files, a private key, or a certificate for another key | `SealTest`, T07T08, G12, G21 |
+
+**What stays open (honest gaps).** The join token still dies 8 minutes after the approval: a visitor who is away when their place comes misses it
+(keep `visit.py wait` running; re-issuing on claim is a follow-up). The estimate is `position / slots * lease` corrected by the real end times, not a
+promise. A compromised page can lie to visitors about their position or hand them garbage (it then does not open: the MAC fails), and can feed the
+puller addresses that are not real, so the per-address caps then hold only as far as the puller's global caps. Quotas, LimitRange and the idle kick
+are issue #11.
+
+**Proof.**
+
+| Check | Where |
+| :--- | :--- |
+| the threats above: T01-T14 and `SealTest` (a real HTTP server on the loopback with a simulated clock; the puller against a fake `mesh` and `nebula-cert`) | `make test` (`poc/test_page.py`, no network) |
+| a public server with Caddy, the page and the lighthouse; the control plane pulls from it; a decoy takes the only place (curl, the calls of PUBLIC-PAGE.md); a visitor on another machine: own keys, proof of work, request, waits (position 1 of 1, the estimate), attacks refused, collects its sealed bundle when the decoy's lease ends, joins, Ready, expelled at the end of its lease; panic closes the page and stops the puller; the server never holds a credential and cannot reach the API | `make poc-page` (G01-G27): Incus VMs, and with the public server and the visitor as cloud VMs on other networks (`PUB_SSH`, `PUB_ADDR`, `VIS_SSH`) |
 
 ### B3. The opening (design only)
 
 All of these, each the maintainer's explicit decision:
 
 - [x] the repository is public (2026-10-27, not announced; see DESIGN.md, open decision 3); announcing it is the maintainer's "open it";
-- [ ] B2 built and tested (the page, the anti-bot layers, the visitor's own key);
+- [x] B2 built and tested (2026-10-28: the page, the anti-bot layers, the visitor's own keys, the sealed bundle; [PUBLIC-PAGE.md](PUBLIC-PAGE.md));
 - [x] issue #9: per-namespace RBAC and a kubeconfig per visitor (2026-10-28, `make poc-pool`);
 - [ ] issue #12: signed-PR participants, so the regulars are not in the free pool (built as a proof of concept on 2026-10-28, [participants/README.md](../participants/README.md); open: a fresh join token on request, renewal, a first real participant);
 - [ ] issue #13: the gateway and BGP only on own nodes;
@@ -397,9 +435,11 @@ All in [`poc/pool.yaml`](../poc/pool.yaml) except the token lifetime (an environ
 | `lease_seconds` | 3600 | one lease, the certificate lifetime, when `reap` expels | maintainer |
 | `cooldown_seconds` | 3600 | pause after a lease before the same identity's next one | maintainer (our reading of "a pause") |
 | `daily_leases_per_identity` | 2 | leases per identity in any 24 h (rolling) | maintainer |
-| `identity_ipv4_prefix` | 32 | 32 = one address; 24 = the whole /24 (planned for B2, when the public brings its own IP) | maintainer |
+| `identity_ipv4_prefix` | 32 | 32 = one address; 24 = the whole /24 (to decide at the opening, B3, when the public brings its own IP) | maintainer |
 | `identity_ipv6_prefix` | 64 | an IPv6 /64 is one identity | maintainer |
 | `rate_window_seconds`, `rate_max_requests` | 600, 5 | requests per identity in the window; the next is refused (exit 6, not listed, no event); 0 switches it off | maintainer |
+| the page's limits (`poc/page/page.yaml`) | difficulty 18 bits, 3 requests an hour and 2 minutes apart per address, 60 an hour in all, 100 open, 20 wrong claim codes per 10 minutes, claim within 8 minutes | the public intake (B2) | maintainer |
+| the puller's caps (`puller.py --max-per-run`, `--max-per-hour`, `--max-waiting`) | 10, 30, 20 | what a compromised page can at most add to the list (B2) | host |
 | `trusted_proxies` | the reverse proxy's addresses | who may set `X-Forwarded-For` | whoever runs the border |
 | `idle_kick_seconds` | 900 | the tick expels a lease whose node has been missing, NotReady or without a workload this long; 0 switches it off | maintainer |
 | `quota_pods`, `quota_cpu_millis`, `quota_memory_mib`, `quota_storage_mib`, `quota_services`, `quota_configmaps`, `quota_deployments` | 10, 1000, 1024, 2048, 5, 10, 5 | the ResourceQuota of each `play-<name>` (CPU, memory and ephemeral storage for requests and limits alike; LoadBalancer, NodePort and volume claims 0; the object counts keep etcd, the host's, from filling up) | maintainer |

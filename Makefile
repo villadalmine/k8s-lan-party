@@ -7,7 +7,7 @@ BASE     ?= origin/main
 PR_BODY  ?=
 PR_TITLE ?=
 
-.PHONY: poc-lighthouse poc-cilium help labels-check test verify-ci pr-check install-hooks uninstall-hooks poc-join poc-host poc-weakness poc-down poc-ca poc-placement poc-kind poc-vm poc-revoke poc-admission poc-admission-auto poc-participants poc-participants-e2e poc-nat poc-bgp poc-golden poc-pool
+.PHONY: poc-lighthouse poc-cilium help labels-check test verify-ci pr-check install-hooks uninstall-hooks poc-join poc-host poc-weakness poc-down poc-ca poc-placement poc-kind poc-vm poc-revoke poc-admission poc-admission-auto poc-participants poc-participants-e2e poc-nat poc-bgp poc-golden poc-pool poc-page
 
 help:
 	@grep -E '^[a-z-]+:.*##' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-14s %s\n", $$1, $$2}'
@@ -93,3 +93,5 @@ poc-golden: ## issue #23: one check per golden rule against the game this machin
 poc-nat: ## issue #15: symmetric NAT on both sides falls back to a Nebula relay on the lighthouse; direct and relayed paths measured; needs Incus
 	poc/poc-nat.sh
 
+poc-page: ## the public page (phase B2, docs/PUBLIC-PAGE.md): a visitor on another machine asks, waits, collects a sealed bundle, joins, is expelled; panic closes it; needs Incus (PUB_SSH/VIS_SSH: real machines)
+	poc/poc-page.sh

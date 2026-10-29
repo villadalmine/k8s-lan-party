@@ -10,7 +10,7 @@ pieza: k8s-lan-party
 meta: ../meta.yml
 depende_de: [docs/REQUIREMENTS.md, docs/DESIGN.md, poc/mesh, poc/issue.sh, poc/admission.py, poc/pool.yaml]
 lo_usan: [README.md, docs/JOIN.md, docs/DEMO.md, docs/DEMO-AWS.md]
-docs: [docs/TROUBLESHOOTING.md, docs/GOLDEN-RULES.md, docs/ADMISSION.md]
+docs: [docs/TROUBLESHOOTING.md, docs/GOLDEN-RULES.md, docs/ADMISSION.md, docs/PUBLIC-PAGE.md]
 scripts: [poc/admission.py, poc/poc-admission.sh, poc/poc-admission-auto.sh, poc/mesh, poc/kc, poc/issue.sh, poc/revoke.sh, poc/install-placement.sh, poc/up.sh, poc/vm/up.sh, poc/poc-host.sh, poc/poc-ca.sh, poc/poc-revoke.sh, poc/poc-placement.sh, poc/poc-nat.sh, poc/lighthouse-vps.sh, poc/gateway.sh, poc/vm/poc-bgp.sh, poc/cilium-node-guard.yaml, poc/node-trust-freeze.yaml]
 runbooks: []
 tags: [host, lan-party, ca, invite, revoke]
@@ -174,7 +174,8 @@ are taken (it says which lease ends next) and with exit 4 when nobody in the lis
 
 The same list and the same limits, without you approving each place: a **tick** approves the first eligible requests while a place is free, puts each
 bundle in an outbox, warns 5 minutes before the end, expels at the end and promotes the next one. Requests are still yours to enter (`mesh host request`,
-by hand or from your own bot) and the bundle is still yours to deliver: the public page that does both is B2, not built ([ADMISSION.md](ADMISSION.md)).
+by hand or from your own bot) and the bundle is still yours to deliver. The public page that does both, for a pool open to strangers, is optional:
+[PUBLIC-PAGE.md](PUBLIC-PAGE.md) (do you need it, how to put it on your server, the puller's timer).
 
 ```bash
 ./mesh host auto status                 # auto: off | panic: off | slots 0/2 used | 0 in the list ... (off by default)
@@ -228,7 +229,7 @@ like the other suites it builds its own cluster, so run it after `./mesh host do
 **The pool's cluster side** (issues #9, #11): every invite also makes the player's namespace `play-<name>` (Pod Security restricted, quota and limits
 from pool.yaml) and a kubeconfig in the bundle that works there only, until the invite's `--ttl` ends (so `--ttl` is at least `11m`: the token API's minimum is 10 minutes and the invite takes some seconds); `kick` deletes the
 namespace, and the tick expels a lease whose node stays missing, NotReady or without a workload for `idle_kick_seconds`. `./poc-pool.sh` proves it
-(30 checks; [dell]). **Not built:** the public page: ADMISSION.md sections B2 and B3. Without
+(30 checks; [dell]). **Not built:** the opening: ADMISSION.md section B3. The public page for a pool open to strangers is optional and built: [PUBLIC-PAGE.md](PUBLIC-PAGE.md). Without
 `reap`, a "1 h slot" is still a 1 h certificate: when it expires Nebula closes the tunnel (`disconnect_invalid: true`) and the node goes NotReady.
 
 ## 4. Who is in, and the one command that revokes
@@ -393,10 +394,12 @@ some corporate routers), they can reach the lighthouse but never each other. The
 end to end encrypted) and your firewall still decides what gets in, but every relayed byte crosses the server twice: about 2.35 bytes of its
 traffic per byte (DESIGN.md 15.1), so watch its bandwidth. Proved by `make poc-nat`. Test the game from a network that is not yours before you announce it.
 
-**The lighthouse is a full member of the mesh.** It gets a `nebula1` address like any host, its outbound rule is `any`, and every host allows `tcp/6443`
-from any mesh member, so whoever takes over the public server can reach the Kubernetes API over Nebula (a credential is still required). A lighthouse that
-only introduces hosts could run with `tun: {disabled: true}`; that is a later hardening step (issue #20), noted in [DESIGN.md](DESIGN.md) section 6.
+**The lighthouse is a member of the mesh, but not of the cluster.** It gets a `nebula1` address like any host and its outbound rule is `any`, but every
+host accepts the Kubernetes API (`tcp/6443`), WireGuard and VXLAN only from the groups `own`, `friends` and `public` (`issue.sh`, since 2026-10-28), and the
+lighthouse's certificate has only the group `lighthouse`: whoever takes over the public server reaches the hosts with ICMP and nothing else
+(`make poc-page` G10). Running it with `tun: {disabled: true}` as well is a later hardening step (issue #20), noted in [DESIGN.md](DESIGN.md) section 6.
+The same server can carry the public page ([PUBLIC-PAGE.md](PUBLIC-PAGE.md)): it holds no credential either.
 
 ## What this guide does not cover yet
 
-OIDC logins for persistent participants and the public pool's request page (ADMISSION.md B2; the automatic tick, quotas and the idle kick are built) are not built, and the LoadBalancer/BGP on own nodes (issue #13) is a proof of concept only. See the gap table in [POC-STATUS.md](POC-STATUS.md). Join by signed pull request (issue #12) exists as a proof of concept for the maintainer's own game: [participants/README.md](../participants/README.md) (`participants.py sync` takes the same `EMESH_STATE`).
+OIDC logins for persistent participants are not built (the automatic tick, quotas, the idle kick and the optional public request page, [PUBLIC-PAGE.md](PUBLIC-PAGE.md), are built), and the LoadBalancer/BGP on own nodes (issue #13) is a proof of concept only. See the gap table in [POC-STATUS.md](POC-STATUS.md). Join by signed pull request (issue #12) exists as a proof of concept for the maintainer's own game: [participants/README.md](../participants/README.md) (`participants.py sync` takes the same `EMESH_STATE`).

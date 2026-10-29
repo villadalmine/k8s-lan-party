@@ -1,0 +1,19 @@
+# The public page's limits (poc/page/page.py, docs/PUBLIC-PAGE.md). Integers and lists only (pool.load_config). Anything left out takes the
+# default in page.py (DEFAULTS), which says what each one is. The pool's own limits (places, lease, cooldown, daily cap) are in pool.yaml, on the host.
+difficulty: 18                    # proof of work: leading zero bits of sha256(challenge:nonce), about 2^18 hashes (a second or two)
+challenge_seconds: 300
+rate_window_seconds: 3600         # per address: at most rate_max_requests accepted requests an hour
+rate_max_requests: 3
+request_cooldown_seconds: 120     # per address: two minutes between two accepted requests
+global_max_requests_per_hour: 60  # whatever the addresses
+lookup_window_seconds: 600        # per address: at most lookup_max_failures wrong claim codes in 10 minutes
+lookup_max_failures: 20
+max_open: 100
+claim_ttl_seconds: 480            # a ready bundle waits 8 minutes for its claim (its join token dies then anyway)
+puller_stale_seconds: 300         # no report from the control plane for 5 minutes: the page says closed
+identity_ipv4_prefix: 32
+identity_ipv6_prefix: 64
+max_body_bytes: 4096
+max_threads: 32
+socket_timeout_seconds: 10
+trusted_proxies: [127.0.0.1, ::1]  # only the reverse proxy on this machine may set X-Forwarded-For

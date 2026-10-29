@@ -42,8 +42,12 @@ lh_hosts=""; [ "$name" = lh ] && am_lh=true || am_lh=false
 #  encryption carries it inside WireGuard.
 if [ "${FW:-narrow}" = open ]; then INBOUND='[{port: any, proto: any, host: any}]'
 else
-  INBOUND='[{port: any, proto: icmp, host: any}, {port: 6443, proto: tcp, host: any}, {port: 10250, proto: tcp, groups: [control-plane]}, {port: 51871, proto: udp, host: any}'
-  [ "${CNI:-flannel}" = flannel ] && INBOUND="$INBOUND, {port: 8472, proto: udp, host: any}"
+  # The API, WireGuard and VXLAN only from the members (own, friends, public; the control plane is own too), one rule per group (a rule
+  # with several groups needs all of them): never from the lighthouse, which lives on a public server (docs/PUBLIC-PAGE.md: the public
+  # server must not reach the Kubernetes API). ICMP stays open to every host, the lighthouse included (reachability checks).
+  INBOUND='[{port: any, proto: icmp, host: any}, {port: 10250, proto: tcp, groups: [control-plane]}'
+  ports="6443/tcp 51871/udp"; [ "${CNI:-flannel}" = flannel ] && ports="$ports 8472/udp"
+  for pp in $ports; do for g in own friends public; do INBOUND="$INBOUND, {port: ${pp%/*}, proto: ${pp#*/}, group: $g}"; done; done
   INBOUND="$INBOUND]"
 fi
 # every new certificate starts with the revocations made so far (.state/blocklist, one fingerprint per line), so a host admitted after a revoke also refuses it

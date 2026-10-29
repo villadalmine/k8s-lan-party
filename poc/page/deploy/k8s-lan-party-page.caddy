@@ -1,0 +1,41 @@
+# The public page behind Caddy (docs/PUBLIC-PAGE.md). One site block for /etc/caddy/conf.d/ (the main Caddyfile has
+# `import /etc/caddy/conf.d/*.caddy`). poc/page/page-server.sh writes it with your site address in place of page.example.org;
+# by hand: copy it, change the address, `caddy validate`, `systemctl reload caddy`. Caddy gets the certificate (ACME) by itself;
+# the lab uses `tls internal` instead (a private CA: the page has no name in public DNS there).
+# Body size limits are per route and live here, so they hold on a Caddy that was already there: visitors send at most 16 KB; the puller's
+# report (sealed bundles) may be 512 KB. Caddy 2.11 has no per-site body timeout (request_body has only max_size): the slow-body defence is the
+# app's own deadline for the whole request (page.yaml request_total_seconds), plus, in the GLOBAL options of your Caddyfile,
+#   servers { timeouts { read_header 10s  read_body 30s } }
+# which `page-server.sh install --with-caddy` writes for the Caddyfile it creates; add it by hand to a Caddy that was already there.
+(k8slp_page_proxy) {
+	# Caddy replaces any X-Forwarded-For the client sent with the address it sees; the page believes the header only from the loopback
+	reverse_proxy 127.0.0.1:8088 {
+		header_up X-Forwarded-For {remote_host}
+		transport http {
+			dial_timeout 5s
+			response_header_timeout 15s
+		}
+	}
+}
+
+page.example.org {
+	# @TLS@
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		-Server
+	}
+	@puller path /api/v1/puller/*
+	handle @puller {
+		# authenticated by the puller's token (the page keeps only its SHA-256); the report carries the sealed bundles
+		request_body {
+			max_size 512KB
+		}
+		import k8slp_page_proxy
+	}
+	handle {
+		request_body {
+			max_size 16KB
+		}
+		import k8slp_page_proxy
+	}
+}

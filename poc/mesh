@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # mesh: the host's command line. Thin, deterministic wrappers over nebula-cert, nebula, k3s and kubectl.
 #   mesh host init                         open your game: CA, lighthouse, control plane (API only on the Nebula IP)
-#   mesh host invite <name> [--ttl 2h] [--trust friends|public]   a bundle for one player (cert + config + a join token of 8 min at most)
+#   mesh host invite <name> [--ttl 2h] [--trust friends|public] [--pub FILE]   a bundle for one player (cert + config + a join token of 8 min at most)
 #                                          and their namespace play-<name> with a kubeconfig valid for the ttl (at least 11m; poc/participant.py)
 #   mesh host players                      who is in: node, Ready, certificate time left (and burns the join token of every registered node)
 #   mesh host burn                         delete the join token of every registered player (a k3s token is not one-time) and refresh the node guard (prints burned N)
@@ -45,7 +45,8 @@ case "$1 ${2:-}" in
     name="${3:-}"; [ -n "$name" ] || usage; ttl=2h; trust=friends; shift 3
     # the name becomes a node name, a certificate name and a directory (the same rule as admission.py)
     printf '%s' "$name" | grep -Eqx '[a-z][a-z0-9-]{1,19}' && [ "$(printf '%s' "$name" | wc -l)" -eq 0 ] || { echo "invalid name '$name': 2 to 20 characters, a-z, 0-9 and '-', starting with a letter"; exit 2; }
-    while [ $# -gt 0 ]; do case "$1" in --ttl) ttl="$2"; shift 2 ;; --trust) trust="$2"; shift 2 ;; *) usage ;; esac; done
+    pub=""
+    while [ $# -gt 0 ]; do case "$1" in --ttl) ttl="$2"; shift 2 ;; --trust) trust="$2"; shift 2 ;; --pub) pub="$2"; shift 2 ;; *) usage ;; esac; done
     case "$trust" in friends|public) ;; *) echo "trust must be friends or public (own is for your own machines)"; exit 2 ;; esac
     [ ! -d "$STATE/bundles/$name" ] || { echo "a player called $name already exists"; exit 3; }
     game_mismatch || exit 2
@@ -54,7 +55,13 @@ case "$1 ${2:-}" in
     [ "$secs" -ge 660 ] || { echo "--ttl $ttl is too short: the player's kubeconfig token needs at least 11m (the TokenRequest API minimum is 10m, and the invite itself takes some seconds)"; exit 2; }
     # a namespace of that name that exists already is not handed over (a leftover, or somebody else's)
     [ -z "$(k get namespace "play-$name" --ignore-not-found -o name 2>/dev/null)" ] || { echo "a namespace play-$name exists already: pick another name"; exit 3; }
-    "$POC/issue.sh" "$name" "$(next_ip)" "$trust" "$ttl" || { rm -rf "$STATE/bundles/$name"; echo "invite failed: nothing was kept, fix the error above and run it again"; exit 1; }
+    # the player's own public key (the public page, docs/PUBLIC-PAGE.md: its puller leaves it in admission/pubkeys): the bundle then has no host.key
+    [ -n "$pub" ] || { [ ! -f "$STATE/admission/pubkeys/$name.pub" ] || pub="$STATE/admission/pubkeys/$name.pub"; }
+    if [ -n "$pub" ]; then
+      python3 "$POC/page/seal.py" check-nebula "$pub" >/dev/null || { echo "invite refused: $pub is not one Nebula X25519 public key"; exit 2; }
+      pub="$(cd "$(dirname "$pub")" && pwd)/$(basename "$pub")"
+    fi
+    IN_PUB="$pub" "$POC/issue.sh" "$name" "$(next_ip)" "$trust" "$ttl" || { rm -rf "$STATE/bundles/$name"; echo "invite failed: nothing was kept, fix the error above and run it again"; exit 1; }
     # the node guard (poc/node-guard.yaml): only issued names, at their Nebula IP, may register a Node
     age=$(guard_refresh_age)
     node_guard || { token_burn "$name" || true; rm -rf "$STATE/bundles/$name"; echo "invite failed: the node guard was not updated; nothing was kept"; exit 1; }
