@@ -521,6 +521,12 @@ TEMPLATE = """<!doctype html>
 time. <b>Golden rule:</b> what runs on someone else's machine can be seen by its owner, so only shareable workloads go to your node.</p>
 {{numbers}}
 <p id=live></p>
+<h2>0. What you need</h2>
+<p>A Linux machine <b>you own</b> (a VM is fine) with <code>python3</code>, <code>openssl</code>, <code>git</code> and a user that can <code>sudo</code>, and outbound
+UDP to the internet. It needs <code>nebula</code> and <code>nebula-cert</code>, <code>k3s</code> and <code>edge-mesh</code>: install them as
+<a href="https://github.com/villadalmine/k8s-lan-party/blob/main/docs/JOIN.md">docs/JOIN.md</a> says (the pinned versions and checksums are there; VMs, Docker and
+WSL2 each have their own steps). Then get the visitor's tools:</p>
+<pre>git clone https://github.com/villadalmine/k8s-lan-party.git &amp;&amp; cd k8s-lan-party/poc/page</pre>
 <h2>1. Make your keys (on the machine that will join)</h2>
 <pre>nebula-cert keygen -out-key host.key -out-pub host.pub
 openssl genpkey -algorithm X25519 -out seal.key &amp;&amp; openssl pkey -in seal.key -pubout -out seal.pub</pre>
@@ -538,6 +544,11 @@ openssl genpkey -algorithm X25519 -out seal.key &amp;&amp; openssl pkey -in seal
 <p id=where></p>
 <p>Collect from the machine with the keys (the bundle is sealed to your seal key, only that machine opens it):</p>
 <pre>python3 poc/page/visit.py wait https://THIS-PAGE --keys ./mykeys --code YOUR-CLAIM-CODE</pre>
+<h2>4. Join</h2>
+<p><code>visit.py wait</code> opens your bundle and prints the join line. Run it on the same machine:</p>
+<pre>sudo edge-mesh join ./mykeys/YOUR-NAME --accept-golden-rule</pre>
+<p>It prints <code>joined: YOUR-NAME (trust=public)</code> and your own namespace. Check it with <code>sudo edge-mesh kubectl get pods</code>. Your place ends when its
+time is up (see the numbers above); you can leave earlier by stopping <code>edge-mesh</code> on your machine. Keep the golden rule in mind: the host can see what runs here.</p>
 <p>Without a browser, everything here is a JSON API (<code>/api/v1/...</code>): docs/PUBLIC-PAGE.md in the repository.</p>
 <noscript><p>The form needs JavaScript for the proof of work; or use <code>visit.py</code>.</p></noscript>
 </main><script src=/static/page.js></script></body></html>
