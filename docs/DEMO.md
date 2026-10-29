@@ -1,9 +1,9 @@
 ---
 tipo: runbook
 id: k8s-lan-party-demo
-version: 0.3.0
+version: 0.3.1
 fecha_alta: 2026-10-21
-fecha_ultimo_cambio: 2026-10-27
+fecha_ultimo_cambio: 2026-10-28
 categoria: plataforma
 dueno_agente: casa-orquestador
 pieza: k8s-lan-party
@@ -27,8 +27,8 @@ without a relay). **Built in the repository, not applied to the demo yet:** admi
 1 h leases, a FIFO waiting list, a daily cap and a cooldown per identity, the reaper that expels at lease end) and the automatic tick of phase B1
 (`mesh host auto --once` from the host's timer: approves inside the same limits, expels at the end and promotes the next one, `mesh host panic`, events,
 a notify hook and metrics), and the pool's cluster side (`make poc-pool`: a namespace `play-<name>` with quota and limits and a kubeconfig of the
-lease's length per player, the idle kick, the rate limit), tested on Incus VMs, [ADMISSION.md](ADMISSION.md). **Not built:** the public request page (B2) and the relay for symmetric NAT
-(issue #15). So a stranger can join only through a request the host (or the host's own bot) enters. The repository is public since 2026-10-27 but not announced: announcing it and
+lease's length per player, the idle kick, the rate limit), tested on Incus VMs, [ADMISSION.md](ADMISSION.md). The relay for symmetric NAT (issue #15, `lighthouse-vps.sh sign --relay`, `make poc-nat`) is built in the repository and not applied to the
+demo's lighthouse yet. **Not built:** the public request page (B2). So a stranger can join only through a request the host (or the host's own bot) enters. The repository is public since 2026-10-27 but not announced: announcing it and
 opening the demo need the maintainer's explicit "open it". The PoC itself runs locally and on the maintainer's lab VMs.
 
 The idea in one picture: a small public server with a few slots that rotate. Anyone can try the mesh for one hour, with a fixed number of
@@ -82,8 +82,8 @@ would limit per account.
 **What exists today:** the decision logic (`pool.py`, unit tests: the 1 h lease, per-identity rules, the daily cap, the FIFO list), the CA split, and
 admission with manual approval with its reaper (`admission.py`, `make poc-admission`) and the automatic tick with its switch, panic, events and metrics
 (`make poc-admission-auto`, [ADMISSION.md](ADMISSION.md) B1), and the pool's cluster side: a namespace and a kubeconfig per player, quotas, the idle
-kick (`make poc-pool`, issues #9 and #11). **What does not:** the public request page and its anti-bot layers (ADMISSION.md B2), and the relay for
-symmetric NAT (issue #15). The demo needs these built and
+kick (`make poc-pool`, issues #9 and #11). **What does not:** the public request page and its anti-bot layers (ADMISSION.md B2); the relay for symmetric NAT is built (issue #15) and waits to be
+turned on at the demo's lighthouse. The demo needs these built and
 tested before the checklist below can pass.
 
 ## The runbook (do not run without the OK)

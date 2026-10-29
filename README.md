@@ -48,6 +48,8 @@ See [GOLDEN-RULES.md](docs/GOLDEN-RULES.md).
 
 ## Three ways in
 
+**Start here to try it on your own machine: [docs/TRY-IT.md](docs/TRY-IT.md)**, a tested recipe per platform (Incus VMs, Docker, kind, WSL2, a cloud VM, and mixes of them).
+
 ### 1. Try it locally (a simulation, about 4 minutes)
 
 You need **Docker and `make`** (Linux, macOS with Docker Desktop, or WSL2). One command brings up a local CA, a lighthouse, a
@@ -133,7 +135,7 @@ re-issue every player. Try the whole host flow locally first: `make poc-host`.
 
 | Symptom | Cause | Fix |
 | :--- | :--- | :--- |
-| `edge-mesh join` exits 5: "cannot reach the lighthouse ... UDP 4242" | UDP to the lighthouse is blocked (corporate firewall, hotel) | allow outbound UDP 4242, or ask the host for the relay option |
+| `edge-mesh join` exits 5: "cannot reach the lighthouse ... UDP 4242" | UDP to the lighthouse is blocked (corporate firewall, hotel) | allow outbound UDP 4242 (the host's relay is reached over the same port, so it does not help here) |
 | The handshake is refused: "certificate is in the block list" | the host kicked or revoked you | ask for a new invite |
 | Nebula refuses your certificate as expired or not yet valid | the invite ran out, or your clock is wrong | check the time (NTP); ask for a new invite |
 | The agent log says `unauthorized` | the join token expired, or a node already registered with it and the host burned it | ask for a new invite |

@@ -31,8 +31,11 @@ PY
   nebula_reload "$h" >/dev/null 2>&1 || true
 done
 # An external lighthouse (lighthouse-vps.sh) holds its own copy of the blocklist: push it when this machine can reach the server.
+# A failed sync is not "nothing left to do": the lighthouse keeps accepting (and relaying for) the revoked certificate until it has the blocklist, so
+# everything else below still runs and the command then ends with exit 5 (a reap keeps the lease and tries again).
+lh_sync=ok
 if [ -n "${LH_RSH:-}" ]; then
-  "$POC/lighthouse-vps.sh" sync --ssh "$LH_RSH" >/dev/null 2>&1 || echo "warning: the external lighthouse was not updated; run: poc/lighthouse-vps.sh sync --ssh \"$LH_RSH\""
+  "$POC/lighthouse-vps.sh" sync --ssh "$LH_RSH" >/dev/null 2>&1 || { lh_sync=failed; echo "warning: the external lighthouse was not updated; run: poc/lighthouse-vps.sh sync --ssh \"$LH_RSH\""; }
 elif [ -n "${LH_EXTERNAL:-}" ]; then
   echo "note: push the new blocklist to the external lighthouse where its ssh key is: poc/lighthouse-vps.sh deploy --ssh \"<ssh command>\" <copy of .state/bundles/lh>"
 fi
@@ -60,4 +63,5 @@ while :; do
   sleep 1
 done
 [ "$guard" = ok ] || { echo "revoke $n: the node guard was not updated (the API did not take it): run it again"; exit 4; }
+[ "$lh_sync" = ok ] || { echo "revoke $n: the node and the control plane are done, but the external lighthouse still lacks the blocklist: it still accepts and relays this certificate until the sync above works (exit 5)"; exit 5; }
 echo "revoked $n: fingerprint on the blocklist, node deleted, join token gone"

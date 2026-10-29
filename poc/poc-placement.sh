@@ -149,6 +149,7 @@ step L45 "NEGATIVE: shareable pod that mounts the service account token is REJEC
 step L50 "NEGATIVE: labelling cp as friends without the taint is REJECTED (node-side policy)" t_label_without_taint
 step L51 "NEGATIVE: removing the trust taint from the friends node is REJECTED" t_taint_removal
 step L52 "NEGATIVE: a node cannot raise its own trust label with its kubelet credential (NodeRestriction)" t_node_cannot_upgrade
+step L52b "NEGATIVE: node trust labels are frozen for every identity but the host: the k3s controller credential on n2 and any status-patching identity cannot change them" trust_frozen n2 public
 step L53 "cp is still own after the rejected relabel" t_cp_still_own
 
 echo "----"
