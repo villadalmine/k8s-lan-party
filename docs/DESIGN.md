@@ -12,7 +12,7 @@ estado: MVP fase 1 (decisiones del maintainer 2026-10-16; abiertas al final)
 depende_de: []
 lo_usan: [docs/GOLDEN-RULES.md, README.md]
 docs: [README.md, CONTRIBUTING.md, docs/GOLDEN-RULES.md, docs/REFERENCES.md, docs/POC-STATUS.md]
-scripts: []
+scripts: [poc/poc-nat.sh, poc/lighthouse-vps.sh]
 runbooks: []
 tags: [diseno, nebula, k3s, cilium, wireguard, kyverno, seguridad, mvp, regla-de-oro]
 ---
@@ -350,6 +350,7 @@ Where each suite passed, how often, and what is still relaxed is in [POC-STATUS.
 | `make poc-admission` | admission with manual approval ([ADMISSION.md](ADMISSION.md)): request, approve, join, places full, the lease ends, `reap` expels, the next one in line enters, `reap --all`, a burned join token refused to a second machine, a non-cooperative copy of a bundle refused by the node guard and cut with the lease, another guest's issued name refused by its node password, a name whose node password k3s dropped refused by the guard (31) |
 | `make poc-participants` | join by signed PR (section 5.1), offline: the real cosign against a **local TEST CA** that plays Fulcio (marked TEST ONLY, never committed); a valid signed PR passes; another identity, another account id, another workflow or OIDC issuer, an untrusted CA, a key instead of keyless, an unsigned or tampered file, a replay by another author, trust `own` (never through a PR, also with the policy edited in the same PR or pushed straight to main), a taken or reserved node name, a join PR that touches code, a removal by a re-registered login: each fails; the issuing side re-verifies main, delivers the bundle encrypted and signed, refuses a forged one, a removal revokes, a failed revoke blocks the new certificate; a broken policy changes nothing (33) |
 | `make poc-participants-e2e` | the same flow on Incus VMs: the participant's keys made on her machine, sync issues, she opens and joins (Ready), her file leaves main, one sync and she reaches neither the lighthouse nor the API, her Node does not come back (11) |
+| `make poc-nat` | relay and NAT ([issue #15](https://github.com/villadalmine/k8s-lan-party/issues/15)): a control plane and a player behind two different routers; port-preserving NAT gives a direct tunnel; symmetric NAT on both sides gives none (the negative test) until `lighthouse-vps.sh sign --relay`; then the player reaches the control plane through the relay on the lighthouse, the relay really carries the bytes and does not bypass the far end's firewall, a real player joins (node Ready, the API reaches its kubelet) and `revoke` cuts it, relay included; latency and bandwidth of both paths recorded (26) |
 | `make test` | the pool logic (`poc/pool.py`): fixed slots, 1 h lease, per-identity rules (IP normalized), daily cap, FIFO waitlist; the admission ledger (`poc/admission.py`); the participants' schema, policy, PR gate and issuing plan (`poc/participants.py`); the scripts keep their executable bit |
 
 **What the PoC implements of section 4.** The PoC runs one owner's cluster (the maintainer's), so it implements the single-owner case:
@@ -359,7 +360,7 @@ instead of deleting a Node that registered without it. Private pods are pinned t
 `own` is denied. The `owner=<github-user>` label and the relative trust of section 1 (several owners in one cluster) are not built yet.
 
 **Not built yet** (the phase-1 gap table in POC-STATUS.md has the evidence): the rest of the pool (quotas, idle kick, the public request
-page; the manual admission, its reaper and the automatic tick exist, [ADMISSION.md](ADMISSION.md)), per-namespace RBAC and kubeconfig per user, relay and NAT tests, the gateway and BGP on own nodes, and
+page; the manual admission, its reaper and the automatic tick exist, [ADMISSION.md](ADMISSION.md)), per-namespace RBAC and kubeconfig per user, the gateway and BGP on own nodes, and
 the public opening. Join by signed PR is built; the PoC cannot use the real Fulcio offline, so its fixture uses a local TEST CA with
 `--insecure-ignore-tlog`, **only there and marked as such** (`participants.py --test-root` refuses a trusted root without the TEST marker),
 and the real flow runs in CI on every pull request.
@@ -474,8 +475,8 @@ One test per row, deterministic. **Step 1** means the local PoC tests it now; **
 
 | # | What fails | What the user sees, and what we tell them | Tested |
 | :-: | :--- | :--- | :--- |
-| 1 | UDP to the lighthouse is blocked (corporate firewall) | `edge-mesh join` exits 5: "cannot reach the lighthouse; UDP 4242 must be allowed; ask for the relay option" | step 1: J16 |
-| 2 | Symmetric NAT on both sides | falls back to a relay; latency measured | later: needs a relay (section 16) |
+| 1 | UDP to the lighthouse is blocked (corporate firewall) | `edge-mesh join` exits 5: "cannot reach the lighthouse; UDP 4242 must be allowed" (a relay does not help: it is reached over the same port) | step 1: J16 |
+| 2 | Symmetric NAT on both sides | without a relay the two never connect; with the lighthouse as relay they connect through it; latency and bandwidth measured (section 15.1) | `make poc-nat`: N15 (no relay, no path), N19-N25 (through the relay) |
 | 3 | Nebula certificate expired or not yet valid (clock skew) | Nebula refuses the certificate; check NTP | step 1: J15 (expiry) |
 | 4 | Certificate revoked or blocklisted (after a kick) | handshake refused: "certificate is in the block list" | step 1: J17 |
 | 5 | MTU or fragmentation: handshake works, big packets hang | pod network MTU fixed at 1250 (Nebula 1300 minus 50) | step 1: J08 |
@@ -503,7 +504,7 @@ One test per row, deterministic. **Step 1** means the local PoC tests it now; **
 | Node to API | yes (the control plane) | light: kilobytes per second per node |
 | `kubectl` | yes | negligible |
 | The lighthouse | yes, for discovery only | tiny: handshakes |
-| **Relays** | **yes, and they carry full traffic** | the bandwidth risk: every relayed byte lands on the relay host |
+| **Relays** | **yes, and they carry full traffic** | the bandwidth risk: every relayed byte lands on the relay host, in and out: about 2.35 bytes of relay traffic per byte of payload (measured, 15.1) |
 | Image pulls | no (nodes pull from the registry directly) | the largest transfers, but not through the operator |
 | The operator's public services (demo page, invite API) | yes | small |
 
@@ -530,14 +531,38 @@ Measured by `make poc-join` on one machine (Docker, WSL2); steady state, from th
 | 50 MiB pod to pod: receiver's Nebula tunnel | 56897207 received | |
 | 50 MiB pod to pod: lighthouse, whole container (eth0), both directions | 696 | the transfer did not go through the lighthouse |
 
-Relay use: not measured in step 1 (no relay is configured); the lighthouse counters above show that a direct path carries the data. The control plane's own traffic is in the idle rows: the node-to-API cost per node is a few KB/s. (50 MB pod-to-pod over nebula: 1 s.)
+Relay use is not in step 1 (no relay is configured there); the lighthouse counters above show that a direct path carries the data. The control plane's own traffic is in the idle rows: the node-to-API cost per node is a few KB/s. (50 MB pod-to-pod over nebula: 1 s.)
+
+**Direct against relayed, measured by `make poc-nat`** (issue #15; Incus VMs on the maintainer's lab host, 2026-10-28: the last two runs of the final
+script passed with identical output, and earlier versions of the suite passed six times; the ranges below cover them all). The control plane sits behind one router, the player behind another; the lighthouse
+(1 vCPU, 1 GiB) is the relay. Each transfer is 50 MiB with `iperf3` over Nebula, once each way; the lighthouse's interface counters are read
+around the two transfers (100 MiB of payload in all).
+
+| Path | Nebula ping (avg) | Throughput, each way | Lighthouse traffic during the 100 MiB | Lighthouse Nebula CPU |
+| :--- | ---: | ---: | ---: | ---: |
+| direct (port-preserving NAT on both sides, hole punching) | 1.5 to 1.9 ms | 140 to 210 Mbit/s | about 1 KB (0 %) | 0 to 40 ms |
+| relayed (symmetric NAT on both sides) | 1.8 to 2.6 ms | 140 to 210 Mbit/s | about 235 MiB (233 to 235 % of the payload) | 1.1 to 1.2 s |
+
+What it means for the operator: **a relayed byte costs the relay host about 2.35 bytes** (it comes in and goes out again, plus Nebula, UDP and
+TCP acknowledgements) and about 11 ms of one core per MiB on this hardware. On one machine the relay adds under a millisecond and is not the
+bottleneck (both paths land on the same two values, 140 or 210 Mbit/s, run to run: the VMs' own limit); on the internet the relayed path is player to VPS to control plane, so its
+latency is the sum of the two legs and its throughput the smaller of them and of the VPS's link. An idle relayed node (about 1 to 4 KB/s,
+the idle rows above) costs the VPS 2 to 9 KB/s, a few GB a month per node; a lab moving data between relayed nodes costs 2.35 times that data.
 
 
 ## 16. Relay and tolerance profile
 
-**Relay (learned from WireKube and Nebula's docs):** a relay is the guaranteed path and direct is the optimisation. The
-lighthouse VPS also runs a Nebula relay (`relay: am_relay: true`); players list it under `relay: relays:` (`use_relays` already defaults to true). Relays carry full
-traffic, so the VPS bandwidth is the budget (section 15). Not built in step 1; the error matrix row 2 tracks it.
+**Relay (learned from WireKube and Nebula's docs):** a relay is the guaranteed path and direct is the optimisation. **Built (issue #15):**
+`lighthouse-vps.sh sign --relay` makes the lighthouse a Nebula relay (`relay: {am_relay: true}`) and remembers it, so every bundle issued
+after that (and `mesh host refresh` of a running machine) names it (`relay: {relays: [<lighthouse>]}`; `use_relays` stays at its default, true).
+Nebula tries the direct addresses and falls back to the relay when the handshake does not get through; while a direct path exists the
+lighthouse carries none of the data (N10). `make poc-nat` proves both halves and the negative (symmetric NAT on both sides and no relay: no path at all). Relays carry full traffic, so the VPS bandwidth is the budget (section 15.1).
+
+What a participant can and cannot do with the relay: it forwards Nebula packets end to end encrypted, so the relay host reads none of it;
+the far end's Nebula firewall still decides what gets in (N21: through the relay, `6443` answers and an unlisted port does not); a revoked
+certificate is on the lighthouse's blocklist, so it is relayed no more (N25 checks the lighthouse's own copy and that she cannot reach it; N26: if the host cannot push the blocklist to the lighthouse, `revoke` ends with exit 5 and says so instead of reporting success). What it does allow is spending the VPS's bandwidth: any admitted
+host can push traffic through it for as long as its certificate lives (the pool's 1 h lease bounds it). Alerting on the relay's bandwidth
+(the lighthouse publishes Nebula's metrics on its loopback) and a rate limit on the VPS are the operator's protections; neither is built.
 
 **Tolerance profile** (to be set from the measurements in 13.1, not before): the per-pod `tolerationSeconds` for
 `node.kubernetes.io/unreachable` and `not-ready` (default 300 s, asserted by `make poc-weakness` W04); the node lifecycle

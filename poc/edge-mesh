@@ -14,7 +14,7 @@ case "$cmd" in
     [ -c /dev/net/tun ] || { echo "refusing to join: no /dev/net/tun (needs a privileged Linux: VM, privileged Docker or WSL2)"; exit 4; }
     mkdir -p /etc/nebula; cp "$bundle/ca.crt" "$bundle/host.crt" "$bundle/host.key" "$bundle/config.yml" /etc/nebula/
     nohup /opt/nebula/nebula -config /etc/nebula/config.yml >/var/log/nebula.log 2>&1 &
-    i=0; until ping -c1 -W1 "$LH_NEB" >/dev/null 2>&1; do i=$((i+1)); [ $i -gt 30 ] && { echo "nebula: cannot reach the lighthouse. UDP 4242 to it must be allowed (corporate firewall?); ask for the relay option"; exit 5; }; sleep 1; done
+    i=0; until ping -c1 -W1 "$LH_NEB" >/dev/null 2>&1; do i=$((i+1)); [ $i -gt 30 ] && { echo "nebula: cannot reach the lighthouse. UDP 4242 to it must be allowed (corporate firewall?); the relay does not help here, it is reached over the same UDP port"; exit 5; }; sleep 1; done
     # host TCP over the Cilium WireGuard: keep the MSS under the WireGuard device MTU (docs/TROUBLESHOOTING.md, "mutual auth stalls")
     [ "${CNI:-flannel}" = cilium ] && ip route replace "${LH_NEB%.*}.0/24" dev nebula1 scope link advmss "${HOST_MSS:-860}"
     # the k3s token travels over TLS with the CA pinned (K10<hash>...) and only inside the Nebula tunnel
@@ -39,12 +39,24 @@ case "$cmd" in
     nohup sh -c 'while :; do k3s agent "$@"; echo "k3s agent exited with $?, starting it again in 5 s"; sleep 5; done' sh \
       --server "$K3S_URL" --token "$K3S_TOKEN" --node-name "$NODE_NAME" --node-ip "$NODE_IP" $cni_flags $taint >/var/log/k3s-agent.log 2>&1 &
     sup=$!
-    giveup() { kill "$sup" 2>/dev/null; pkill -f "k3s agent" 2>/dev/null; echo "$1"; exit 7; }   # no supervisor left looping behind a failed join
+    # no supervisor left looping behind a failed join. By PID from /proc: the k3s image has no pkill (with `set -e` the missing command ended the
+    # join with exit 127 and no message, found 2026-10-28)
+    giveup() { kill "$sup" 2>/dev/null || true
+      for p in /proc/[0-9]*; do case "$({ tr '\0' ' ' <"$p/cmdline"; } 2>/dev/null)" in "k3s agent"*) kill "${p#/proc/}" 2>/dev/null || true ;; esac; done
+      echo "$1"; exit 7; }
+    # kubectl: the k3s image ships it as a link to k3s (and there `k3s kubectl` is refused); a VM or WSL2 has only the k3s binary
+    kc() { if command -v kubectl >/dev/null 2>&1; then kubectl "$@"; else k3s kubectl "$@"; fi; }
     # the agent registers within seconds; a rejected token (burned by the host once a node registered with it, or expired: it lives 8 minutes at most) is only visible in its log, so look for it
     i=0; until [ -f /var/lib/rancher/k3s/agent/client-kubelet.crt ]; do
       i=$((i+1)); grep -q "not authorized" /var/log/k3s-agent.log 2>/dev/null && [ $i -gt 15 ] && giveup "refusing to stay: the control plane rejected the join token (already used by a node, or expired: it lives 8 minutes at most). Ask the host for a new invite."
       grep -qi "password rejected" /var/log/k3s-agent.log 2>/dev/null && [ $i -gt 15 ] && giveup "refusing to stay: the control plane refused this node name with this bundle's node password. Ask the host for a new invite."
       [ $i -gt 90 ] && giveup "the node did not register within 90 s: see /var/log/k3s-agent.log"; sleep 1
+    done
+    # credentials are not a node: the kubelet must start here and create the Node. One that cannot run on this machine never does (seen on WSL2
+    # with Docker Desktop's integration: its mount table has a line the kubelet refuses), and "joined" would be a lie. It may read its own Node.
+    i=0; until kc --kubeconfig /var/lib/rancher/k3s/agent/kubelet.kubeconfig get node "$NODE_NAME" >/dev/null 2>&1; do
+      i=$((i+1)); [ $i -gt 90 ] && giveup "the node did not register within 90 s: the kubelet did not start on this machine. Its last error: $(grep -E '^E[0-9]{4} ' /var/log/k3s-agent.log | tail -1 | cut -c1-300)"
+      sleep 1
     done
     echo "joined: $NODE_NAME (trust=$TRUST)"
     ;;

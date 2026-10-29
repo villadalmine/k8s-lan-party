@@ -1,7 +1,7 @@
 ---
 tipo: runbook
 id: k8s-lan-party-host-your-own
-version: 0.4.1
+version: 0.5.0
 fecha_alta: 2026-10-21
 fecha_ultimo_cambio: 2026-10-28
 categoria: plataforma
@@ -11,7 +11,7 @@ meta: ../meta.yml
 depende_de: [docs/REQUIREMENTS.md, docs/DESIGN.md, poc/mesh, poc/issue.sh, poc/admission.py, poc/pool.yaml]
 lo_usan: [README.md, docs/JOIN.md, docs/DEMO.md]
 docs: [docs/TROUBLESHOOTING.md, docs/GOLDEN-RULES.md, docs/ADMISSION.md]
-scripts: [poc/admission.py, poc/poc-admission.sh, poc/poc-admission-auto.sh, poc/mesh, poc/kc, poc/issue.sh, poc/revoke.sh, poc/install-placement.sh, poc/up.sh, poc/vm/up.sh, poc/poc-host.sh, poc/poc-ca.sh, poc/poc-revoke.sh, poc/poc-placement.sh]
+scripts: [poc/admission.py, poc/poc-admission.sh, poc/poc-admission-auto.sh, poc/mesh, poc/kc, poc/issue.sh, poc/revoke.sh, poc/install-placement.sh, poc/up.sh, poc/vm/up.sh, poc/poc-host.sh, poc/poc-ca.sh, poc/poc-revoke.sh, poc/poc-placement.sh, poc/poc-nat.sh, poc/lighthouse-vps.sh]
 runbooks: []
 tags: [host, lan-party, ca, invite, revoke]
 ---
@@ -344,7 +344,7 @@ What the three phases do, and why they are separate commands:
 
 `install` runs the three in a row when one machine has both the CA and the ssh key; otherwise run `prepare` where the key is, copy `lh.pub` to the CA machine,
 `sign`, copy `.state/bundles/lh` back and `deploy`. Every phase is idempotent (a second run prints no `changed:` line, `P03`, `P06`, `P08`). After `mesh host revoke`,
-`lighthouse-vps.sh sync --ssh ...` pushes the new blocklist to the server (revoke does it itself when it can reach the server, `P16`/`P17`). `remove` stops the
+`lighthouse-vps.sh sync --ssh ...` pushes the new blocklist to the server (revoke does it itself; when it cannot reach the server it still revokes everywhere else and ends with exit 5, saying the lighthouse still lacks the blocklist: `N26`; `P16`/`P17`). `remove` stops the
 service and deletes its keys and config.
 
 `PERSIST=1` is for a game people keep joining: nebula and k3s of the control plane become systemd services, the VM starts with the host (`boot.autostart`), and the
@@ -357,8 +357,13 @@ state directory** (`EMESH_STATE`, default `poc/.state`; `tests/test_poc_state_di
 `EMESH_STATE` (and project) on every later `mesh` or `lighthouse-vps.sh` command of that game. Simpler still: run that game from its own clone. Keep `features.networks` off: with it on, Incus only
 allows OVN networks in the project and the bridge cannot be created (the client waits for ever). The network is created in the shared set, so give it its own name and subnet.
 
-Not covered: a player behind a symmetric NAT needs a relay (issue #15), and a control plane behind your home NAT is reached by hole punching through the
-lighthouse, which depends on your router. Test it from a network that is not yours before you announce the game.
+**Players behind a symmetric NAT: the relay.** A control plane behind your home NAT is reached by hole punching through the lighthouse, which
+works when your router keeps the source port. When it does not, or the player's does not either (symmetric NAT on both sides: some carrier NAT,
+some corporate routers), they can reach the lighthouse but never each other. Then make the lighthouse a relay as well:
+`poc/lighthouse-vps.sh sign <public-host> <lh.pub> --relay`, `poc/lighthouse-vps.sh deploy --ssh "<ssh command>"` and `poc/mesh host refresh cp`
+(`--no-relay` undoes it). Every bundle you issue afterwards names the relay; `verify` says `relay on`. The relay reads nothing (Nebula is
+end to end encrypted) and your firewall still decides what gets in, but every relayed byte crosses the server twice: about 2.35 bytes of its
+traffic per byte (DESIGN.md 15.1), so watch its bandwidth. Proved by `make poc-nat`. Test the game from a network that is not yours before you announce it.
 
 **The lighthouse is a full member of the mesh.** It gets a `nebula1` address like any host, its outbound rule is `any`, and every host allows `tcp/6443`
 from any mesh member, so whoever takes over the public server can reach the Kubernetes API over Nebula (a credential is still required). A lighthouse that
@@ -367,4 +372,4 @@ only introduces hosts could run with `tun: {disabled: true}`; that is a later ha
 ## What this guide does not cover yet
 
 Per-namespace RBAC and user kubeconfigs (issue #9), the public pool's cluster side and its public page (issue #11; the automatic tick is built),
-the relay for symmetric NAT (issue #15), and the LoadBalancer/BGP on own nodes (issue #13). See the gap table in [POC-STATUS.md](POC-STATUS.md). Join by signed pull request (issue #12) exists as a proof of concept for the maintainer's own game: [participants/README.md](../participants/README.md) (`participants.py sync` takes the same `EMESH_STATE`).
+and the LoadBalancer/BGP on own nodes (issue #13). See the gap table in [POC-STATUS.md](POC-STATUS.md). Join by signed pull request (issue #12) exists as a proof of concept for the maintainer's own game: [participants/README.md](../participants/README.md) (`participants.py sync` takes the same `EMESH_STATE`).
