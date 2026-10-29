@@ -18,18 +18,18 @@ tags: [try-it, recipes, incus, docker, kind, wsl2, cloud, mixed]
 
 # Try it your way
 
-People have different machines. Pick the row that matches yours: every recipe below was run end to end, word for word, on the date given
-(host a game, a player joins, the node is Ready, a pod lands by trust, revoke, tear down). Which host kind passes which step, and why the
+People have different machines. Pick the row that matches yours: each recipe below was run on the date given in the table (host a game,
+a player joins, the node is Ready, a pod lands by trust, revoke, tear down). The table says which ones were run in full and which were not. Which host kind passes which step, and why the
 others do not, is the matrix in [REQUIREMENTS.md](REQUIREMENTS.md) ("Host kind against step"); the runs are recorded in
 [POC-STATUS.md](POC-STATUS.md) ("Recipes of TRY-IT.md").
 
 | You have | Recipe | Host (control plane + lighthouse) | Players | Last run |
 | :--- | :--- | :--- | :--- | :--- |
 | a Linux machine with Incus | [1. Incus VMs](#1-incus-vms-a-linux-host) | VMs | VMs | 2026-10-28, PASS |
-| a Linux machine (or a VM, or WSL2) with Docker | [2. Docker](#2-docker-k3s-in-privileged-containers) | privileged containers | privileged containers | 2026-10-28, PASS in a Docker VM (recipe steps); teardown fixed after it, see recipe 2 |
+| a Linux machine (or a VM, or WSL2) with Docker | [2. Docker](#2-docker-k3s-in-privileged-containers) | privileged containers | privileged containers | 2026-10-28, PASS in a Docker VM for every step except teardown, which leaves the player container (issue #36) |
 | kind, to try the encrypted pod network only | [3. kind](#3-kind-the-pod-network-only) | kind nodes | none (no Nebula) | earlier version PASS (3 runs, WSL2); **not re-run on 2026-10-28** |
 | Windows | [4. WSL2 as a player](#4-wsl2-on-windows-as-a-player) (as a host: recipe 2 inside WSL2, **not run**) | any of the others | a WSL2 distro | 2026-10-28, PASS (as a player) |
-| a cloud account | [5. A cloud VM](#5-a-cloud-vm-lighthouse-or-player) | its public lighthouse (and relay) | cloud VMs (amd64, arm64) | 2026-10-28, PASS |
+| a cloud account | [5. A cloud VM](#5-a-cloud-vm-lighthouse-or-player) | its public lighthouse (and relay) | cloud VMs (amd64, arm64) | not run as written; its parts ran in recipe 6 and in the admission cycle of #31 (2026-10-28) |
 | several of these | [6. Mixed](#6-mixed-a-control-plane-on-one-platform-players-on-two-others) | an Incus VM at home + a lighthouse on a cloud VM | a cloud arm64 VM and a WSL2 distro | 2026-10-28, PASS |
 
 Common to all: get the code, and run everything from `poc/`. Versions are pinned in `poc/stack.env`. Read the golden rule first: what runs on
@@ -122,9 +122,8 @@ export RUNTIME=docker TAINT=yes
 
 **Expected:** the same lines as recipe 1.
 
-**Tear down:** `./mesh host down` (removes the containers, the network and the state). The run of 2026-10-28 found that `down.sh` left the player
-container (`alice`) and the network behind; it now removes every container on the game's network. That fix is **not yet re-run end to end**:
-after `down`, check `docker ps -a` and `docker network ls` and remove what is left by hand.
+**Tear down:** `./mesh host down` (removes the containers, the network and the state). **Known limitation (issue #36):** the run of 2026-10-28 found that `down.sh`
+leaves the player container (`alice`) and the network behind. After `down`, check `docker ps -a` and `docker network ls` and remove what is left by hand.
 
 **What it cannot do:** the players are containers on the same machine; machines outside cannot reach a Docker bridge, so the same
 "public lighthouse" rule applies. In WSL2 this recipe is how WSL2 hosts a game; a player from another machine needs a public lighthouse
@@ -188,7 +187,7 @@ Ubuntu 24.04 VM with a public address works like this.
 ./lighthouse-vps.sh install <public-ip> --relay --ssh "ssh -i <key> ubuntu@<public-ip> sudo"
 ./lighthouse-vps.sh verify --ssh "ssh -i <key> ubuntu@<public-ip> sudo"     # ... ok: relay on ...
 RUNTIME=incus TAINT=yes ./mesh host init           # or RUNTIME=docker: the control plane at home, the lighthouse in the cloud
-TAINT=yes ./mesh host invite bob --trust friends   # send poc/.state/bundles/bob to bob's VM, privately
+RUNTIME=incus TAINT=yes ./mesh host invite bob --trust friends   # send poc/.state/bundles/bob to bob's VM, privately
 ```
 
 On a player VM (as root): the commands of [JOIN.md](JOIN.md) "What you need", with `nebula-linux-arm64.tar.gz` and `k3s-arm64` on arm64, then
