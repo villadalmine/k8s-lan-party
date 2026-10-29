@@ -282,7 +282,7 @@ g8_signed_pr() { # the maintainer's policy caps a pull request at friends, and t
   # trust own, public and an unknown level are refused with their messages; the signature itself is poc-participants.sh (33 checks, cosign)
   local pol="$POC/../participants/policy.yaml"
   grep -qE '^self_service_trust: *friends *(#.*)?$' "$pol" || { echo "participants/policy.yaml: self_service_trust is not friends"; return 1; }
-  (cd "$POC" && python3 -c 'import participants' >/dev/null 2>&1) || { echo "python3 lacks pyyaml or cryptography (poc/participants.py needs them): cannot run the schema tests"; return 3; }
+  (cd "$POC" && python3 golden.py yaml-check) || return $?   # 3 = SKIP, with the reason in the log (PyYAML missing)
   (cd "$POC" && python3 -m unittest -v test_participants.Schema.test_trust_ceiling 2>&1 | tail -4)
   (cd "$POC" && python3 -m unittest test_participants.Schema.test_trust_ceiling >/dev/null 2>&1)
 }

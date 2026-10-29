@@ -92,6 +92,7 @@ up in Docker or Incus, not on the distro itself.
 | Packet capture | `nicolaka/netshoot:v0.16`; `tcpdump` in the VMs | tests only |
 | Test pods | `busybox:1.36` | tests only |
 | Host side | `bash`, `curl`, `tar`, `python3` (for JSON of `nebula-cert print`) | the machine that runs `poc/` |
+| PyYAML (`python3-yaml`) | only the golden suite's check G8.1 (`poc/participants.py` parses YAML); without it G8.1 prints why and SKIPs | the machine that runs `make poc-golden` |
 | Docker flow | Docker 29.x with `--privileged` | WSL2 / Linux |
 | VM flow | Incus 6.x (`incus` without sudo), image `images:ubuntu/24.04/cloud` | the Dell |
 | kind flow | kind 0.33.0, kubectl, helm | WSL2 / Linux |

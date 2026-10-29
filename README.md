@@ -50,6 +50,8 @@ See [GOLDEN-RULES.md](docs/GOLDEN-RULES.md).
 
 ## Three ways in
 
+**Start here to try it on your own machine: [docs/TRY-IT.md](docs/TRY-IT.md)**, a tested recipe per platform (Incus VMs, Docker, kind, WSL2, a cloud VM, and mixes of them).
+
 ### 1. Try it locally (a simulation, about 4 minutes)
 
 You need **Docker and `make`** (Linux, macOS with Docker Desktop, or WSL2). One command brings up a local CA, a lighthouse, a

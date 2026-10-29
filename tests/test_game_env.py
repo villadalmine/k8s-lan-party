@@ -57,6 +57,13 @@ class GameEnv(unittest.TestCase):
         self.assertIn("VM flow removed", p.stdout)
         self.assertFalse(self.state.exists())
 
+    def test_down_refuses_a_corrupt_runtime(self) -> None:
+        # a corrupt game.env must not fall to the Docker path (which removes the state and leaves the VMs running)
+        (self.state / "game.env").write_text("GAME_RUNTIME=bogus" + chr(10))
+        p = self.bash(f'"{POC}/down.sh"')
+        self.assertEqual(p.returncode, 2, p.stdout + p.stderr)
+        self.assertTrue(self.state.exists(), "down.sh removed the state of a game it could not identify")
+
     def test_a_malformed_file_is_ignored_not_executed(self) -> None:
         # the file is read, never sourced: a value with shell syntax must not run, and the whole file is refused
         mark = self.tmp / "ran"

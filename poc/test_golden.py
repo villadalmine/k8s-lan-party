@@ -74,6 +74,26 @@ class Listeners(unittest.TestCase):
         self.assertEqual(golden.listeners(self.PROC, 10000), ["0.0.0.0"])
 
 
+class YamlCheck(unittest.TestCase):
+    def run_check(self, setup: str):
+        import subprocess, sys, os
+        code = setup + "import sys, golden; sys.exit(golden.yaml_check())"
+        return subprocess.run([sys.executable, "-I", "-c", "import sys; sys.path.insert(0, %r);" % os.path.dirname(os.path.abspath(golden.__file__)) + code],
+                              capture_output=True, text=True)
+
+    def test_with_pyyaml_it_runs(self):
+        try:
+            import yaml  # noqa: F401
+        except ImportError:
+            self.skipTest("PyYAML not installed here")
+        self.assertEqual(self.run_check("").returncode, 0)
+
+    def test_without_pyyaml_it_skips_with_a_message(self):
+        p = self.run_check("sys.modules['yaml'] = None;")   # `import yaml` now raises ImportError
+        self.assertEqual(p.returncode, 3, p.stdout + p.stderr)
+        self.assertIn("python3-yaml", p.stdout)
+
+
 class Cert(unittest.TestCase):
     def test_line(self):
         printed = json.dumps([{"fingerprint": "f1", "details": {"issuer": "ca1", "notBefore": "2026-10-28T10:00:00Z",

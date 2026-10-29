@@ -6,6 +6,8 @@
         other environments are kept, so the lab and a stranger's control plane fill the same table. Idempotent.
     golden.py audit <pods.json> "<node>=<trust> ..."
         print every pod outside the system namespaces that is private (no label, or private) and runs on a node that is not `own`
+    golden.py yaml-check
+        exit 0 when the participant schema tests can run, 3 (SKIP) with a message when PyYAML is missing
     golden.py listeners <port> < /proc/net/tcp
         print every address a TCP port listens on (IPv4 and IPv6), read from the kernel's own table
     golden.py cert <nebula-cert> <host.crt>
@@ -106,6 +108,20 @@ def cert_line(printed: str) -> str:
     return f"{c['fingerprint']} {issuer} {int((t(d['notAfter']) - t(d['notBefore'])).total_seconds())}"
 
 
+def yaml_check() -> int:
+    """0 when poc/participants.py can parse participant files; 3 (the suite's SKIP) with a message when PyYAML is missing.
+    participants.py imports yaml inside a try and sets it to None, so importing the module succeeds without it: look at the name."""
+    try:
+        import participants
+    except ImportError as e:  # participants.py itself needs only the standard library and PyYAML
+        print(f"poc/participants.py cannot be imported ({e}): cannot run the schema tests")
+        return 3
+    if getattr(participants, "yaml", None) is None:
+        print("PyYAML is missing (Debian and Ubuntu: apt-get install python3-yaml; or pip install pyyaml): the participant schema tests cannot run")
+        return 3
+    return 0
+
+
 def listeners(proc_net: str, port: int) -> list[str]:
     """The addresses that listen on a TCP port, from the text of /proc/net/tcp and /proc/net/tcp6 (no ss or netstat needed)."""
     out = []
@@ -137,6 +153,7 @@ def main(argv: list[str]) -> int:
     c = sub.add_parser("cert")
     c.add_argument("nebula_cert")
     c.add_argument("crt")
+    sub.add_parser("yaml-check")
     li = sub.add_parser("listeners")
     li.add_argument("port", type=int)
     args = ap.parse_args(argv)
@@ -148,6 +165,8 @@ def main(argv: list[str]) -> int:
         trust = dict(x.split("=", 1) for x in args.trust.split())
         for line in audit(json.loads(Path(args.pods).read_text()), trust):
             print(line)
+    elif args.cmd == "yaml-check":
+        return yaml_check()
     elif args.cmd == "listeners":
         for addr in listeners(sys.stdin.read(), args.port):
             print(addr)
