@@ -41,6 +41,19 @@ flowchart LR
 weakness 8 (W00-W06 and W03b), CAs 13, revoke 10, placement 30 (89 PASS); `vm/poc-vm.sh` (Cilium + WireGuard + SPIRE) 24 PASS; `vm/poc-placement.sh` (Cilium) 30 PASS.
 The earlier pairs of runs were identical; the 2026-10-26 runs have not been repeated, so they are single runs, not "x2".
 
+## Recipes of TRY-IT.md (issue #25)
+
+Each recipe of [TRY-IT.md](TRY-IT.md) was run as the table says; the run is recorded here and in the matrix of issue #14 ([REQUIREMENTS.md](REQUIREMENTS.md)).
+
+| Recipe | Where | Date | Result |
+| :--- | :--- | :--- | :--- |
+| 1. Incus VMs (host init, invite, play, label, placement, three pods, revoke, down) | the maintainer's lab host, own Incus project | 2026-10-28 | PASS: `joined`, `placement installed`, `bad-app` refused (`private-cannot-name-a-foreign-node`), `private-app` on `cp`, `shared-app` on `alice`, revoke leaves only `cp`, `VM flow removed` |
+| 2. Docker (the same steps, `RUNTIME=docker`) | an Ubuntu 24.04 VM with Docker 29.9 | 2026-10-28 | PASS for every step; **`down` left the player container and the network** (found; issue #36, not fixed here) |
+| 3. kind | WSL2 | earlier (3 runs) | not re-run on 2026-10-28 |
+| 4. WSL2 as a player | a fresh Ubuntu 24.04 distro on Windows 11 | 2026-10-28 | PASS twice (see above); as a host: not run |
+| 5. A cloud VM (lighthouse with relay; player arm64) | AWS eu-west-1, t3.small and t4g.small, destroyed afterwards, nothing billing checked | 2026-10-28 | not run as one recipe: its parts ran in recipe 6 (lighthouse + relay on amd64, a player on arm64) and in the cloud-VM admission cycle recorded above |
+| 6. Mixed: control plane in an Incus VM behind two NATs, lighthouse + relay on a cloud VM, players on a cloud arm64 VM and in WSL2 | as listed | 2026-10-28 | PASS: both players Ready through the relay, placement by trust held (`shared-friends` on the arm64 node, `shared-public` on WSL2, `bad-app` refused), revoke cut both |
+
 ## Phase A: it works everywhere
 
 - **A1.** Cilium + WireGuard + SPIRE with the uid fix on the Dell VMs: PASS, two identical runs (`V01-V92`).
