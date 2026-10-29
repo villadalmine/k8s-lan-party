@@ -135,6 +135,7 @@ poc/lighthouse-vps.sh verify --ssh "ssh ubuntu@LH_PRIVATE sudo"                #
 cd ~/k8s-lan-party/poc
 CNI=cilium TAINT=yes ./mesh host init            # "host up": the control plane reached the public lighthouse from behind the host's NAT
 ./cilium.sh                                      # Cilium 1.20 with WireGuard; cp turns Ready
+# optional, adds mutual authentication (SPIRE) so that golden check G3.4 runs instead of SKIPping: MUTUAL=yes ./cilium.sh
 ./install-placement.sh                           # Kyverno and the two placement policies
 ./kc taint node cp node-role.kubernetes.io/control-plane:NoSchedule-
 ```

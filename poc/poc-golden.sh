@@ -19,6 +19,7 @@ CANARY="EDGEMESH-GOLDEN-CANARY-0123456789"
 SENTENCE="what runs on someone else's machine can be seen by its owner"
 NEB9="$STATE/golden-nebula"   # the throwaway player's Nebula, run on THIS machine, without a tun device
 NEB9_PID=""
+SPIRE_SKIPPED=0
 
 check() { # check <rule> <id> <description> <command...>: exit 0 PASS, 3 SKIP, anything else FAIL
   local rule="$1" id="$2" desc="$3" rc st; shift 3
@@ -51,6 +52,7 @@ cp_tcpdump() { # cp_tcpdump <seconds> <tcpdump args...>: a capture in the contro
 }
 fp_of() { "$CACHE/nebula-cert" print -json -path "$STATE/bundles/$1/host.crt" | python3 -c 'import sys,json;print(json.load(sys.stdin)[0]["fingerprint"])'; }
 cleanup() {
+  [ "$SPIRE_SKIPPED" = 0 ] || spire_agent_skip none >/dev/null 2>&1
   [ -z "$NEB9_PID" ] || kill "$NEB9_PID" 2>/dev/null; rm -rf "$NEB9"
   # forced: a test pod on a node that went NotReady (its certificate expired) would keep the namespace Terminating for ever
   k -n "$NS" delete pod --all --force --grace-period=0 >/dev/null 2>&1
@@ -155,6 +157,88 @@ g3_capture() { # while the friends node fetches the canary from the control plan
   wgu=$(grep -c '51871.*UDP' "$t/neb.txt"); nebu=$(grep -c 'UDP' "$t/under.txt")
   echo "canary: cilium_wg0=$wg nebula1=$neb $UNDERLAY_IF=$under; WireGuard lines on nebula1=$wgu; UDP lines on $UNDERLAY_IF=$nebu"
   [ "$wg" -gt 0 ] && [ "$neb" = 0 ] && [ "$under" = 0 ] && [ "$wgu" -gt 0 ] && [ "$nebu" -gt 0 ]
+}
+
+# ---- rule 3, the deny half of mutual authentication (issue #8; the same logic as poc-vm V98-V102 and checks-cilium.sh, API only) ----
+# The control: a twin pod with the same labels (so the same Cilium identity) on a node that has a SPIRE agent. The only difference between the twins is
+# their node's authentication, not the policy and not the identity. The check takes the SPIRE agent off the friends node for a moment and puts it back
+# (the cleanup puts it back on any exit). It needs `MUTUAL=yes ./cilium.sh`; without SPIRE it SKIPs.
+spire_agent_skip() { # <node>|none: the SPIRE agent DaemonSet leaves that node out (none: every node again)
+  if [ "$1" = none ]; then k -n cilium-spire patch ds spire-agent --type json -p '[{"op":"remove","path":"/spec/template/spec/affinity"}]' || return 1; SPIRE_SKIPPED=0
+  else SPIRE_SKIPPED=1; k -n cilium-spire patch ds spire-agent --type merge -p '{"spec":{"template":{"spec":{"affinity":{"nodeAffinity":{"requiredDuringSchedulingIgnoredDuringExecution":{"nodeSelectorTerms":[{"matchFields":[{"key":"metadata.name","operator":"NotIn","values":["'"$1"'"]}]}]}}}}}}}' || return 1; fi
+  k -n cilium-spire rollout status ds spire-agent --timeout=240s
+}
+spire_agent_on() { [ -n "$(k -n cilium-spire get pod -l app=spire-agent --field-selector "spec.nodeName=$1,status.phase=Running" -o name)" ]; }
+mpod() { # mpod <name> <node> <command> <app label>: a shareable pod (harmless on any node) pinned to a node
+  cat <<YAML
+apiVersion: v1
+kind: Pod
+metadata: {name: $1, namespace: $NS, labels: {app: $4, probe: $GOLD, edge-mesh/sensitivity: shareable, edge-mesh/share-with: friends}}
+spec:
+  automountServiceAccountToken: false
+  terminationGracePeriodSeconds: 1
+  nodeName: $2
+  containers: [{name: c, image: busybox:1.36, command: ["sh","-c","$3"], resources: {limits: {cpu: 100m, memory: 64Mi}}}]
+YAML
+}
+twin_gets() { k -n "$NS" exec "$1" -- wget -qO- -T 3 "http://$(k -n "$NS" get pod mweb -o jsonpath='{.status.podIP}'):8080/canary" 2>/dev/null | grep -q "$CANARY"; }
+auth_drops() { local p; p=$(k -n kube-system get pod -l k8s-app=cilium --field-selector spec.nodeName=cp -o jsonpath='{.items[0].metadata.name}'); k -n kube-system exec "$p" -c cilium-agent -- cilium-dbg metrics list | awk '/cilium_drop_count_total/ && /direction=INGRESS/ && /reason=Authentication required/ {print int($NF)}' | head -1; }
+g3_mutual_deny() {
+  need "$FRIENDS" || return 3
+  k get ns cilium-spire >/dev/null 2>&1 && [ "$(k -n cilium-spire get ds spire-agent -o jsonpath='{.status.numberReady}' 2>/dev/null)" = "$(k get nodes --no-headers | wc -l)" ] \
+    || { echo "SPIRE is not installed (or not Ready on every node): run MUTUAL=yes ./cilium.sh to add mutual authentication"; return 3; }
+  k -n "$NS" delete pod mweb mok mno --force --grace-period=0 --ignore-not-found >/dev/null 2>&1
+  # the agent leaves the friends node BEFORE the twins exist, and the twins' labels are new in every run: their identity was never authenticated
+  # before, and no certificate for it is cached on the friends node (a pod that existed while the agent was there could still authenticate)
+  spire_agent_skip "$FRIENDS" && ! spire_agent_on "$FRIENDS" && spire_agent_on cp || return 1
+  mpod mweb cp "mkdir -p /www; echo $CANARY >/www/canary; httpd -f -p 8080 -h /www" mweb | k apply -f - >/dev/null || return 1
+  mpod mok cp "sleep 3600" mcli | k apply -f - >/dev/null && mpod mno "$FRIENDS" "sleep 3600" mcli | k apply -f - >/dev/null || return 1
+  k apply -f - >/dev/null <<YAML || return 1
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata: {name: mweb-needs-mutual-auth, namespace: $NS}
+spec:
+  endpointSelector: {matchLabels: {app: mweb}}
+  ingress:
+  - fromEndpoints: [{matchLabels: {app: mcli}}]
+    toPorts: [{ports: [{port: "8080", protocol: TCP}]}]
+    authentication: {mode: required}
+YAML
+  k -n "$NS" wait --for=condition=Ready pod/mweb pod/mok pod/mno --timeout=180s || return 1
+  local a b; a=$(k -n "$NS" get cep mok -o jsonpath='{.status.identity.id}'); b=$(k -n "$NS" get cep mno -o jsonpath='{.status.identity.id}')
+  echo "twin identities: mok=$a mno=$b"; [ -n "$a" ] && [ "$a" = "$b" ] || return 1
+  # the twin on a node with a SPIRE agent is let in: the policy works, and mutual authentication works here
+  wait_for 120 twin_gets mok || { echo "the authenticated twin did not get through: mutual authentication does not work here at all"; return 1; }
+  # the twin on the node without a SPIRE agent: its Cilium agent holds no certificate for the identity
+  local before after i; before=$(auth_drops); before=${before:-0}
+  for i in 1 2 3; do twin_gets mno && { echo "the twin on the node without a SPIRE agent got through on try $i"; return 1; }; sleep 7; done
+  after=$(auth_drops); after=${after:-0}; echo "drops 'Authentication required' on cp: $before -> $after"
+  [ "$after" -gt "$before" ] || return 1
+  # the agent is back: the same pod is let in (the drop was authentication, nothing else)
+  spire_agent_skip none && wait_for 120 twin_gets mno
+}
+
+# ---- rule 7: the maintainer's endpoints run only on own nodes (poc/vm/poc-bgp.sh G06-G09b, G17; here the part the API alone can show) ----
+g7_endpoints_own() {
+  local names n lvl bad=0 ns p
+  if k get crd ciliumbgpnodeconfigs.cilium.io >/dev/null 2>&1; then
+    names=$(k get ciliumbgpnodeconfigs -o jsonpath='{.items[*].metadata.name}'); echo "bgp node configs: ${names:-none}"
+    for n in $names; do lvl=$(trust_of "$n"); [ "$lvl" = own ] || { echo "$n has a BGP node config and is '$lvl'"; bad=1; }; done
+    for n in $(k get ciliumbgpclusterconfigs -o jsonpath='{.items[*].metadata.name}'); do
+      lvl=$(k get ciliumbgpclusterconfig "$n" -o jsonpath='{.spec.nodeSelector.matchLabels.node-restriction\.kubernetes\.io/trust}'); echo "bgp cluster config $n selects trust=$lvl"; [ "$lvl" = own ] || bad=1
+    done
+  else echo "the Cilium BGP control plane is not installed here: no node announces anything"; fi
+  for ns in gateway envoy-gateway-system cert-manager; do
+    for p in $(k -n "$ns" get pod --field-selector=status.phase=Running -o jsonpath='{range .items[*]}{.metadata.name}={.spec.nodeName}{" "}{end}' 2>/dev/null); do
+      lvl=$(trust_of "${p#*=}"); echo "$ns/${p%=*} on ${p#*=} ($lvl)"; [ "$lvl" = own ] || bad=1
+    done
+  done
+  [ "$bad" = 0 ]
+}
+g7_trust_frozen() { # reused from lib.sh (poc-placement L52b, poc-bgp G09b): the API half of trust_frozen
+  need "$FRIENDS" || return 3
+  k get validatingadmissionpolicy edge-mesh-node-trust-frozen >/dev/null 2>&1 || { echo "the node trust freeze policy is not installed (poc/node-trust-freeze.yaml; mesh host init applies it)"; return 1; }
+  trust_frozen_api "$FRIENDS" friends
 }
 
 # ---- rule 4: tokens per node, burned; credentials encrypted in transit ----
@@ -287,8 +371,8 @@ g8_signed_pr() { # the maintainer's policy caps a pull request at friends, and t
   (cd "$POC" && python3 -m unittest test_participants.Schema.test_trust_ceiling >/dev/null 2>&1)
 }
 step_g10() { # rule 10: every rule 1-9 had at least one check that ran and passed in this run
-  local r missing=""; for r in 1 2 3 4 5 6 8 9; do awk -F'\t' -v r="$r" '$1==r && $3=="PASS"' "$RES" | grep -q . || missing="$missing $r"; done
-  echo "rules without a passing check:${missing:- none} (rule 7 is not built: #13)"; [ -z "$missing" ]
+  local r missing=""; for r in 1 2 3 4 5 6 7 8 9; do awk -F'\t' -v r="$r" '$1==r && $3=="PASS"' "$RES" | grep -q . || missing="$missing $r"; done
+  echo "rules without a passing check:${missing:- none} (G2.8 (#9) is the next to convert)"; [ -z "$missing" ]
 }
 
 ns_gone() { ! k get namespace "$NS" >/dev/null 2>&1; }
@@ -307,7 +391,7 @@ depends 2 G2.8 "trust is relative to the owner: a user's private pods run only o
 check 3 G3.1 "Cilium is the CNI: its agent is Ready on every node" g3_cilium_everywhere
 check 3 G3.2 "WireGuard is on in every agent, with a peer for every other node" g3_wireguard_peers
 check 3 G3.3 "a capture on the control plane: the canary is in clear only on cilium_wg0, never on nebula1 or the underlay" g3_capture
-depends 3 G3.4 "mutual authentication by policy: an unauthenticated peer is dropped" "#8"
+check 3 G3.4 "mutual authentication: with SPIRE installed, a peer whose node has no SPIRE agent is DROPPED by the policy that lets its authenticated twin in (no answer, 'Authentication required' drops counted), and let in again when the agent is back" g3_mutual_deny
 check 4 G4.1 "every player has its own join token; no bundle carries the shared server token" g4_no_shared_token
 check 4 G4.2 "after mesh host burn no registered player's join token is left" g4_burned
 check 4 G4.3 "a fresh invite: token lives 8 min at most, pinned to the cluster CA, for the API on the Nebula IP, and it authenticates" g4_fresh_invite
@@ -318,7 +402,8 @@ check 5 G5.4 "the revoked player's join token no longer authenticates" g5_token_
 check 5 G5.5 "revoke is idempotent, and an unknown name is refused (exit 3)" g5_idempotent
 check 6 G6.1 "the API listens on the control plane's Nebula IP only" g6_listens_on_nebula_only
 check 6 G6.2 "outside the mesh the API does not answer; inside it does" g6_not_outside
-depends 7 G7.1 "the maintainer's endpoints (AI gateway, LoadBalancer with BGP) run only on own nodes" "#13"
+check 7 G7.1 "BGP and the maintainer's endpoints: no BGP node config for a node that is not own, the BGP config selects own nodes only, the gateway, Envoy Gateway and cert-manager pods run on own nodes" g7_endpoints_own
+check 7 G7.2 "a node cannot move itself under the own-only selector: a joined node's credential and any identity that may patch node status are refused when they change a trust label (the host can)" g7_trust_frozen
 check 8 G8.1 "a participant who joins by signed PR gets friends only: own and public are refused by the schema, and the policy says friends (poc/participants.py)" g8_signed_pr
 check 8 G8.2 "every public certificate comes from the pool CA and lives at most the lease (pool.yaml)" g8_pool_lease
 check 9 G9.1 "every certificate was issued by one of our two CAs and every bundle points at our lighthouse" g9_our_ca
