@@ -169,7 +169,7 @@ vis_wait_bg() { echo "nohup $V wait $SITE $VA --interval 10 </dev/null >/root/wa
 vis_collected() { echo "grep -q '^join: ' /root/wait.log" | vis; }
 decoy_out_vis_in() { cycle_until $((LEASE + 300)) vis_collected && ! k get node decoy && "$MESH" host leases | grep -q '^visitor '; }
 bundle_is_mine() { # the bundle the visitor opened: its own host.key (never on the host or the server), a certificate for its key, public
-  echo "cmp $VK/host.key $VK/visitor/host.key && ls $VK/visitor | tr '\n' ' '" | vis | grep -qx 'ca.crt config.yml host.crt host.key join.env ' &&
+  echo "cmp $VK/host.key $VK/visitor/host.key && ls $VK/visitor | tr '\n' ' '" | vis | grep -qx 'ca.crt config.yml host.crt host.key join.env kubeconfig ' &&
   [ ! -e "$STATE/bundles/visitor/host.key" ] &&
   "$CACHE/nebula-cert" print -json -path "$STATE/bundles/visitor/host.crt" | python3 -c 'import sys,json; d=json.load(sys.stdin)[0]["details"]; sys.exit(0 if d["groups"] == ["public"] else 1)'; }
 claim_once() { [ "$(vis_curl "-o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' -d '{\"claim_code\":\"$(code_of_vis)\"}' $SITE/api/v1/requests/claim")" = 410 ]; }
