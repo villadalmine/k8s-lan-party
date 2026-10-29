@@ -7,7 +7,7 @@ BASE     ?= origin/main
 PR_BODY  ?=
 PR_TITLE ?=
 
-.PHONY: poc-lighthouse poc-cilium help labels-check test verify-ci pr-check install-hooks uninstall-hooks poc-join poc-host poc-weakness poc-down poc-ca poc-placement poc-kind poc-vm poc-revoke poc-admission poc-admission-auto poc-participants poc-participants-e2e poc-nat poc-bgp poc-golden
+.PHONY: poc-lighthouse poc-cilium help labels-check test verify-ci pr-check install-hooks uninstall-hooks poc-join poc-host poc-weakness poc-down poc-ca poc-placement poc-kind poc-vm poc-revoke poc-admission poc-admission-auto poc-participants poc-participants-e2e poc-nat poc-bgp poc-golden poc-pool
 
 help:
 	@grep -E '^[a-z-]+:.*##' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-14s %s\n", $$1, $$2}'
@@ -79,6 +79,9 @@ poc-admission: ## admission with manual approval (docs/ADMISSION.md): request, a
 
 poc-admission-auto: ## the automatic pool (phase B1, docs/ADMISSION.md): one tick approves, expels at lease end and promotes the next; switch, panic, daily cap, notify hook; needs Incus
 	poc/poc-admission-auto.sh
+
+poc-pool: ## issues #9 and #11: a namespace and a kubeconfig per player (RBAC, quota, the error matrix rows 6-9 and 11), the idle kick, the lease end removes node, namespace and token; needs Incus
+	poc/poc-pool.sh
 
 poc-participants: ## join by signed PR (issue #12), offline: cosign against a LOCAL TEST CA, the PR gate, issuing, encrypted delivery, removal; needs python3 with pyyaml and cryptography
 	poc/poc-participants.sh

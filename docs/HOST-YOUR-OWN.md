@@ -225,7 +225,10 @@ Two ticks at the same moment are safe (one lock). Alert on `emesh_admission_last
 nothing expels at the hour (the certificate still expires). `./poc-admission-auto.sh` proves the whole automatic cycle on Incus VMs (37 checks; [dell]);
 like the other suites it builds its own cluster, so run it after `./mesh host down`.
 
-**Not built:** the pool's cluster side (quotas, LimitRange, idle kick) and the public page: issue #11 and ADMISSION.md sections B2 and B3. Without
+**The pool's cluster side** (issues #9, #11): every invite also makes the player's namespace `play-<name>` (Pod Security restricted, quota and limits
+from pool.yaml) and a kubeconfig in the bundle that works there only, until the invite's `--ttl` ends (so `--ttl` is at least `11m`: the token API's minimum is 10 minutes and the invite takes some seconds); `kick` deletes the
+namespace, and the tick expels a lease whose node stays missing, NotReady or without a workload for `idle_kick_seconds`. `./poc-pool.sh` proves it
+(30 checks; [dell]). **Not built:** the public page: ADMISSION.md sections B2 and B3. Without
 `reap`, a "1 h slot" is still a 1 h certificate: when it expires Nebula closes the tunnel (`disconnect_invalid: true`) and the node goes NotReady.
 
 ## 4. Who is in, and the one command that revokes
@@ -396,5 +399,4 @@ only introduces hosts could run with `tun: {disabled: true}`; that is a later ha
 
 ## What this guide does not cover yet
 
-Per-namespace RBAC and user kubeconfigs (issue #9), the public pool's cluster side and its public page (issue #11; the automatic tick is built),
-and the LoadBalancer/BGP on own nodes (issue #13). See the gap table in [POC-STATUS.md](POC-STATUS.md). Join by signed pull request (issue #12) exists as a proof of concept for the maintainer's own game: [participants/README.md](../participants/README.md) (`participants.py sync` takes the same `EMESH_STATE`).
+OIDC logins for persistent participants and the public pool's request page (ADMISSION.md B2; the automatic tick, quotas and the idle kick are built) are not built, and the LoadBalancer/BGP on own nodes (issue #13) is a proof of concept only. See the gap table in [POC-STATUS.md](POC-STATUS.md). Join by signed pull request (issue #12) exists as a proof of concept for the maintainer's own game: [participants/README.md](../participants/README.md) (`participants.py sync` takes the same `EMESH_STATE`).

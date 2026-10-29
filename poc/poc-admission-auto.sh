@@ -19,7 +19,9 @@ MESH="$POC/mesh"
 LEASE="${ADM_LEASE:-1200}"
 COOLDOWN="${ADM_COOLDOWN:-60}"
 export POOL_CONFIG="$STATE/pool-test.yaml"
-sed -e "s/^lease_seconds: [0-9]*/lease_seconds: $LEASE/" -e "s/^cooldown_seconds: [0-9]*/cooldown_seconds: $COOLDOWN/" "$POC/pool.yaml" >"$POOL_CONFIG"
+# the idle kick is off here: these players join and run nothing on purpose (make poc-pool tests the idle kick)
+sed -e "s/^lease_seconds: [0-9]*/lease_seconds: $LEASE/" -e "s/^cooldown_seconds: [0-9]*/cooldown_seconds: $COOLDOWN/" \
+  -e "s/^idle_kick_seconds: [0-9]*/idle_kick_seconds: 0/" "$POC/pool.yaml" >"$POOL_CONFIG"
 ADM="$STATE/admission"
 # The notify hook of the test: one line per call, "<type>|<summary>". The repository knows no ntfy and no bot; the host wires its own command.
 HOOK_LOG="$STATE/hook.log"; : >"$HOOK_LOG"
