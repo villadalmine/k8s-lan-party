@@ -244,6 +244,11 @@ trust_frozen() { # trust_frozen <joined-node> <its-level>
     # shellcheck disable=SC2086
     out=$(node_kc "$n" $args); rc=$?; echo "[$args] rc=$rc: $out"; [ "$rc" -ne 0 ] || return 1
   done
+  trust_frozen_api "$n" "$lvl"
+}
+trust_frozen_api() { # trust_frozen_api <joined-node> <its-level>: the API-only half of trust_frozen, runnable against any control plane (make poc-golden,
+  # G7.1): needs no shell on the joined machine, only the host's own credential and impersonation
+  local n="$1" lvl="$2" out rc msg='edge-mesh node trust freeze'
   # 2. an identity that CAN patch node status (the controller's reach), through the subresource: the policy refuses a trust label change, own or
   # another node's, and lets a status-only patch through; the host (system:masters) is not refused by it
   freeze_probe_role || return 1; wait_for 30 probe_can || return 1
