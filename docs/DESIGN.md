@@ -273,6 +273,8 @@ e-mailed bundle is used) and renewal under the same node name ([participants/REA
 
 ## 6. Endpoints the maintainer owns
 
+A longer, plainer guide to the network layers, optional BGP, the options without it and the AI gateway: [NETWORKING.md](NETWORKING.md).
+
 The **AI gateway** and the **Cilium LoadBalancer with BGP to the MikroTik** run **only on the maintainer's own nodes**: the BGP
 peering policy has a `nodeSelector` for `own` nodes, and the IP pools select Services by label (a `CiliumLoadBalancerIPPool` has a
 `serviceSelector`, not a node selector); Services that need the pool run only on the maintainer's own nodes. **Remote nodes never announce.** TLS comes from cert-manager,
@@ -310,15 +312,22 @@ reach. Not done yet: tracked as a hardening follow-up (issue #20).
 The free demo must not fill up: a fixed pool that empties itself every hour. Settings live in one file
 (`poc/pool.yaml`).
 
-- **Fixed size.** At most `N` participant nodes and `M` demo namespaces. When the pool is full a join does **not**
+- **Fixed size.** At most `N` participant nodes and one namespace per participant, `play-<name>`. When the pool is full a join does **not**
   get in: the person joins a **FIFO waitlist** and sees their position ("full, try later").
 - **Lease: 1 hour, hard.** The Nebula certificate is issued with the same expiry; the k3s join token is burned once the node registers. At
   expiry the **reaper** (CronJob or controller) kicks the node, in the order of section 9: certificate fingerprint on the Nebula
   blocklist first, then cordon, drain and `kubectl delete node`; deletes the participant's namespace and workloads; frees the slot,
-  which goes to the head of the waitlist. `kick <node>` is the manual one-command version with the same effect.
-- **Idle kick.** A node that is NotReady, or has had no workload for `X` minutes, is evicted early.
+  which goes to the head of the waitlist. `kick <node>` is the manual one-command version with the same effect. **Built (PoC):** the reaper
+  is the host's timer running `mesh host auto --once`; `kick` deletes the participant's ServiceAccount first (their API token dies at once), then
+  revokes, removes the machine and deletes `play-<name>` (it fails, and the next tick retries, while the namespace is still there).
+- **Idle kick.** A node that is NotReady, or has had no workload for `X` minutes, is evicted early. **Built:** `idle_kick_seconds` (900); a lease
+  is idle from its start until its node is first seen Ready with a workload (a pod in its namespace, or a non-system pod on its node), and
+  again from the first tick that sees it idle; the tick expels it like an expiry (`how: idle`). An API that does not answer never expels.
 - **Quotas.** ResourceQuota and LimitRange per namespace (CPU, RAM, pods; no LoadBalancer, no NodePort); at most
-  one node per invite.
+  one node per invite. **Built** (`poc/participant.py`, numbers in pool.yaml), with Pod Security `restricted` on the namespace and a
+  `ValidatingAdmissionPolicy` (`poc/participant-policy.yaml`): Services are ClusterIP without externalIPs, and a pod may not set `nodeName` or
+  tolerate the control plane's taint; with it a mutating policy keeps a player's private (unlabelled) pods on the player's own node, and a
+  NetworkPolicy per namespace keeps players' pods apart (section 14).
 - **Per-IP rules**: at most **1 active lease per source IP**; a **cooldown** after a lease ends (default 1 h) before
   the same IP can join again; a **per-IP invite rate limit**; at most `daily_leases_per_identity` (2) leases per identity in any 24 h. The "IP" is an
   identity: the address normalized (IPv4 or its /24, IPv6 /64). A human approves each lease (option A) or the automatic tick does, inside the same limits
@@ -339,13 +348,15 @@ account** instead of per IP. Cosign and PRs stay **only for persistent participa
 ```mermaid
 stateDiagram-v2
   [*] --> Requested: invite (rate-limited per IP)
-  Requested --> Refused: IP has an active lease or is in cooldown
+  Requested --> Refused: over the rate limit, or (automatic pool) over the daily cap
   Refused --> [*]
+  Requested --> Deferred: IP has an active lease or is in cooldown (listed, never admitted before both end)
+  Deferred --> Waitlist: lease over and cooldown passed
   Requested --> Waitlist: pool full
   Waitlist --> Active: slot freed (FIFO)
   Requested --> Active: slot free, cert with 1 h TTL, join token burned on registration
   Active --> Reaping: lease expired, kick, idle or NotReady
-  Reaping --> Free: cordon, drain, delete node and namespace, blocklist cert
+  Reaping --> Free: token dies, blocklist cert, cordon, drain, delete node and namespace
   Free --> Cooldown: IP cooldown starts
   Free --> Waitlist: slot goes to the next in line
   Cooldown --> [*]: IP may join again after 1 h
@@ -392,6 +403,8 @@ Where each suite passed, how often, and what is still relaxed is in [POC-STATUS.
 | `make poc-bgp` | the maintainer's endpoints (section 6): Envoy Gateway and cert-manager only on `own` nodes, TLS issued from the Gateway by itself, BGP only from `own` nodes to a test router, a remote node never announces (no BGP instance, cannot select itself with the kubelet's or the k3s controller's credential, its Cilium token writes no BGP object, the router refuses it) (20, 6 of them negative) |
 | `make poc-lighthouse` | a lighthouse on a separate public server (a VM plays it): prepare, sign and deploy are idempotent, a player joins through it, `revoke` reaches it; `mesh host refresh` with no change, with a change that restarts Nebula (the API and the node come back) and with one read on reload (23) |
 | `make poc-admission` | admission with manual approval ([ADMISSION.md](ADMISSION.md)): request, approve, join, places full, the lease ends, `reap` expels, the next one in line enters, `reap --all`, a burned join token refused to a second machine, a non-cooperative copy of a bundle refused by the node guard and cut with the lease, another guest's issued name refused by its node password, a name whose node password k3s dropped refused by the guard (31) |
+| `make poc-pool` | issues #9 and #11 ([ADMISSION.md](ADMISSION.md)): a namespace and a kubeconfig per player (a TokenRequest token of exactly the lease, node and user credentials apart, RBAC to the namespace only, no secret, no node), the error matrix rows 6, 7, 8, 9 and 11 with their messages and exit codes, Pod Security and the participant guard, private pods pinned to the player's own node and a shareable one allowed on another's, the NetworkPolicy between players, the token dead at once when a lease is ended by hand, the idle kick, the second request of an address held while its lease runs and through the cooldown, the rate limit, `X-Forwarded-For`, the lease end removing node, namespace and token, the place reused (30) |
+| `make test` | the pool logic (`poc/pool.py`): fixed slots, 1 h lease, per-identity rules (IP normalized), daily cap, FIFO waitlist; the admission ledger (`poc/admission.py`), the idle kick and the rate limit; the participant's objects and kubeconfig (`poc/participant.py`); `edge-mesh kubectl` and its exit codes; the scripts keep their executable bit |
 | `make poc-participants` | join by signed PR (section 5.1), offline: the real cosign against a **local TEST CA** that plays Fulcio (marked TEST ONLY, never committed); a valid signed PR passes; another identity, another account id, another workflow or OIDC issuer, an untrusted CA, a key instead of keyless, an unsigned or tampered file, a replay by another author, trust `own` (never through a PR, also with the policy edited in the same PR or pushed straight to main), a taken or reserved node name, a join PR that touches code, a removal by a re-registered login: each fails; the issuing side re-verifies main, delivers the bundle encrypted and signed, refuses a forged one, a removal revokes, a failed revoke blocks the new certificate; a broken policy changes nothing (33) |
 | `make poc-participants-e2e` | the same flow on Incus VMs: the participant's keys made on her machine, sync issues, she opens and joins (Ready), her file leaves main, one sync and she reaches neither the lighthouse nor the API, her Node does not come back (11) |
 | `make poc-nat` | relay and NAT ([issue #15](https://github.com/villadalmine/k8s-lan-party/issues/15)): a control plane and a player behind two different routers; port-preserving NAT gives a direct tunnel; symmetric NAT on both sides gives none (the negative test) until `lighthouse-vps.sh sign --relay`; then the player reaches the control plane through the relay on the lighthouse, the relay really carries the bytes and does not bypass the far end's firewall, a real player joins (node Ready, the API reaches its kubelet) and `revoke` cuts it, relay included; latency and bandwidth of both paths recorded (26) |
@@ -403,8 +416,8 @@ and a `ValidatingAdmissionPolicy` that refuses a `friends` or `public` label wit
 instead of deleting a Node that registered without it. Private pods are pinned to `trust=own`, and `spec.nodeName` on a node that is not
 `own` is denied. The `owner=<github-user>` label and the relative trust of section 1 (several owners in one cluster) are not built yet.
 
-**Not built yet** (the phase-1 gap table in POC-STATUS.md has the evidence): the rest of the pool (quotas, idle kick, the public request
-page; the manual admission, its reaper and the automatic tick exist, [ADMISSION.md](ADMISSION.md)), per-namespace RBAC and kubeconfig per user, and
+**Not built yet** (the phase-1 gap table in POC-STATUS.md has the evidence): the public request page of the pool (the manual admission, the
+automatic tick, the reaper, quotas and the idle kick exist, [ADMISSION.md](ADMISSION.md)), OIDC for persistent users, and
 the public opening. Join by signed PR is built; the PoC cannot use the real Fulcio offline, so its fixture uses a local TEST CA with
 `--insecure-ignore-tlog`, **only there and marked as such** (`participants.py --test-root` refuses a trusted root without the TEST marker),
 and the real flow runs in CI on every pull request.
@@ -433,9 +446,9 @@ The simple idea first: **it joins, and a study lab runs on it.** Security layers
 | **1b. Host your own game** | `mesh host init / invite / players / kick / revoke / refresh / down`; a lighthouse on a separate public server | `make poc-host`, `make poc-revoke`, `make poc-lighthouse` | built (#5, #7) |
 | **1c. Weaknesses of one control plane** | flapping, tolerance tuning, lossy links, control plane down | `make poc-weakness` | built, numbers in section 13 (#6) |
 | **2. Cilium + WireGuard** | tunnel mode, encryption always on, `cilium-dbg encrypt status`, the MTU set once | `make poc-vm`, `poc-cilium`, `poc-kind` | built (#8) |
-| 3. Per-namespace RBAC and kubeconfig | user access (section 14) | planned | design (#9) |
+| **3. Per-namespace RBAC and kubeconfig** | user access (section 14): `play-<name>`, a TokenRequest kubeconfig of exactly the lease, `edge-mesh kubectl` | `make poc-pool` (PL04-PL16, PL23) | built for the pool and hand invites (#9); OIDC for persistent users is step 7 |
 | **4. Trust levels + Kyverno placement** | sections 4, 1 | `make poc-placement` | built for one owner (#10; section 10) |
-| 5. The 1 h pool and per-IP limits | section 8; `poc/pool.py` has unit tests today, and the pool CA exists (`make poc-ca`) | planned | logic and CA built, cluster side planned (#11) |
+| **5. The 1 h pool and per-IP limits** | section 8: admission, the automatic tick, quotas, the idle kick, the lease end | `make poc-admission`, `poc-admission-auto`, `poc-pool`, `make test` | cluster side built (#11); the public request page is B2 ([ADMISSION.md](ADMISSION.md)) |
 | **6. Mutual auth by policy** | section 3 | `make poc-vm` (V90-V102) | built: an authenticated peer passes, an unauthenticated one is dropped (V101); beta upstream; not evidence against a joined node's owner (section 3.3) (#8) |
 | **6b. Gateway and BGP on own nodes** | section 6 | `make poc-bgp` | built (#13) |
 | **7. Signed-PR participants** | section 5.1 | `make poc-participants`, `make poc-participants-e2e`, CI `participants` | built as a PoC (#12) |
@@ -498,7 +511,14 @@ kubeconfig's `server:` is that IP and its CA is pinned.
 
 - **Free 1 h pool:** the bundle includes a kubeconfig built from a ServiceAccount token issued with the TokenRequest API,
   expiring with the lease. RBAC binds it to the participant's demo namespace only: create/get/list/delete pods, deployments,
-  ClusterIP services and configmaps; no cluster-wide secrets, no nodes, no CRDs. Quotas and Kyverno apply.
+  ClusterIP services and configmaps; no cluster-wide secrets, no nodes, no CRDs. **Built** (`mesh host invite`,
+  so a hand invite gets one too): the namespace is `play-<name>` (the prefix keeps a player called `kube-system` out of the real one),
+  Pod Security `restricted` is enforced, the Role also reads its quota, limits and events and may exec into its own pods, and nothing else (no
+  secrets at all, no RBAC, no tokens). The token stops working at the lease end twice over: its expiry, and the ServiceAccount the reaper deletes.
+  What applies to a player's pods is what `mesh host init` and `invite` install, Kyverno or not: Pod Security, the quota, a NetworkPolicy (the
+  namespace's pods reach each other and the cluster DNS, nothing else; nothing from another namespace reaches them) and the participant guard (`poc/participant-policy.yaml`): a pod without `edge-mesh/sensitivity=shareable` is private and is pinned to the player's own node (a MutatingAdmissionPolicy binds it by node NAME with a nodeAffinity on `metadata.name`, which no kubelet can choose, unlike a label such as `kubernetes.io/hostname` that a stranger's kubelet may set on its own node; the player's own nodeAffinity is replaced, and the guard refuses a private pod bound otherwise); a shareable pod may run on any player's node (golden rule 1: that node's owner can see it), never on the control plane.
+  Golden rule 2 is relative here: "own" is the player's own node, so the host's absolute `trust=own` placement (section 4, `poc/placement/`)
+  skips the players' namespaces. Trust taints on players' nodes (`TAINT=yes`) are not supported with the pool yet.
 - **Persistent participants (signed-PR flow):** OIDC (Keycloak or Dex, still open) through kubelogin; groups map to RBAC:
   their own namespaces plus `friends`-level permissions. No long-lived tokens.
 - **Node credentials and user credentials are different things.** The k3s agent's node credential lets a *machine* be a node;
@@ -509,9 +529,9 @@ The flow, in commands:
 
 ```bash
 edge-mesh join ./bundle --accept-golden-rule     # brings up Nebula and the agent (a player machine)
-export KUBECONFIG=./bundle/kubeconfig
-kubectl get pods -n <your-namespace>
-kubectl run web --image=nginx -n <your-namespace> -l edge-mesh/sensitivity=shareable   # or =private
+sudo edge-mesh kubectl get pods                    # your kubeconfig (installed by join), your namespace play-<name>, the messages below
+sudo edge-mesh kubectl apply -f my-pod.yaml        # a pod that passes Pod Security "restricted"; unlabelled = private: it runs on your node only
+                                                   # label it edge-mesh/sensitivity=shareable to let it run on other players' nodes
 ```
 
 ### 14.1 Error matrix
@@ -525,13 +545,13 @@ One test per row, deterministic. **Step 1** means the local PoC tests it now; **
 | 3 | Nebula certificate expired or not yet valid (clock skew) | Nebula refuses the certificate; check NTP | step 1: J15 (expiry) |
 | 4 | Certificate revoked or blocklisted (after a kick) | handshake refused: "certificate is in the block list" | step 1: J17 |
 | 5 | MTU or fragmentation: handshake works, big packets hang | pod network MTU fixed at 1250 (Nebula 1300 minus 50) | step 1: J08 |
-| 6 | The kubeconfig server is unreachable because Nebula is down | a clear error, not a generic timeout: "Nebula is down; run `edge-mesh join`" | later: with the user kubeconfig (step 3) |
-| 7 | x509 CA mismatch (wrong bundle or a man in the middle) | `x509: certificate signed by unknown authority`; re-download your bundle | later (step 3) |
-| 8 | The token expired at the end of the lease, mid-session (401) | friendly message and how to rejoin | later (step 5) |
-| 9 | RBAC forbidden outside your namespace (403) | `forbidden`; use your namespace | later (step 3) |
+| 6 | The kubeconfig server is unreachable because Nebula is down | a clear error, not a generic timeout: "Nebula is down; run `edge-mesh join`" | step 3: `edge-mesh kubectl` exit 10, PL16 |
+| 7 | x509 CA mismatch (wrong bundle or a man in the middle) | `x509: certificate signed by unknown authority`; re-download your bundle | step 3: exit 11, PL15 |
+| 8 | The token expired at the end of the lease, mid-session (401) | friendly message and how to rejoin | step 5: exit 12, PL23 |
+| 9 | RBAC forbidden outside your namespace (403) | `forbidden`; use your namespace | step 3: exit 13, PL10-PL12 |
 | 10 | A Kyverno denial: privileged pod, hostPath, a private pod on a shared node, LoadBalancer/NodePort | the policy's message, naming the rule | later (step 4) |
-| 11 | ResourceQuota exceeded | `exceeded quota`; lower requests or delete something | later (step 5) |
-| 12 | Pool full (waitlist), same IP already active, cooldown, rate limit | "full, position N" or the reason | pool logic: `poc/test_pool.py`; cluster side later (step 5) |
+| 11 | ResourceQuota exceeded | `exceeded quota`; lower requests or delete something | step 5: exit 14, PL13 |
+| 12 | Pool full (waitlist), same IP already active, cooldown, rate limit | "full, position N" or the reason | step 5: `poc/test_pool.py`, `test_admission*.py`; PL03, PL17-PL19, PL21, PL24 |
 | 13 | The node joins but stays NotReady: Cilium fails on WSL2 or privileged Docker (eBPF, WireGuard module, BPF mounts) | `edge-mesh join` prints which prerequisite is missing | later (step 2); a first attempt is recorded |
 | 14 | The k3s agent rejects the token: burned (a node already registered with it), or expired | the agent log says unauthorized; ask the host for a new invite | step 1: J14 |
 | 15 | Duplicate node name or Nebula IP conflict | the second joiner is refused | later |

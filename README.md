@@ -34,6 +34,33 @@ flowchart LR
 on your own machine.* Precisely: **what runs on someone else's machine can be seen by its owner**, so placement is by trust.
 See [GOLDEN-RULES.md](docs/GOLDEN-RULES.md).
 
+## What you can use today
+
+Honest status: this is a **proof of concept, not announced, no support promised**. Golden rule 1 applies to everything below: what runs on
+someone else's machine can be seen by its owner.
+
+- **Host your own game and invite friends:** [HOST-YOUR-OWN.md](docs/HOST-YOUR-OWN.md); join one: [JOIN.md](docs/JOIN.md).
+- **A tested recipe per platform** ([TRY-IT.md](docs/TRY-IT.md)): [Incus VMs](docs/TRY-IT.md#1-incus-vms-a-linux-host),
+  [Docker](docs/TRY-IT.md#2-docker-k3s-in-privileged-containers) and [kind](docs/TRY-IT.md#3-kind-the-pod-network-only),
+  [WSL2 as a player](docs/TRY-IT.md#4-wsl2-on-windows-as-a-player), [a cloud VM](docs/TRY-IT.md#5-a-cloud-vm-lighthouse-or-player);
+  the whole game on AWS with Terraform: [DEMO-AWS.md](docs/DEMO-AWS.md) (`examples/aws`).
+- **Network, BGP optional, AI gateway:** [NETWORKING.md](docs/NETWORKING.md).
+- **Laboratory only:** the public demo pool and request page, the AI gateway, BGP against a real router (only a test router was used).
+
+## Known open items
+
+Live list: `gh issue list --repo villadalmine/k8s-lan-party --state open`; proofs and gaps: [POC-STATUS.md](docs/POC-STATUS.md). No dates are promised.
+
+- [#12](https://github.com/villadalmine/k8s-lan-party/issues/12) real cosign keyless signing from a fork: needs a second account that signs.
+- [#29](https://github.com/villadalmine/k8s-lan-party/issues/29) Cilium identities can be forged from a joined node: mutual auth does not protect against a node's owner.
+- [#35](https://github.com/villadalmine/k8s-lan-party/issues/35) the SPIRE agent token on remote nodes can read pods and `nodes/proxy`.
+- [#36](https://github.com/villadalmine/k8s-lan-party/issues/36) `down.sh` leaves a participant container in the Docker flow.
+- [#26](https://github.com/villadalmine/k8s-lan-party/issues/26) and [#16](https://github.com/villadalmine/k8s-lan-party/issues/16) the public request page and the open demo are not open yet.
+- [#9](https://github.com/villadalmine/k8s-lan-party/issues/9) and [#11](https://github.com/villadalmine/k8s-lan-party/issues/11) per-player namespaces and the 1 h pool with limits: in review (PR #30), not merged at the time of writing.
+- Gateway and BGP on own nodes ([#13](https://github.com/villadalmine/k8s-lan-party/issues/13), closed): built and tested against a test router with `make poc-bgp`; applying BGP to a real router is each host's decision.
+- Umbrellas for low findings: [#20](https://github.com/villadalmine/k8s-lan-party/issues/20) (PoC and scripts), [#3](https://github.com/villadalmine/k8s-lan-party/issues/3) (docs).
+- `make poc-golden` lists checks marked `DEP #N`, never counted as passes: rules 3 and 7 are being turned into real checks; rule 2 waits for #9 (PR #30).
+
 ## Documentation, in reading order
 
 1. This README: what it is and the quickest try.
@@ -102,9 +129,11 @@ binary (at `/opt/nebula/nebula`) and `k3s` installed. Today the join command is 
    ```
 3. **Check you are in:** `ping 10.77.0.2` (the control plane) works from your machine, and the host sees your node Ready (`mesh host players`).
    Step by step, with the commands to install the tools: [docs/JOIN.md](docs/JOIN.md).
+   **Your own namespace:** the bundle also carries a kubeconfig for `play-<you>`, valid for your lease: `sudo ./poc/edge-mesh kubectl get pods`
+   ([JOIN.md](docs/JOIN.md#use-the-cluster-your-namespace-dell) lists its messages and exit codes).
 4. **Run your study lab on it:** pick one in [study.cybercirujas.club](https://study.cybercirujas.club) (for example
    `cka/1.1`) and run its `break_fix.sh break`, fix it, then `verify`.
-5. **Leave:** stop the agent and Nebula; the host can kick you with `mesh host kick <you>` and your certificate stops working.
+5. **Leave:** stop the agent and Nebula; the host can kick you with `mesh host kick <you>`: your certificate and your kubeconfig stop working and your namespace is deleted.
 
 ### 3. Host your own game
 

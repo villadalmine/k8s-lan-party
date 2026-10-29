@@ -32,9 +32,12 @@ spec:
             operator: AnyNotIn
             value: [shareable, private]
   # ---- private: only on own nodes ----
+  # a pool player's namespace (play-<name>, labelled edge-mesh/participant) is not the host's: there "own" is the player's own node,
+  # which poc/participant-policy.yaml enforces; forcing trust=own would put a stranger's pod on the host's machines (or nowhere)
   - name: private-forced-onto-own
     match: {any: [{resources: {kinds: [Pod]}}]}
-    exclude: {any: [{resources: {namespaces: [kube-system, kyverno, cilium-spire, kube-node-lease, kube-public]}}]}
+    exclude: {any: [{resources: {namespaces: [kube-system, kyverno, cilium-spire, kube-node-lease, kube-public]}},
+                    {resources: {namespaceSelector: {matchExpressions: [{key: edge-mesh/participant, operator: Exists}]}}}]}
     preconditions:
       all:
       - {key: "{{ request.object.metadata.labels.\"edge-mesh/sensitivity\" || 'private' }}", operator: Equals, value: private}
