@@ -273,6 +273,8 @@ e-mailed bundle is used) and renewal under the same node name ([participants/REA
 
 ## 6. Endpoints the maintainer owns
 
+A longer, plainer guide to the network layers, optional BGP, the options without it and the AI gateway: [NETWORKING.md](NETWORKING.md).
+
 The **AI gateway** and the **Cilium LoadBalancer with BGP to the MikroTik** run **only on the maintainer's own nodes**: the BGP
 peering policy has a `nodeSelector` for `own` nodes, and the IP pools select Services by label (a `CiliumLoadBalancerIPPool` has a
 `serviceSelector`, not a node selector); Services that need the pool run only on the maintainer's own nodes. **Remote nodes never announce.** TLS comes from cert-manager,

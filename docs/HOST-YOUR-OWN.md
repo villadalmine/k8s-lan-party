@@ -326,6 +326,8 @@ not protect a workload from the owner of a node that joined (DESIGN.md section 3
 
 ## 6b. Your endpoints: gateway, TLS and BGP on your own nodes only
 
+BGP is optional, and there are alternatives without it: [NETWORKING.md](NETWORKING.md) (layers, BGP explained, what to use instead, the AI gateway).
+
 ```bash
 ./vm/poc-bgp.sh             # [dell]  Envoy Gateway + cert-manager on own nodes, BGP from own nodes only to a test FRR router (20 checks); builds its own cluster
 ```
