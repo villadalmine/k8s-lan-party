@@ -11,9 +11,10 @@ meta: ../meta.yml
 depende_de: [docs/DESIGN.md]
 lo_usan: [README.md]
 docs: [docs/DESIGN.md, docs/GOLDEN-RULES.md, docs/POC-STATUS.md, docs/HOST-YOUR-OWN.md, docs/JOIN.md, docs/TROUBLESHOOTING.md]
-scripts: [poc/poc-join.sh, poc/poc-host.sh, poc/poc-weakness.sh, poc/poc-ca.sh, poc/poc-revoke.sh, poc/poc-placement.sh, poc/poc-cilium.sh, poc/poc-lighthouse.sh, poc/kind-cilium.sh, poc/vm/poc-vm.sh, poc/vm/run-all.sh, poc/up.sh, poc/down.sh, poc/issue.sh, poc/revoke.sh, poc/mesh, poc/edge-mesh, poc/lighthouse-vps.sh, poc/pool.py, poc/admission.py, poc/poc-admission.sh, poc/poc-admission-auto.sh, poc/participants.py, poc/poc-participants.sh, poc/poc-participants-e2e.sh, poc/poc-nat.sh, poc/poc-golden.sh, poc/golden.py, poc/game-env.sh, poc/poc-page.sh, poc/page/page.py, poc/page/puller.py, poc/page/seal.py, poc/page/visit.py, poc/page/page-server.sh]
+scripts: [poc/poc-join.sh, poc/poc-host.sh, poc/poc-weakness.sh, poc/poc-ca.sh, poc/poc-revoke.sh, poc/poc-placement.sh, poc/poc-cilium.sh, poc/poc-lighthouse.sh, poc/kind-cilium.sh, poc/vm/poc-vm.sh, poc/vm/run-all.sh, poc/up.sh, poc/down.sh, poc/issue.sh, poc/revoke.sh, poc/mesh, poc/edge-mesh, poc/lighthouse-vps.sh, poc/pool.py, poc/admission.py, poc/poc-admission.sh, poc/poc-admission-auto.sh, poc/participants.py, poc/poc-participants.sh, poc/poc-participants-e2e.sh, poc/poc-nat.sh, poc/poc-golden.sh, poc/golden.py, poc/game-env.sh, poc/poc-pool.sh, poc/participant.py, poc/participant-policy.yaml, poc/poc-page.sh, poc/page/page.py, poc/page/puller.py, poc/page/seal.py, poc/page/visit.py, poc/page/page-server.sh]
 tags: [poc, determinista, nebula, k3s, cilium, kyverno, poc/vm/poc-bgp.sh, poc/gateway.sh]
 tags: [poc, determinista, nebula, k3s, cilium, kyverno, bgp, gateway]
+
 ---
 
 # poc/: the deterministic proof of concept
@@ -46,6 +47,10 @@ directory). Where each suite passed and how often is in [docs/POC-STATUS.md](../
 | `vm/run-all.sh` | | 89 | join, host, weakness, CAs, revoke and placement on Incus VMs in one go |
 | `make poc-down` | `down.sh` | | remove every container, network and the state |
 | `make test` | `test_pool.py`, `test_admission.py`, `test_admission_auto.py`, `../tests/` | | the pool logic (1 h lease, per-identity rules, daily cap, FIFO waitlist), the admission ledger (the file, the lock, names), the automatic tick (switch, panic, events and hook, outbox, metrics, 8 concurrent ticks), the participants' schema, policy, PR gate and issuing plan, the public page and its puller (one test class per threat of ADMISSION.md B2, `test_page.py`), the PR gates, every PoC script keeps its executable bit, two state directories do not touch each other |
+| `make poc-pool` | `poc-pool.sh` | 30 (PL01-PL25, PL07b, PL09b, PL13b, PL17b, PL21b) | **the pool's cluster side and the player's own access** (issues #9, #11): a namespace `play-<name>` per player (Pod Security restricted, quota, limits, NetworkPolicy, the participant guard: private pods bound by name to the player's own node) and a kubeconfig whose token lives exactly the lease, kept apart from the node credential; the error matrix rows 6, 7, 8, 9 and 11 with their messages and exit codes (`edge-mesh kubectl`); no secret, node or other namespace; the idle kick; the second request of an address held while its lease runs and through the cooldown; the rate limit; `X-Forwarded-For`; the lease end removes node, namespace and token and the place is reused (Incus VMs) |
+| `vm/run-all.sh` | | 89 | join, host, weakness, CAs, revoke and placement on Incus VMs in one go |
+| `make poc-down` | `down.sh` | | remove every container, network and the state |
+| `make test` | `test_pool.py`, `test_admission.py`, `test_admission_auto.py`, `test_participant.py`, `test_edge_mesh.py`, `../tests/` | | the pool logic (1 h lease, per-identity rules, daily cap, FIFO waitlist), the admission ledger (the file, the lock, names), the automatic tick (switch, panic, events and hook, outbox, metrics, 8 concurrent ticks, the idle kick, the rate limit), the player's namespace objects and kubeconfig, `edge-mesh kubectl`'s exit codes, the public page and its puller (one test class per threat of ADMISSION.md B2, `test_page.py`), the PR gates, every PoC script keeps its executable bit, two state directories do not touch each other |
 
 Not covered by a check yet: macOS (issue #14) and the owner of a joined node claiming another workload's identity toward mutual auth (docs/DESIGN.md section 3.3). Native
 WSL2 as a node was run by hand (docs/REQUIREMENTS.md, the host matrix); the refusal of a joiner without root or `/dev/net/tun` is
@@ -59,9 +64,9 @@ WSL2 as a node was run by hand (docs/REQUIREMENTS.md, the host matrix); the refu
 | `lib.sh` | shared helpers (`step`, `wait_for`, containers and VMs, Nebula reload and restart). `EMESH_STATE` picks the state directory (default `poc/.state`) |
 | `up.sh`, `down.sh` | bring the Docker flow up (idempotent) and tear it down |
 | `issue.sh` | the host's side of a join: sign a Nebula certificate (persistent or pool CA), create a short-lived join token, write the bundle |
-| `edge-mesh` | the participant's one command: `edge-mesh join <bundle> --accept-golden-rule` (supervises the k3s agent) |
+| `edge-mesh` | the participant's one command: `edge-mesh join <bundle> --accept-golden-rule` (supervises the k3s agent, installs the player's kubeconfig) and `edge-mesh kubectl ...` (their own access, with the error matrix's messages and exit codes 10-14) |
 | `revoke.sh` | revocation in one command: blocklist, reload every host (and the external lighthouse), delete the node |
-| `mesh` | the host's CLI: `host init / invite / players / revoke / kick / refresh / down`, the admission commands `host request / waitlist / approve / reject / leases / reap / admission-status` and the automatic pool `host auto --once / auto on / auto off / auto status / panic / bundle / admission-metrics`, and `play` (local simulation of a player) |
+| `mesh` | the host's CLI: `host init / invite / players / revoke / kick / refresh / down`, the admission commands `host request / waitlist / approve / reject / leases / reap / admission-status` and the automatic pool `host auto --once / auto on / auto off / auto status / panic / bundle / admission-metrics / activity`, and `play` (local simulation of a player) |
 | `lighthouse-vps.sh` | a lighthouse on a separate public server: `prepare` (key made on the server), `sign`, `deploy`, `install`, `verify`, `sync`, `remove` |
 | `kc` | `kubectl` against the PoC control plane, whatever the runtime |
 | `install-placement.sh`, `placement/` | install Kyverno and the trust-placement policies on your own control plane |
@@ -77,6 +82,7 @@ WSL2 as a node was run by hand (docs/REQUIREMENTS.md, the host matrix); the refu
 | `page/` (`page.py`, `puller.py`, `seal.py`, `visit.py`, `page-server.sh`, `page.yaml`, `static/`, `deploy/`), `test_page.py`, `poc-page.sh` | the optional public page (B2, [docs/PUBLIC-PAGE.md](../docs/PUBLIC-PAGE.md)): the page on the public server, the puller on the host, the sealed envelope and the strict key checks, the visitor's client, the installer for a server |
 | `participants.py`, `test_participants.py`, `poc-participants.sh`, `poc-participants-e2e.sh`, `participants-tools.sh`, `participants-live-smoke.sh` | join by signed PR: `check` (the CI gate), `validate`, `sync` (the issuing side, on the maintainer's host), `open` (the participant), `lint`; the suites and the pinned cosign, age and nebula-cert they fetch; the CI job that runs the verification code against the public Sigstore |
 | `sigstore_test_ca.py` | **TEST ONLY**: a local CA that plays Fulcio for the offline fixture (keys made in the state directory, never committed) |
+| `participant.py`, `participant-policy.yaml`, `test_participant.py`, `test_edge_mesh.py`, `poc-pool.sh` | the player's namespace `play-<name>` (Pod Security, quota, limits, NetworkPolicy, RBAC), their kubeconfig (TokenRequest, the lease's length), what the idle kick reads (`mesh host activity`), and the participant guard (ClusterIP only, no externalIPs, no `nodeName`, no toleration of the control plane) |
 | `node-guard.yaml`, `nodes_sweep.py`, `test_nodes_sweep.py` | only Nodes named after an issued bundle, at its Nebula IP, may register; what `revoke` sweeps |
 | `node_password.py`, `test_node_password.py` | the k3s node password the host makes for each bundle name (only the bundle carries it) |
 | `labs/cka-1.1/` | a copy of the study lab, from [study-cybercirujas](https://github.com/villadalmine/study-cybercirujas) (Apache-2.0), commit `ec0dd8a` |

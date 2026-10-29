@@ -43,7 +43,8 @@ sys.path.insert(0, str(HERE))
 from admission import NAME, RESERVED, write_atomic  # noqa: E402
 import seal as keys  # noqa: E402
 
-BUNDLE_FILES = {"ca.crt", "host.crt", "config.yml", "join.env"}
+BUNDLE_FILES = {"ca.crt", "host.crt", "config.yml", "join.env"}   # always there
+OPTIONAL_FILES = {"kubeconfig"}                                      # the player's own kubeconfig (issue #9), when the host made one
 REFUSE = {2: "invalid request", 3: "that name is already used: ask again with another name",
           6: "not eligible now (the daily cap per address)", 7: "admission is closed"}
 
@@ -237,13 +238,13 @@ class Puller:
                 if m.name == name and m.isdir():
                     continue
                 base = m.name[len(name) + 1:] if m.name.startswith(name + "/") else ""
-                if not m.isreg() or base not in BUNDLE_FILES:
+                if not m.isreg() or base not in BUNDLE_FILES | OPTIONAL_FILES:
                     raise Fail(f"{name}: unexpected entry in the outbox bundle")
                 body = tar.extractfile(m).read()
                 if b"PRIVATE KEY" in body:
                     raise Fail(f"{name}: the outbox bundle holds a private key; it is not sent")
                 seen.add(base)
-        if seen != BUNDLE_FILES:
+        if not BUNDLE_FILES <= seen:
             raise Fail(f"{name}: the outbox bundle is incomplete")
         want = keys.nebula_pub((self.pubkeys / f"{name}.pub").read_text()).hex()
         if self.cert_pub(self.state / "bundles" / name / "host.crt") != want:

@@ -686,7 +686,7 @@ class T07T08Puller(unittest.TestCase):
         (b / "host.crt").write_text(k.hex())
         buf = io.BytesIO()
         with tarfile.open(fileobj=buf, mode="w:gz") as t:
-            for n, body in (("ca.crt", b"ca"), ("host.crt", k.hex().encode()), ("config.yml", b"c"), ("join.env", b"K3S_TOKEN=K10x")):
+            for n, body in (("ca.crt", b"ca"), ("host.crt", k.hex().encode()), ("config.yml", b"c"), ("join.env", b"K3S_TOKEN=K10x"), ("kubeconfig", b"apiVersion: v1")):
                 info = tarfile.TarInfo(f"alice/{n}")
                 info.size = len(body)
                 t.addfile(info, io.BytesIO(body))

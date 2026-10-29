@@ -35,7 +35,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import seal as keys  # noqa: E402
 
-BUNDLE_FILES = {"ca.crt", "host.crt", "config.yml", "join.env"}   # what a sealed bundle may hold; never a private key
+BUNDLE_FILES = {"ca.crt", "host.crt", "config.yml", "join.env"}   # always there
+OPTIONAL_FILES = {"kubeconfig"}                                      # the player's own kubeconfig (issue #9), when the host made one   # what a sealed bundle may hold; never a private key
 
 
 class Stop(Exception):
@@ -153,10 +154,10 @@ def open_bundle(d: Path, env: dict, nebula_cert: str) -> Path:
             if m.name == name and m.isdir():
                 continue
             base = m.name[len(name) + 1:] if m.name.startswith(name + "/") else ""
-            if not m.isreg() or base not in BUNDLE_FILES:
+            if not m.isreg() or base not in BUNDLE_FILES | OPTIONAL_FILES:
                 raise Stop(1, f"unexpected entry in the bundle: {m.name[:60]!r}")
             files[base] = tar.extractfile(m).read()
-    if set(files) != BUNDLE_FILES:
+    if not BUNDLE_FILES <= set(files):
         raise Stop(1, "the bundle is missing a file")
     if any(b"PRIVATE KEY" in v for v in files.values()):
         raise Stop(1, "the bundle holds a private key: it should not; do not use it")

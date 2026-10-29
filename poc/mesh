@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # mesh: the host's command line. Thin, deterministic wrappers over nebula-cert, nebula, k3s and kubectl.
 #   mesh host init                         open your game: CA, lighthouse, control plane (API only on the Nebula IP)
-#   mesh host invite <name> [--ttl 2h] [--trust friends|public] [--pub FILE]   a bundle for one player (cert + config + a join token of 8 min
-#                                          at most); --pub (or admission/pubkeys/<name>.pub, left by the page's puller): sign the player's own key, no host.key
+#   mesh host invite <name> [--ttl 2h] [--trust friends|public] [--pub FILE]   a bundle for one player (cert + config + a join token of 8 min at most)
+#                                          and their namespace play-<name> with a kubeconfig valid for the ttl (at least 11m; poc/participant.py)
 #   mesh host players                      who is in: node, Ready, certificate time left (and burns the join token of every registered node)
 #   mesh host burn                         delete the join token of every registered player (a k3s token is not one-time) and refresh the node guard (prints burned N)
 #   mesh host revoke <name>                the one command: blocklist the certificate on every host, reload, delete the node (idempotent; exit 5 = done everywhere but the external lighthouse could not be updated)
-#   mesh host kick <name>                  cordon, drain, then revoke, and remove the machine
+#   mesh host kick <name>                  the player's API token dies, cordon, drain, revoke, remove the machine, delete play-<name>
+#   mesh host activity <name>              "active" (Ready, with a workload) or "idle: <why>" (exit 1): what the tick's idle kick reads
 #   mesh host refresh <name>               rewrite the Nebula config of a running machine (lh, cp or a player; same certificate) and apply it
 #   mesh host down                         end the game: remove everything
 #   mesh play <name>                       (local simulation only) a player machine joins with "edge-mesh join"
@@ -20,7 +21,7 @@
 #   mesh host reap [--all | --name N]      burn, then kick every lease that ended (or all / one now) and free its place; again: "reaped 0"
 #   mesh host admission-status             one line: places used, waiting, next to end
 # The automatic pool (phase B1, docs/ADMISSION.md); the host's timer runs the tick, there is no loop of its own:
-#   mesh host auto --once                  one tick: burn, expel what ended (always), warn at 5 min, and with auto on approve the first
+#   mesh host auto --once                  one tick: burn, expel what ended or idles (always), warn at 5 min, and with auto on approve the first
 #                                          eligible ones while a place is free (public bundle into the outbox); idempotent
 #   mesh host auto on|off|status           the switch (state: admission/auto.json; off by default)
 #   mesh host panic [--clear]              the abuse switch: auto off, effective slots 0, every active lease expelled; --clear reopens
@@ -31,7 +32,7 @@
 set -eu
 . "$(dirname "$0")/game-env.sh"
 . "$(dirname "$0")/lib.sh"
-usage() { sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
+usage() { sed -n '2,31p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
 [ $# -ge 1 ] || usage
 
 next_ip() { # first free Nebula IP from .5 up (1 lighthouse, 2 control plane, 3 and 4 are the PoC players)
@@ -49,6 +50,11 @@ case "$1 ${2:-}" in
     case "$trust" in friends|public) ;; *) echo "trust must be friends or public (own is for your own machines)"; exit 2 ;; esac
     [ ! -d "$STATE/bundles/$name" ] || { echo "a player called $name already exists"; exit 3; }
     game_mismatch || exit 2
+    # the player's kubeconfig token lives exactly as long as the certificate (the lease); the TokenRequest API refuses less than 10 minutes, and the token is counted from the certificate's end after the invite's own seconds: 11m
+    secs=$(python3 "$POC/participant.py" seconds "$ttl" 2>/dev/null) || { echo "invalid --ttl '$ttl': 90s, 15m, 2h, 1h30m"; exit 2; }
+    [ "$secs" -ge 660 ] || { echo "--ttl $ttl is too short: the player's kubeconfig token needs at least 11m (the TokenRequest API minimum is 10m, and the invite itself takes some seconds)"; exit 2; }
+    # a namespace of that name that exists already is not handed over (a leftover, or somebody else's)
+    [ -z "$(k get namespace "play-$name" --ignore-not-found -o name 2>/dev/null)" ] || { echo "a namespace play-$name exists already: pick another name"; exit 3; }
     # the player's own public key (the public page, docs/PUBLIC-PAGE.md: its puller leaves it in admission/pubkeys): the bundle then has no host.key
     [ -n "$pub" ] || { [ ! -f "$STATE/admission/pubkeys/$name.pub" ] || pub="$STATE/admission/pubkeys/$name.pub"; }
     if [ -n "$pub" ]; then
@@ -59,9 +65,13 @@ case "$1 ${2:-}" in
     # the node guard (poc/node-guard.yaml): only issued names, at their Nebula IP, may register a Node
     age=$(guard_refresh_age)
     node_guard || { token_burn "$name" || true; rm -rf "$STATE/bundles/$name"; echo "invite failed: the node guard was not updated; nothing was kept"; exit 1; }
+    # the player's namespace and a kubeconfig of their own in the bundle (poc/participant.py; node and user credentials apart)
+    participant_up "$name" || { participant_down "$name" >/dev/null 2>&1 || true; token_burn "$name" || true; rm -rf "$STATE/bundles/$name"
+      node_guard >/dev/null 2>&1 || true; echo "invite failed: the player's namespace or kubeconfig could not be made; nothing was kept"; exit 1; }
     # the guard is safe only if it is rewritten every minute while a name waits (docs/ADMISSION.md, "the life of a name"): say so when nothing did
     [ "$age" -le 90 ] || echo "note: nothing rewrote the node guard in the last 90 s; while invites are open run './mesh host reap' (or 'burn') every minute from a timer (docs/HOST-YOUR-OWN.md)" >&2
-    echo "bundle: $STATE/bundles/$name  (send it privately; it holds the player's key and a join token that works until the node registers or 8 min pass)" ;;
+    echo "bundle: $STATE/bundles/$name  (send it privately; it holds the player's key and a join token that works until the node registers or 8 min pass)"
+    echo "namespace: play-$name  (the bundle's kubeconfig works there only, until $ttl from now)" ;;
   "host players")
     printf '%-12s %-8s %s\n' PLAYER READY CERT-EXPIRES
     for b in "$STATE"/bundles/*/; do n=$(basename "$b"); case "$n" in lh|cp) continue ;; esac
@@ -84,10 +94,18 @@ case "$1 ${2:-}" in
     "$POC/revoke.sh" "$name" ;;
   "host kick")
     name="${3:-}"; [ -n "$name" ] || usage
+    k delete serviceaccount user -n "play-$name" --ignore-not-found >/dev/null 2>&1 || true   # the player's API token dies first
     k cordon "$name" >/dev/null 2>&1 || true
     k drain "$name" --ignore-daemonsets --delete-emptydir-data --force --timeout=30s >/dev/null 2>&1 || true
     "$POC/revoke.sh" "$name"
-    machine_rm "$name" ;;
+    machine_rm "$name"
+    participant_down "$name" || { echo "kick $name: the namespace play-$name is not gone yet (still terminating, or the API did not answer): run it again"; exit 4; } ;;
+  "host activity")
+    # active (exit 0): the player's Node is Ready and has a workload; "idle: <why>" (exit 1); the API did not answer (exit 2). The tick's idle kick.
+    name="${3:-}"; [ -n "$name" ] || usage
+    nodes=$(k get nodes -o json 2>/dev/null) || { echo "unknown: the API did not answer"; exit 2; }
+    pods=$(k get pods -A -o json 2>/dev/null) || { echo "unknown: the API did not answer"; exit 2; }
+    printf '{"nodes": %s, "pods": %s}' "$nodes" "$pods" | python3 "$POC/participant.py" activity "$name" ;;
   "host refresh")
     name="${3:-}"; [ -n "$name" ] || usage
     [ -n "${LH_EXTERNAL:-}" ] && [ "$name" = lh ] && { echo "the lighthouse is external: use poc/lighthouse-vps.sh sync"; exit 2; }

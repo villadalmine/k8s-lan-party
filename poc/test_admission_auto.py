@@ -45,8 +45,10 @@ class Base(unittest.TestCase):
         self.bundles = self.tmp / "bundles"
         self.bundles.mkdir()
         self.calls, self.fail_kick, self.fail_invite = [], set(), False
-        for fn in ("mesh_invite", "mesh_kick", "mesh_burn"):
+        self.seen = {}   # name -> what `mesh host activity` says: "active" (default), "idle: <why>" or None (the API did not answer)
+        for fn in ("mesh_invite", "mesh_kick", "mesh_burn", "mesh_activity"):
             self.addCleanup(setattr, admission, fn, getattr(admission, fn))
+        admission.mesh_activity = lambda mesh: self._activity
         admission.mesh_invite = lambda mesh: self._invite
         admission.mesh_kick = lambda mesh: self._kick
         admission.mesh_burn = lambda mesh: (lambda: self.calls.append(("burn",)))
@@ -70,6 +72,10 @@ class Base(unittest.TestCase):
         (d / "config.yml").write_bytes(f"pki: {name}\n".encode())
         (d / "host.key").write_bytes(f"key of {name}\n".encode())
         return str(d)
+
+    def _activity(self, name):
+        self.calls.append(("activity", name))
+        return self.seen.get(name, "active")
 
     def _kick(self, name):
         self.calls.append(("kick", name))
@@ -259,6 +265,107 @@ class TickTest(Base):
         self.ok("auto", "--once", now=3300)
         self.ok("auto", "--once", now=3400)
         self.assertEqual([k for k in self.kinds() if k[0] == "expiring"], [("expiring", "ana")])
+
+
+class IdleTest(Base):
+    """The idle kick (issue #11): a lease whose node is missing, NotReady or without a workload for idle_kick_seconds is expelled early."""
+
+    def setUp(self):
+        super().setUp()
+        self.cfg.write_text(CFG + "idle_kick_seconds: 600\n")
+        self.ask("ana", "beto", "caro")
+        self.ok("auto", "on")
+        self.ok("auto", "--once", now=0)                            # ana and beto until 3600; caro waits
+
+    def test_a_node_that_never_came_is_expelled_after_the_idle_time_and_the_place_goes_on(self):
+        self.seen = {"ana": "active", "beto": "idle: no node"}
+        self.assertIn("expelled 0 | approved 0", self.ok("auto", "--once", now=599))
+        out = self.ok("auto", "--once", now=600)
+        self.assertIn("expelled 1 | approved 1 | slots 2/2 used | 0 in the list", out)
+        self.assertEqual(self.leases(), ["ana", "caro"])
+        ev = [e for e in self.events() if e["type"] == "expelled"]
+        self.assertEqual([(e["name"], e["how"]) for e in ev], [("beto", "idle")])
+        self.assertIn("beto: lease idle, node expelled, place freed", ev[0]["summary"])
+        self.assertEqual(self.ledger()["history"][-1]["how"], "idle")
+
+    def test_idle_counts_from_the_first_tick_that_sees_an_active_node_idle(self):
+        self.seen = {"ana": "active", "beto": "active"}
+        self.ok("auto", "--once", now=500)
+        self.seen["ana"] = "idle: no workload"
+        self.ok("auto", "--once", now=1000)                         # idle since 1000
+        self.assertIn("expelled 0", self.ok("auto", "--once", now=1599))
+        self.seen["ana"] = "active"                                  # back to work: the clock starts again
+        self.ok("auto", "--once", now=1599)
+        self.seen["ana"] = "idle: node not Ready"
+        self.assertIn("expelled 0", self.ok("auto", "--once", now=2000))
+        self.assertIn("expelled 1 | approved 1", self.ok("auto", "--once", now=2600))
+        self.assertEqual(self.leases(), ["beto", "caro"])
+
+    def test_an_unknown_never_expels(self):
+        self.seen = {"ana": None, "beto": None}
+        self.assertIn("expelled 0 | approved 0", self.ok("auto", "--once", now=3000))
+        self.assertEqual(self.leases(), ["ana", "beto"])
+
+    def test_a_tick_that_sees_the_same_thing_changes_nothing(self):
+        self.seen = {"ana": "active", "beto": "idle: no node"}
+        self.ok("auto", "--once", now=10)
+        before = (self.state / "state.json").read_bytes()
+        for now in (11, 200, 599):
+            self.assertIn("expelled 0 | approved 0", self.ok("auto", "--once", now=now))
+            self.assertEqual((self.state / "state.json").read_bytes(), before, now)
+
+    def test_zero_switches_it_off_and_panic_does_not_ask(self):
+        self.cfg.write_text(CFG + "idle_kick_seconds: 0\n")
+        self.seen = {"ana": "idle: no node", "beto": "idle: no node"}
+        self.ok("auto", "--once", now=3000)
+        self.assertEqual(self.leases(), ["ana", "beto"])
+        self.assertNotIn("activity", {c[0] for c in self.calls})
+        self.cfg.write_text(CFG + "idle_kick_seconds: 600\n")
+        self.ok("panic", now=3001)
+        n = len(self.calls)
+        self.ok("auto", "--once", now=3002)
+        self.assertNotIn("activity", {c[0] for c in self.calls[n:]})
+
+    def test_a_failed_idle_kick_keeps_the_lease_and_says_so(self):
+        self.seen = {"beto": "idle: no node"}
+        self.fail_kick = {"beto"}
+        code, out = self.cli("auto", "--once", now=600)
+        self.assertEqual(code, 1, out)
+        self.assertEqual(self.leases(), ["ana", "beto"])
+        self.assertIn(("kick_failed", "beto"), self.kinds())
+
+
+class RateTest(Base):
+    """The per-identity request rate limit (issue #11): rate_max_requests in rate_window_seconds; a refused request is not listed."""
+
+    def setUp(self):
+        super().setUp()
+        self.cfg.write_text(CFG + "rate_window_seconds: 600\nrate_max_requests: 3\n")
+
+    def test_the_fourth_request_in_the_window_is_refused_and_not_listed(self):
+        for now in (0, 10, 20):                                      # a repeat counts too
+            self.ok("request", "ana", "--ip", IP["ana"], now=now)
+        n = len(self.events())
+        code, out = self.cli("request", "ana-b", "--ip", IP["ana"], now=30)
+        self.assertEqual(code, 6, out)
+        self.assertIn("ana-b: refused: too many requests from this identity (3 in 600 s); try again at 1970-01-01T00:10:00Z "
+                      "[not added]", out)
+        self.assertNotIn("ana-b", self.ok("waitlist", now=31))
+        self.assertEqual(len(self.events()), n)                      # no event: the log is not the spammer's
+        self.assertEqual(self.cli("request", "beto", "--ip", IP["beto"], now=40)[0], 0)   # another identity is not affected
+        self.assertEqual(self.cli("request", "ana-b", "--ip", IP["ana"], now=599)[0], 6)  # refusals do not count, nor extend it
+        self.assertIn("already in the list as ana", self.ok("request", "ana-b", "--ip", IP["ana"], now=600))   # the window moved on
+
+    def test_x_forwarded_for_is_believed_only_from_the_trusted_proxy(self):
+        self.ok("request", "ana", "--peer", "127.0.0.1", "--xff", "198.51.100.10", now=0)   # through the proxy: the client
+        self.ok("request", "beto", "--peer", "203.0.113.5", "--xff", "198.51.100.10", now=0)   # anyone else: the socket
+        out = self.ok("waitlist", now=1)
+        self.assertRegex(out, r"ana +waiting +now +198\.51\.100\.10")
+        self.assertRegex(out, r"beto +waiting +now +203\.0\.113\.5")
+        for now in (2, 3):                                           # a spoofed header does not move the limit to someone else
+            self.ok("request", "beto", "--peer", "203.0.113.5", "--xff", "198.51.100.10", now=now)
+        self.assertEqual(self.cli("request", "beto", "--peer", "203.0.113.5", "--xff", "198.51.100.77", now=4)[0], 6)
+        self.assertEqual(self.cli("request", "ana", "--peer", "127.0.0.1", "--xff", "198.51.100.10", now=5)[0], 0)
 
 
 class SwitchTest(Base):

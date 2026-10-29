@@ -19,15 +19,16 @@ tags: [demo, publico, pool, diseno]
 # The public demo (lighthouse and control plane applied; admission, the automatic tick and the request page built, not applied; the opening not built)
 
 **Status (2026-10-27): the lighthouse and the control plane are up; admission with manual approval and the automatic tick
-(phase B1) are built and tested ([ADMISSION.md](ADMISSION.md)); the optional public request page (B2, [PUBLIC-PAGE.md](PUBLIC-PAGE.md)) is built and tested too; the pool's cluster side and the public opening (B3) are not.**
+(phase B1) and the pool's cluster side (a namespace and a kubeconfig per player, quotas, the idle kick) are built and tested ([ADMISSION.md](ADMISSION.md)); the optional public request page (B2, [PUBLIC-PAGE.md](PUBLIC-PAGE.md)) is built and tested too; the public opening (B3) is not.**
 Applied on the maintainer's own machines: steps 1 and 2 below (a lighthouse on a small public server with its public name) and a persistent control plane
 at home, reachable from the internet through that lighthouse. A visitor on a network that is not the maintainer's reached the control plane's API over
 Nebula (a test run from outside on 2026-10-27; the home router keeps the UDP source port, so hole punching works
 without a relay). **Built in the repository, not applied to the demo yet:** admission with manual approval (`mesh host request / approve / reap`: 2 places,
 1 h leases, a FIFO waiting list, a daily cap and a cooldown per identity, the reaper that expels at lease end) and the automatic tick of phase B1
 (`mesh host auto --once` from the host's timer: approves inside the same limits, expels at the end and promotes the next one, `mesh host panic`, events,
-a notify hook and metrics), tested on Incus VMs, [ADMISSION.md](ADMISSION.md). The relay for symmetric NAT (issue #15, `lighthouse-vps.sh sign --relay`, `make poc-nat`) is built in the repository and not applied to the
-demo's lighthouse yet. The public request page (B2) is built the same way (`make poc-page`) and is **not applied** to the maintainer's server (issue #16). **Not built:** quotas and the idle kick (issue #11). So a stranger can join only through a request the host (or the host's own bot) enters. The repository is public since 2026-10-27 but not announced: announcing it and
+a notify hook and metrics), and the pool's cluster side (`make poc-pool`: a namespace `play-<name>` with quota and limits and a kubeconfig of the
+lease's length per player, the idle kick, the rate limit), tested on Incus VMs, [ADMISSION.md](ADMISSION.md). The relay for symmetric NAT (issue #15, `lighthouse-vps.sh sign --relay`, `make poc-nat`) is built in the repository and not applied to the
+demo's lighthouse yet. The public request page (B2) is built the same way (`make poc-page`) and is **not applied** to the maintainer's server (issue #16). **Not built:** the opening. So a stranger can join only through a request the host (or the host's own bot) enters. The repository is public since 2026-10-27 but not announced: announcing it and
 opening the demo need the maintainer's explicit "open it". The PoC itself runs locally and on the maintainer's lab VMs.
 
 The idea in one picture: a small public server with a few slots that rotate. Anyone can try the mesh for one hour, with a fixed number of
@@ -64,23 +65,24 @@ the Kubernetes API, WireGuard and VXLAN only from the groups `own`, `friends` an
 | Setting | PoC value | Meaning |
 | :--- | :--- | :--- |
 | `slots` | 2 | at most N participant nodes; a join over capacity goes to a FIFO waiting list |
-| `namespaces` | 1 | at most M demo namespaces |
+| (namespaces) | one per place | each player gets `play-<name>`, made at the invite and deleted with the lease |
 | `lease_seconds` | 3600 | the 1 h lease; the Nebula certificate has the same expiry |
 | `cooldown_seconds` | 3600 | an identity waits this long after its lease |
 | `daily_leases_per_identity` | 2 | at most this many leases per identity in any 24 h (rolling window) |
 | `identity_ipv4_prefix` / `identity_ipv6_prefix` | 32 / 64 | what counts as one person: an IPv4 address (or its /24) and an IPv6 /64 |
-| `rate_window_seconds` / `rate_max_requests` | 600 / 5 | per-IP invite rate limit |
-| `idle_kick_seconds` | 900 | NotReady or no workload for this long: evicted early |
+| `rate_window_seconds` / `rate_max_requests` | 600 / 5 | per-identity request rate limit (built) |
+| `idle_kick_seconds` | 900 | no node, NotReady or no workload for this long: evicted early (built) |
+| `quota_*`, `limit_*` | 10 pods, 1 CPU, 1 GiB, 2 GiB of disk | the ResourceQuota and LimitRange of each player's namespace (built) |
 | `trusted_proxies` | the reverse proxy | only this address may set `X-Forwarded-For` |
 
-Also in the design: ResourceQuota and LimitRange per demo namespace (no LoadBalancer, no NodePort), one node per invite, at most one active lease
+Also built: ResourceQuota and LimitRange per player namespace (no LoadBalancer, no NodePort), one node per invite, at most one active lease
 per source IP. IP limits are weak (carrier NAT hurts honest users, a VPN bypasses them): they stop casual abuse. An optional GitHub-OAuth lane
 would limit per account.
 
 **What exists today:** the decision logic (`pool.py`, unit tests: the 1 h lease, per-identity rules, the daily cap, the FIFO list), the CA split, and
 admission with manual approval with its reaper (`admission.py`, `make poc-admission`) and the automatic tick with its switch, panic, events and metrics
-(`make poc-admission-auto`, [ADMISSION.md](ADMISSION.md) B1). **What does not:** quotas, the idle kick,
-(issue #11); the request page and its anti-bot layers are built (ADMISSION.md B2, PUBLIC-PAGE.md); the relay for symmetric NAT is built (issue #15) and waits to be
+(`make poc-admission-auto`, [ADMISSION.md](ADMISSION.md) B1), and the pool's cluster side: a namespace and a kubeconfig per player, quotas, the idle
+kick (`make poc-pool`, issues #9 and #11). **What does not:** the opening; the request page and its anti-bot layers are built (ADMISSION.md B2, PUBLIC-PAGE.md); the relay for symmetric NAT is built (issue #15) and waits to be
 turned on at the demo's lighthouse. The demo needs these built and
 tested before the checklist below can pass.
 
