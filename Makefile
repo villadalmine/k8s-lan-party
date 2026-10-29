@@ -7,7 +7,7 @@ BASE     ?= origin/main
 PR_BODY  ?=
 PR_TITLE ?=
 
-.PHONY: poc-lighthouse poc-cilium help labels-check test verify-ci pr-check install-hooks uninstall-hooks poc-join poc-host poc-weakness poc-down poc-ca poc-placement poc-kind poc-vm poc-revoke poc-admission poc-admission-auto poc-participants poc-participants-e2e poc-bgp
+.PHONY: poc-lighthouse poc-cilium help labels-check test verify-ci pr-check install-hooks uninstall-hooks poc-join poc-host poc-weakness poc-down poc-ca poc-placement poc-kind poc-vm poc-revoke poc-admission poc-admission-auto poc-participants poc-participants-e2e poc-nat poc-bgp
 
 help:
 	@grep -E '^[a-z-]+:.*##' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-14s %s\n", $$1, $$2}'
@@ -85,3 +85,5 @@ poc-participants: ## join by signed PR (issue #12), offline: cosign against a LO
 
 poc-participants-e2e: ## join by signed PR end to end: the participant's own keys, sync issues, open + join, removal revokes access; needs Incus
 	poc/poc-participants-e2e.sh
+poc-nat: ## issue #15: symmetric NAT on both sides falls back to a Nebula relay on the lighthouse; direct and relayed paths measured; needs Incus
+	poc/poc-nat.sh

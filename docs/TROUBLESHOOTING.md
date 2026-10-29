@@ -1,7 +1,7 @@
 ---
 tipo: doc
 id: k8s-lan-party-troubleshooting
-version: 0.1.0
+version: 0.2.0
 fecha_alta: 2026-10-21
 fecha_ultimo_cambio: 2026-10-28
 categoria: plataforma
@@ -26,7 +26,25 @@ it**. `poc/.state/poc.log` has the detail of the last run of any PoC script (`/t
 ### The join fails with exit code 5: "cannot reach the lighthouse"
 - **Cause:** UDP 4242 to the lighthouse is blocked (corporate or hotel network), or the bundle points at an address you cannot reach.
 - **Diagnose:** `tail /var/log/nebula.log`; `grep -A1 static_host_map /etc/nebula/config.yml`.
-- **Fix:** allow outbound UDP 4242. A relay for symmetric NAT is not built (issue #15).
+- **Fix:** allow outbound UDP 4242. The host's relay does not help here: it is reached over the same UDP port. (The relay is for the
+  other case: both ends behind symmetric NAT, which gives no exit code at all, see below.)
+
+### Joined, the lighthouse answers, but the control plane does not (both ends behind symmetric NAT)
+- **Cause:** a symmetric NAT gives a new public port for every destination, so hole punching cannot work when both ends have one (some carrier
+  NAT, some corporate routers). Each end reaches the lighthouse; they never reach each other. `make poc-nat` reproduces it (N15).
+- **Diagnose:** on the joiner, `ping 10.77.0.1` works and `ping 10.77.0.2` does not; `grep "Handshake timed out" /var/log/nebula.log`
+  names the control plane.
+- **Fix (the host):** turn the relay on: `poc/lighthouse-vps.sh sign <public-host> <lh.pub> --relay`, then `deploy --ssh ...` and
+  `poc/mesh host refresh cp`; bundles issued after that name the relay. With it, `grep relayed /var/log/nebula.log` shows the tunnel through
+  it. Every relayed byte crosses the lighthouse's server twice (DESIGN.md 15.1).
+
+### `edge-mesh join` exits 7: "the kubelet did not start on this machine" (WSL2 with Docker Desktop)
+- **Cause:** the kubelet parses the mount table and refuses a line with a space in its options. Docker Desktop's WSL integration mounts its
+  resources folder (`C:\Program Files\Docker\...`) into every distro it integrates with, and that line has one. Measured 2026-10-28 (WSL2 kernel 6.18,
+  k3s v1.37.1): `Failed to start ContainerManager ... system validation failed - wrong number of fields (expected 6, got 7)`.
+- **Diagnose:** `awk 'NF != 6' /proc/mounts` prints the line.
+- **Fix:** join from a distro without Docker Desktop's integration (JOIN.md, "In WSL2"). Before 2026-10-28 the join printed `joined` here
+  although no Node ever appeared; it now waits for the Node and says why it is not there.
 
 ### A fresh certificate is "not yet valid" / the handshake fails right after the join
 - **Cause:** the node's clock is behind the machine that signed the certificate (seen with Incus VMs about 1 s behind).
