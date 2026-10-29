@@ -386,6 +386,50 @@ class T09bDrip(Base):
             x.close()
 
 
+class T09cBehindTheProxy(Base):
+    """Round 2: the limit per origin is on the real client behind a trusted proxy (every peer is the loopback), and an IPv6 /64 is one origin."""
+    cfg = {"socket_timeout_seconds": 5, "request_total_seconds": 6, "max_per_origin": 2, "max_threads": 20}
+
+    def hold(self, xff):
+        c = socket.create_connection(("127.0.0.1", self.port))
+        c.sendall(("POST /api/v1/requests/status HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\nContent-Length: 100\r\n"
+                   f"X-Forwarded-For: {xff}\r\n\r\n").encode())   # the body never comes: the request stays in flight
+        return c
+
+    def test_client_behind_the_proxy_cannot_hold_every_slot(self):
+        held = [self.hold("198.51.100.7"), self.hold("198.51.100.7")]
+        time.sleep(0.5)
+        s, h, j = self.http("GET", "/api/v1/status", headers={"X-Forwarded-For": "198.51.100.7"})
+        self.assertEqual((s, j["error"]), (503, "busy"))                       # the same client: its share is used
+        self.assertEqual(self.http("GET", "/api/v1/status", headers={"X-Forwarded-For": "198.51.100.8"})[0], 200)   # another client is served
+        for c in held:
+            c.close()
+
+    def test_an_ipv6_64_is_one_origin(self):
+        held = [self.hold("2001:db8:1:2::1"), self.hold("2001:db8:1:2:aaaa::2")]
+        time.sleep(0.5)
+        self.assertEqual(self.http("GET", "/api/v1/status", headers={"X-Forwarded-For": "2001:db8:1:2:ffff::9"})[0], 503)
+        self.assertEqual(self.http("GET", "/api/v1/status", headers={"X-Forwarded-For": "2001:db8:1:3::1"})[0], 200)
+        for c in held:
+            c.close()
+
+    def test_a_forged_header_from_an_untrusted_peer_is_not_believed(self):
+        self.page.cfg["trusted_proxies"] = []
+        held = [self.hold("198.51.100.1"), self.hold("198.51.100.2")]   # both are the peer 127.0.0.1, whatever they claim
+        time.sleep(0.5)
+        self.assertEqual(self.http("GET", "/api/v1/status", headers={"X-Forwarded-For": "198.51.100.3"})[0], 503)
+        for c in held:
+            c.close()
+
+    def test_report_is_authenticated_before_its_body_is_read(self):
+        c = socket.create_connection(("127.0.0.1", self.port))
+        c.sendall(b"POST /api/v1/puller/report HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\nContent-Length: 400000\r\n"
+                  b"Authorization: Bearer wrong\r\n\r\n")   # no body is ever sent: an unauthenticated client gets its 401 at once
+        c.settimeout(3)
+        self.assertIn(b" 401 ", c.recv(300))
+        c.close()
+
+
 class T10Headers(Base):
     def test_every_answer_has_the_security_headers_and_no_cors(self):
         self.open_page()

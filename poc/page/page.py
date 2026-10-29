@@ -442,7 +442,7 @@ class Page:
             except Refusal as e:
                 err = e
             else:
-                return self._apply(st, body, now)
+                return self._apply(st, body() if callable(body) else body, now)
         raise err
 
     def _apply(self, st: dict, body, now: int) -> dict:
@@ -630,6 +630,19 @@ class Handler(BaseHTTPRequestHandler):
     do_PUT = do_DELETE = do_PATCH = do_OPTIONS = do_TRACE = do_CONNECT = _other
 
     def _route(self, method: str) -> None:
+        # the limit per origin is on the real client (X-Forwarded-For only from a trusted proxy; an IPv6 /64 is one origin), so it holds behind Caddy
+        try:
+            ident = self.page.who(self._peer(), self.headers.get("X-Forwarded-For"))
+        except Refusal as e:
+            return self._refuse(e)
+        if not self.server.enter(ident):
+            return self._refuse(Refusal(503, "busy", "too many requests at once from your address; try later", 5))
+        try:
+            self._route_inner(method)
+        finally:
+            self.server.leave(ident)
+
+    def _route_inner(self, method: str) -> None:
         p, page, xff = self.path.split("?", 1)[0], self.page, self.headers.get("X-Forwarded-For")
         try:
             if method == "GET" and p == "/":
@@ -649,7 +662,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(200, page.intake(self._peer(), xff, self.headers.get("Authorization")))
             elif method == "POST" and p == "/api/v1/puller/report":
                 auth = self.headers.get("Authorization")
-                self._json(200, page.report(self._peer(), xff, auth, self._body(page.cfg["max_report_bytes"])))
+                # the token is checked before the body is read: an unauthenticated client makes the page read nothing
+                self._json(200, page.report(self._peer(), xff, auth, lambda: self._body(page.cfg["max_report_bytes"])))
             elif p in ("/", "/api/v1/status", "/api/v1/challenge", "/api/v1/requests", "/api/v1/requests/status",
                        "/api/v1/requests/claim", "/api/v1/puller/intake", "/api/v1/puller/report") or p in self.static:
                 self._other()
@@ -673,8 +687,26 @@ class Server(ThreadingHTTPServer):
         self.total, self.per_origin = total_seconds, per_origin
         self.trusted = {pool_norm(t) for t in trusted}
         self.origins: dict[str, int] = {}
+        self.clients: dict[str, int] = {}
         self.lock = threading.Lock()
         super().__init__(addr, handler)
+
+    def enter(self, ident: str) -> bool:
+        """One more request in flight for this client identity (the real client, behind the proxy); False when it holds its share already."""
+        with self.lock:
+            held = self.clients.get(ident, 0)
+            if held >= self.per_origin:
+                return False
+            self.clients[ident] = held + 1
+            return True
+
+    def leave(self, ident: str) -> None:
+        with self.lock:
+            left = self.clients.get(ident, 1) - 1
+            if left > 0:
+                self.clients[ident] = left
+            else:
+                self.clients.pop(ident, None)
 
     def _busy(self, request) -> None:
         try:

@@ -1,6 +1,6 @@
 # The puller of the public page (docs/PUBLIC-PAGE.md), on the HOST that runs `mesh` (next to the CA), never on the public server.
 # Copy to /etc/systemd/system/, replace <your user>, <the clone> and the page's address; then enable emesh-page-puller.timer.
-# It runs right after the admission tick (emesh-admission.service, docs/HOST-YOUR-OWN.md) and only connects out, to the page.
+# RUNTIME is not set here: `mesh` reads the game's runtime from .state/game.env. It runs right after the admission tick (emesh-admission.service, docs/HOST-YOUR-OWN.md) and only connects out, to the page.
 [Unit]
 Description=k8s-lan-party: pull the public page's requests, report positions and sealed bundles
 After=emesh-admission.service network-online.target
@@ -10,7 +10,6 @@ Wants=network-online.target
 Type=oneshot
 User=<your user>
 WorkingDirectory=<the clone>/poc
-Environment=RUNTIME=incus
 UMask=0077
 ExecStart=/usr/bin/python3 <the clone>/poc/page/puller.py run --url https://page.example.org --token-file <the clone>/poc/.state/page/puller.token
 TimeoutStartSec=300
