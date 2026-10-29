@@ -28,6 +28,7 @@
 #   events: admission/events.jsonl; ADMISSION_NOTIFY_CMD="<command>" is called with <type> <summary> for each one (no shell)
 # The CA key lives in .state/ca/ca.key: back it up; if you lose it you must re-issue every player.
 set -eu
+. "$(dirname "$0")/game-env.sh"
 . "$(dirname "$0")/lib.sh"
 usage() { sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
 [ $# -ge 1 ] || usage
@@ -37,7 +38,7 @@ next_ip() { # first free Nebula IP from .5 up (1 lighthouse, 2 control plane, 3 
 }
 
 case "$1 ${2:-}" in
-  "host init") HOST_ONLY=1 "$UP" ;;
+  "host init") HOST_ONLY=1 "$UP" && record_game ;;   # the game's RUNTIME, CNI and TAINT go to .state/game.env (lib.sh)
   "host invite")
     name="${3:-}"; [ -n "$name" ] || usage; ttl=2h; trust=friends; shift 3
     # the name becomes a node name, a certificate name and a directory (the same rule as admission.py)
@@ -45,6 +46,7 @@ case "$1 ${2:-}" in
     while [ $# -gt 0 ]; do case "$1" in --ttl) ttl="$2"; shift 2 ;; --trust) trust="$2"; shift 2 ;; *) usage ;; esac; done
     case "$trust" in friends|public) ;; *) echo "trust must be friends or public (own is for your own machines)"; exit 2 ;; esac
     [ ! -d "$STATE/bundles/$name" ] || { echo "a player called $name already exists"; exit 3; }
+    game_mismatch || exit 2
     "$POC/issue.sh" "$name" "$(next_ip)" "$trust" "$ttl" || { rm -rf "$STATE/bundles/$name"; echo "invite failed: nothing was kept, fix the error above and run it again"; exit 1; }
     # the node guard (poc/node-guard.yaml): only issued names, at their Nebula IP, may register a Node
     age=$(guard_refresh_age)

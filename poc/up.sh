@@ -6,7 +6,7 @@ set -eu
 
 fetch_nebula() {
   [ -x "$CACHE/nebula" ] && return 0
-  curl -sL "https://github.com/slackhq/nebula/releases/download/v$NEBULA_VERSION/nebula-linux-amd64.tar.gz" | tar xz -C "$CACHE"
+  curl -sL "https://github.com/slackhq/nebula/releases/download/v$NEBULA_VERSION/nebula-linux-$ARCH.tar.gz" | tar xz -C "$CACHE"
 }
 
 node() { # node <name> <docker-ip>

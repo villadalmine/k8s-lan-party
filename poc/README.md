@@ -11,7 +11,7 @@ meta: ../meta.yml
 depende_de: [docs/DESIGN.md]
 lo_usan: [README.md]
 docs: [docs/DESIGN.md, docs/GOLDEN-RULES.md, docs/POC-STATUS.md, docs/HOST-YOUR-OWN.md, docs/JOIN.md, docs/TROUBLESHOOTING.md]
-scripts: [poc/poc-join.sh, poc/poc-host.sh, poc/poc-weakness.sh, poc/poc-ca.sh, poc/poc-revoke.sh, poc/poc-placement.sh, poc/poc-cilium.sh, poc/poc-lighthouse.sh, poc/kind-cilium.sh, poc/vm/poc-vm.sh, poc/vm/run-all.sh, poc/up.sh, poc/down.sh, poc/issue.sh, poc/revoke.sh, poc/mesh, poc/edge-mesh, poc/lighthouse-vps.sh, poc/pool.py, poc/admission.py, poc/poc-admission.sh, poc/poc-admission-auto.sh, poc/participants.py, poc/poc-participants.sh, poc/poc-participants-e2e.sh, poc/poc-nat.sh]
+scripts: [poc/poc-join.sh, poc/poc-host.sh, poc/poc-weakness.sh, poc/poc-ca.sh, poc/poc-revoke.sh, poc/poc-placement.sh, poc/poc-cilium.sh, poc/poc-lighthouse.sh, poc/kind-cilium.sh, poc/vm/poc-vm.sh, poc/vm/run-all.sh, poc/up.sh, poc/down.sh, poc/issue.sh, poc/revoke.sh, poc/mesh, poc/edge-mesh, poc/lighthouse-vps.sh, poc/pool.py, poc/admission.py, poc/poc-admission.sh, poc/poc-admission-auto.sh, poc/participants.py, poc/poc-participants.sh, poc/poc-participants-e2e.sh, poc/poc-nat.sh, poc/poc-golden.sh, poc/golden.py, poc/game-env.sh]
 tags: [poc, determinista, nebula, k3s, cilium, kyverno, poc/vm/poc-bgp.sh, poc/gateway.sh]
 tags: [poc, determinista, nebula, k3s, cilium, kyverno, bgp, gateway]
 ---
@@ -26,6 +26,7 @@ directory). Where each suite passed and how often is in [docs/POC-STATUS.md](../
 | :--- | :--- | :--- | :--- |
 | `make poc-join` | `poc-join.sh` | 17 (J01-J17) | **step 1**: Nebula CA + lighthouse + control plane; two outside nodes join with one bundle and one command; a study lab (CKA 1.1) runs on them; narrowed firewall, token reuse, expired certificate, blocked UDP and revocation behave |
 | `make poc-host` | `poc-host.sh` | 11 (H01-H11) | **host your own game**: `mesh host init / invite / players / kick / down` |
+| `make poc-golden` | `poc-golden.sh` | 29 (G1.1-G10.1; 26 run, 3 wait for #8, #9 and #13) | **golden path**: one check per golden rule against a game that is already up (yours or a stranger's); `GOLDEN_ENV="<column>"` writes the table in POC-STATUS.md; it builds nothing |
 | `make poc-weakness` | `poc-weakness.sh` | 8 (W00-W06, W03b) | what one control plane costs: flapping, tolerance, a lossy link, control plane down, the supervised k3s agent |
 | `make poc-ca` | `poc-ca.sh` | 13 (B01-B13) | two CAs (persistent and pool); the pool CA is constrained to group `public`; pulling it cuts only the pool |
 | `make poc-revoke` | `poc-revoke.sh` | 10 (R01-R10) | `mesh host revoke` is one command and idempotent; the negative test (`kubectl delete node` without the blocklist does not revoke, R03); time to loss of access |

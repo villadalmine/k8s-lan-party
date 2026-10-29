@@ -5,9 +5,9 @@ IMG="${VM_IMAGE:-images:ubuntu/24.04/cloud}"
 declare -A VMIP=([lh]=$UNDERLAY_NET.2 [cp]=$UNDERLAY_NET.3 [n1]=$UNDERLAY_NET.4 [n2]=$UNDERLAY_NET.5)
 
 fetch() { # pinned binaries, cached next to the scripts
-  [ -x "$CACHE/nebula" ] || curl -sL "https://github.com/slackhq/nebula/releases/download/v$NEBULA_VERSION/nebula-linux-amd64.tar.gz" | tar xz -C "$CACHE"
-  [ -x "$CACHE/k3s" ] || { curl -sL -o "$CACHE/k3s" "https://github.com/k3s-io/k3s/releases/download/${K3S_VERSION/+/%2B}/k3s" && chmod +x "$CACHE/k3s"; }
-  [ -x "$CACHE/helm" ] || { curl -sL "https://get.helm.sh/helm-v$HELM_VERSION-linux-amd64.tar.gz" | tar xz -C "$CACHE" --strip-components=1 linux-amd64/helm; }
+  [ -x "$CACHE/nebula" ] || curl -sL "https://github.com/slackhq/nebula/releases/download/v$NEBULA_VERSION/nebula-linux-$ARCH.tar.gz" | tar xz -C "$CACHE"
+  [ -x "$CACHE/k3s" ] || { curl -sL -o "$CACHE/k3s" "https://github.com/k3s-io/k3s/releases/download/${K3S_VERSION/+/%2B}/k3s$([ "$ARCH" = amd64 ] || echo "-$ARCH")" && chmod +x "$CACHE/k3s"; }
+  [ -x "$CACHE/helm" ] || { curl -sL "https://get.helm.sh/helm-v$HELM_VERSION-linux-$ARCH.tar.gz" | tar xz -C "$CACHE" --strip-components=1 "linux-$ARCH/helm"; }
 }
 vm_up() { # vm_up <name> <cpus> <mem> <ip>
   local n="emesh-$1"

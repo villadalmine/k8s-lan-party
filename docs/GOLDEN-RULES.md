@@ -3,7 +3,7 @@ tipo: doc
 id: k8s-lan-party-golden-rules
 version: 0.2.0
 fecha_alta: 2026-10-16
-fecha_ultimo_cambio: 2026-10-19
+fecha_ultimo_cambio: 2026-10-28
 categoria: plataforma
 dueno_agente: casa-orquestador
 pieza: k8s-lan-party
@@ -44,3 +44,6 @@ the player's own PC, so the player can see everything it runs; keep private thin
 9. **Self-sovereign.** No third-party SaaS in the trust path; our CA, our control plane.
 10. **Proved, not assumed.** Every claim marked "prove in the PoC" has a deterministic test with a recorded
     PASS or FAIL.
+
+`make poc-golden` checks these rules, one check each, against a game that is running (yours, or one a stranger hosts); its table, with the
+environments it ran in and the checks that wait for an issue, is in [POC-STATUS.md](POC-STATUS.md#golden-path-conformance-make-poc-golden-issue-23).
