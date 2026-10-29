@@ -173,7 +173,7 @@ mpod() { # mpod <name> <node> <command> <app label>: a shareable pod (harmless o
   cat <<YAML
 apiVersion: v1
 kind: Pod
-metadata: {name: $1, namespace: $NS, labels: {app: $4, probe: auth, edge-mesh/sensitivity: shareable, edge-mesh/share-with: friends}}
+metadata: {name: $1, namespace: $NS, labels: {app: $4, probe: $GOLD, edge-mesh/sensitivity: shareable, edge-mesh/share-with: friends}}
 spec:
   automountServiceAccountToken: false
   terminationGracePeriodSeconds: 1
@@ -188,6 +188,9 @@ g3_mutual_deny() {
   k get ns cilium-spire >/dev/null 2>&1 && [ "$(k -n cilium-spire get ds spire-agent -o jsonpath='{.status.numberReady}' 2>/dev/null)" = "$(k get nodes --no-headers | wc -l)" ] \
     || { echo "SPIRE is not installed (or not Ready on every node): run MUTUAL=yes ./cilium.sh to add mutual authentication"; return 3; }
   k -n "$NS" delete pod mweb mok mno --force --grace-period=0 --ignore-not-found >/dev/null 2>&1
+  # the agent leaves the friends node BEFORE the twins exist, and the twins' labels are new in every run: their identity was never authenticated
+  # before, and no certificate for it is cached on the friends node (a pod that existed while the agent was there could still authenticate)
+  spire_agent_skip "$FRIENDS" && ! spire_agent_on "$FRIENDS" && spire_agent_on cp || return 1
   mpod mweb cp "mkdir -p /www; echo $CANARY >/www/canary; httpd -f -p 8080 -h /www" mweb | k apply -f - >/dev/null || return 1
   mpod mok cp "sleep 3600" mcli | k apply -f - >/dev/null && mpod mno "$FRIENDS" "sleep 3600" mcli | k apply -f - >/dev/null || return 1
   k apply -f - >/dev/null <<YAML || return 1
@@ -206,10 +209,7 @@ YAML
   echo "twin identities: mok=$a mno=$b"; [ -n "$a" ] && [ "$a" = "$b" ] || return 1
   # the twin on a node with a SPIRE agent is let in: the policy works, and mutual authentication works here
   wait_for 120 twin_gets mok || { echo "the authenticated twin did not get through: mutual authentication does not work here at all"; return 1; }
-  # the agent leaves the friends node: its Cilium agent holds no certificate for the twin
-  spire_agent_skip "$FRIENDS" && ! spire_agent_on "$FRIENDS" && spire_agent_on cp || return 1
-  k -n "$NS" delete pod mno --force --grace-period=0 >/dev/null
-  mpod mno "$FRIENDS" "sleep 3600" mcli | k apply -f - >/dev/null && k -n "$NS" wait --for=condition=Ready pod/mno --timeout=120s || return 1
+  # the twin on the node without a SPIRE agent: its Cilium agent holds no certificate for the identity
   local before after i; before=$(auth_drops); before=${before:-0}
   for i in 1 2 3; do twin_gets mno && { echo "the twin on the node without a SPIRE agent got through on try $i"; return 1; }; sleep 7; done
   after=$(auth_drops); after=${after:-0}; echo "drops 'Authentication required' on cp: $before -> $after"
