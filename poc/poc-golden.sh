@@ -372,7 +372,7 @@ g8_signed_pr() { # the maintainer's policy caps a pull request at friends, and t
 }
 step_g10() { # rule 10: every rule 1-9 had at least one check that ran and passed in this run
   local r missing=""; for r in 1 2 3 4 5 6 7 8 9; do awk -F'\t' -v r="$r" '$1==r && $3=="PASS"' "$RES" | grep -q . || missing="$missing $r"; done
-  echo "rules without a passing check:${missing:- none} (G2.8 waits for #9)"; [ -z "$missing" ]
+  echo "rules without a passing check:${missing:- none} (G2.8 (#9) is the next to convert)"; [ -z "$missing" ]
 }
 
 ns_gone() { ! k get namespace "$NS" >/dev/null 2>&1; }
