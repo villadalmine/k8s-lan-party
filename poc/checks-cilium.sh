@@ -283,30 +283,15 @@ cni_dropin_everywhere() { # the fix of the first attempt (Cilium pods in CreateC
 
 # --- issue #29: what else the shared agent token may claim (poc/cilium-node-guard.yaml, policies 2 and 3). Every write below is a server-side dry run
 # made with the Cilium agent token read from n2's disk: it passes RBAC and admission exactly as a real write would, and nothing is stored.
-cn_addr() { k get ciliumnode "$(nn "$1")" -o jsonpath='{.spec.addresses[?(@.type=="InternalIP")].ip}'; }
-cn_cidr() { k get ciliumnode "$(nn "$1")" -o jsonpath='{.spec.ipam.podCIDRs[0]}'; }
-cidr_ip() { local b="${1%/*}"; echo "${b%.*}.250"; }   # cidr_ip <a.b.c.0/24>: an address inside it that no test pod holds
 agent_write() { # agent_write <as-node> <kubectl verb and args...> <<manifest: kubectl with that node's Cilium agent token, manifest on stdin
   local n="$1"; shift; local t m; m=$(cat); t=$(agent_token "$n") || return 1   # stdin first: agent_token runs incus exec, which would eat it
   echo "$m" | nx "$n" k3s kubectl --server "https://$CP_NEB:6443" --certificate-authority /var/lib/rancher/k3s/agent/server-ca.crt --token "$t" "$@" 2>&1
 }
-cep_manifest() { # cep_manifest <name> <node-address> <pod-ip> <identity-id>: a CiliumEndpoint as an agent publishes one
-  cat <<YAML
-apiVersion: cilium.io/v2
-kind: CiliumEndpoint
-metadata: {name: $1, namespace: default}
-status:
-  id: 4242
-  identity: {id: $4, labels: ["k8s:app=web"]}
-  networking: {node: "$2", addressing: [{ipv4: "$3"}]}
-YAML
-}
-denied_29() { grep -q 'issue #29' <<<"$1" && ! grep -qE 'created|patched|deleted|configured' <<<"$1"; }
 endpoint_guard_holds() { # from n2, with its agent token: an endpoint naming another node, or another node's pod IP, and a takeover or removal of
   # web's endpoint (on n1) are refused; n2's own kind of endpoint (its address, a pod IP of its own range) and its own cli endpoint still pass
-  local id out own_addr own_ip; id=$(k get cep web -o jsonpath='{.status.identity.id}'); own_addr=$(cn_addr n2); own_ip=$(cidr_ip "$(cn_cidr n2)")
-  [ -n "$id" ] && [ -n "$own_addr" ] && [ -n "$(cn_cidr n2)" ] || { echo "cannot read web's identity or n2's CiliumNode"; return 1; }
-  out=$(cep_manifest forged-cp "$(cn_addr cp)" "$(cidr_ip "$(cn_cidr cp)")" "$id" | agent_write n2 create --dry-run=server -f -)
+  local id out own_addr own_ip; id=$(k get cep web -o jsonpath='{.status.identity.id}'); own_addr=$(cn_addr "$(nn n2)"); own_ip=$(cidr_ip "$(cn_cidr "$(nn n2)")")
+  [ -n "$id" ] && [ -n "$own_addr" ] && [ -n "$(cn_cidr "$(nn n2)")" ] || { echo "cannot read web's identity or n2's CiliumNode"; return 1; }
+  out=$(cep_manifest forged-cp "$(cn_addr "$(nn cp)")" "$(cidr_ip "$(cn_cidr "$(nn cp)")")" "$id" | agent_write n2 create --dry-run=server -f -)
   echo "n2 creates an endpoint on cp's address and range: $out"; denied_29 "$out" || return 1
   out=$(cep_manifest forged-ip "$own_addr" "$(web_ip)" "$id" | agent_write n2 create --dry-run=server -f -)
   echo "n2 creates an endpoint for web's pod IP ($(web_ip), n1's range) on its own address: $out"; denied_29 "$out" || return 1
@@ -334,7 +319,7 @@ identity_guard_holds() { # from n2, with its agent token: web's identity cannot 
   out=$(printf 'apiVersion: cilium.io/v2\nkind: CiliumIdentity\nmetadata: {name: "65001"}\nsecurity-labels: {"reserved:host": ""}\n' | agent_write n2 create --dry-run=server -f -)
   echo "n2 creates an identity with reserved:host: $out"; denied_29 "$out" || return 1
   obj=$(k get ciliumnode "$(nn n2)" -o json) || return 1   # (the role may update a CiliumNode, not patch it)
-  out=$(sed "s#\"$(cn_cidr n2)\"#\"$(cn_cidr cp)\"#" <<<"$obj" | agent_write n2 replace --dry-run=server -f -)
+  out=$(sed "s#\"$(cn_cidr "$(nn n2)")\"#\"$(cn_cidr "$(nn cp)")\"#" <<<"$obj" | agent_write n2 replace --dry-run=server -f -)
   echo "n2 gives its own CiliumNode cp's pod range: $out"; denied_29 "$out" || return 1
   out=$(printf 'apiVersion: cilium.io/v2\nkind: CiliumIdentity\nmetadata: {name: "65000"}\nsecurity-labels: {"k8s:app": "web"}\n' | agent_write n2 create --dry-run=server -f -)
   echo "n2 creates a new identity 65000 in the global range (allowed, recorded): $out"; grep -q 'created (server dry run)' <<<"$out"
