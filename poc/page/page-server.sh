@@ -129,9 +129,9 @@ systemctl is-active -q k8s-lan-party-page || { echo "FAIL: the page is not activ
 EOF
 }
 
-# The puller reads the token with Python's .strip(), a shell hashes bytes: the file is normalized (one line, no CR, no blanks) on write AND
-# read, so the hash on the server is the hash of what the puller sends, whatever wrote the file (Git Bash writes CRLF; issue #47).
-token_value() { tr -d '[:space:]' <"$TOKEN_FILE"; }
+# The puller reads the token with Python's .strip() (the ends only): token_value is that same read, the ONE function that hashes, rewrites and
+# verifies (an interior blank is refused by token_ok, never removed). The file is normalized (one line, no CR) on write AND read, so the hash on the server is the hash of what the puller sends, whatever wrote the file (Git Bash writes CRLF; issue #47).
+token_value() { python3 -c 'import sys; sys.stdout.write(open(sys.argv[1]).read().strip())' "$TOKEN_FILE"; }   # exactly puller.py's read_text().strip()
 token_ok() { case "$1" in "" | *[!A-Za-z0-9._~-]*) return 1 ;; esac; }   # what token_urlsafe writes; also keeps the value safe inside a script
 puller_token() {
   if [ ! -s "$TOKEN_FILE" ]; then

@@ -71,6 +71,19 @@ class PullerToken(unittest.TestCase):
         self.assertNotEqual(p.returncode, 0)
         self.assertFalse(self.sent.exists())
 
+    def test_an_interior_space_is_refused_not_removed(self) -> None:
+        """The puller strips only the ends: `abc DEF` would be sent with its space and get 401, so neither the hash nor verify may use `abcDEF`."""
+        self.tokfile.write_bytes(b"abcDEF0123_-xyz extra\r\n")
+        p = self.run_ps("puller-token")
+        self.assertNotEqual(p.returncode, 0)
+        self.assertFalse(self.sent.exists())
+        self.assertEqual(self.tokfile.read_bytes(), b"abcDEF0123_-xyz extra\r\n")   # not rewritten into a different credential
+        self.run_ps("verify", "--site", "https://203.0.113.7")
+        script = self.sent.read_text()
+        self.assertIn("no puller token", script)
+        self.assertNotIn("abcDEF0123_-xyzextra", script)
+        self.assertNotIn("Authorization: Bearer %s\\n' 'abc", script)
+
     def test_verify_sends_the_clean_token_and_demands_a_200(self) -> None:
         self.tokfile.write_bytes(TOKEN.encode() + b"\r\n")
         p = self.run_ps("verify", "--site", "https://203.0.113.7")
