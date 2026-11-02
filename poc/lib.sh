@@ -198,9 +198,14 @@ machine_running() { # machine_running <name>
   else [ -n "$(docker ps -q -f "name=^$1$")" ]; fi
 }
 any_machines() { if [ "$RUNTIME" = incus ]; then [ -n "$(incus list emesh- -c n -f csv)" ]; else [ -n "$(docker ps -aq -f 'name=^(lh|cp|n1|n2|alice)$')" ]; fi; }
-docker_left() { # what the Docker flow leaves: a container on the game's network or the network itself (Incus: nothing to check here)
-  [ "$RUNTIME" != incus ] || return 1
-  [ -n "$(docker ps -aq --filter "network=$DOCKER_NET")" ] || docker network inspect "$DOCKER_NET" >/dev/null 2>&1
+docker_clean() { # the Docker flow left nothing: no container on the game's network or with a game name, and no network. Succeeds ONLY when
+  # Docker answered every question and the answers are empty: a failed query (Docker down, a permission) is "not verified", never "clean" (Incus: n/a)
+  [ "$RUNTIME" != incus ] || return 0
+  local on_net names nets
+  on_net=$(docker ps -aq --filter "network=$DOCKER_NET") || return 1
+  names=$(docker ps -a --format '{{.Names}}') || return 1
+  nets=$(docker network ls --format '{{.Name}}') || return 1
+  [ -z "$on_net" ] && ! printf '%s\n' "$names" | grep -Eqx 'lh|cp|n1|n2|fwl' && ! printf '%s\n' "$nets" | grep -qxF "$DOCKER_NET"
 }
 cpx() { if [ "$RUNTIME" = incus ]; then incus exec emesh-cp -- "$@"; else docker exec -i cp "$@"; fi; }
 k() { if [ "$RUNTIME" = incus ]; then incus exec emesh-cp -- k3s kubectl "$@"; else docker exec -i cp kubectl "$@"; fi; }

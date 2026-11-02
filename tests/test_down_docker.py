@@ -22,8 +22,15 @@ import json, sys
 f = "%(state)s"
 d = json.load(open(f))
 a = sys.argv[1:]
+import os
+if os.path.exists(f + ".down") and a[:1] in (["ps"], ["network"]) and a[:2] != ["network", "rm"]:
+    print("Cannot connect to the Docker daemon", file=sys.stderr); sys.exit(1)   # Docker unreachable: every query fails
 def save(): json.dump(d, open(f, "w"))
-if a[:2] == ["ps", "-aq"]:
+if a[:2] == ["ps", "-a"] and "--format" in a:
+    print("\n".join(c["name"] for c in d["containers"]))
+elif a[:2] == ["network", "ls"]:
+    print("\n".join(d["networks"]))
+elif a[:2] == ["ps", "-aq"]:
     net = a[3].split("=", 1)[1] if len(a) > 3 and a[2] == "--filter" else None
     print("\n".join(c["name"] for c in d["containers"] if net is None or net in c["nets"]))
 elif a[:2] == ["rm", "-f"]:
@@ -73,15 +80,26 @@ class DownDocker(unittest.TestCase):
         self.assertEqual(d["networks"], ["bridge"])
         self.assertFalse(self.state.exists())
 
+    def clean(self) -> str:
+        return self.run_sh(f'. "{POC}/lib.sh"; RUNTIME=docker; docker_clean && echo clean || echo not-clean').stdout.strip()
+
     def test_the_suite_check_sees_a_leftover_and_a_clean_host(self) -> None:
         self.game(["lh", "cp", "alice"])
-        check = f'. "{POC}/lib.sh"; RUNTIME=docker; docker_left && echo left || echo clean'
-        self.assertEqual(self.run_sh(check).stdout.strip(), "left")
+        self.assertEqual(self.clean(), "not-clean")
         self.run_sh(f'RUNTIME=docker "{POC}/down.sh"')
-        self.assertEqual(self.run_sh(check).stdout.strip(), "clean")
+        self.assertEqual(self.clean(), "clean")
         # the old script's blind spot: only a player and the network are left
         self.dstate.write_text(json.dumps({"containers": [{"name": "alice", "nets": ["emesh"]}], "networks": ["emesh"]}))
-        self.assertEqual(self.run_sh(check).stdout.strip(), "left")
+        self.assertEqual(self.clean(), "not-clean")
+
+    def test_a_failed_docker_query_is_not_clean(self) -> None:
+        self.game(["lh", "cp", "alice"])
+        self.run_sh(f'RUNTIME=docker "{POC}/down.sh"')
+        self.assertEqual(self.clean(), "clean")
+        Path(str(self.dstate) + ".down").write_text("")   # Docker stops answering: nothing can be verified
+        self.assertEqual(self.clean(), "not-clean")
+        self.game(["lh", "cp", "alice"])                  # and with leftovers it is still not clean
+        self.assertEqual(self.clean(), "not-clean")
 
     def test_down_twice_is_safe(self) -> None:
         self.game(["lh", "cp", "alice"])

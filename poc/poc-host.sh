@@ -28,7 +28,7 @@ a = d.datetime.fromisoformat(n["notBefore"].replace("Z", "+00:00")); b = d.datet
 sys.exit(0 if 7190 <= (b - a).total_seconds() <= 7210 else 1)'
 }
 kicked() { ! k get node alice && ! machine_running alice; }
-all_gone() { ! any_machines && ! docker_left && [ ! -d "$STATE/ca" ]; }   # Docker: no container on the game's network, and the network is gone (issue #36)
+all_gone() { ! any_machines && docker_clean && [ ! -d "$STATE/ca" ]; }   # Docker: no container on the game's network, and the network is gone (issue #36)
 
 step H01 "mesh host init: CA, lighthouse and control plane are up" "$MESH" host init
 step H02 "the Kubernetes API answers on the Nebula IP and not on the Docker network" api_only_on_nebula
