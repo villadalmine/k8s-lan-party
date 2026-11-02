@@ -280,3 +280,54 @@ cni_dropin_everywhere() { # the fix of the first attempt (Cilium pods in CreateC
   for n in cp n1 n2; do nx "$n" grep -q "conf_dir = '/etc/cni/net.d'" "$f" && nx "$n" grep -q "/var/lib/rancher/k3s/data/cni" "$f" || return 1; done
   ! k -n kube-system get pod -l k8s-app=cilium -o jsonpath='{range .items[*]}{.status.containerStatuses[*].state.waiting.reason}{" "}{.status.initContainerStatuses[*].state.waiting.reason}{"\n"}{end}' | grep -q CreateContainerError
 }
+
+# --- issue #29: what else the shared agent token may claim (poc/cilium-node-guard.yaml, policies 2 and 3). Every write below is a server-side dry run
+# made with the Cilium agent token read from n2's disk: it passes RBAC and admission exactly as a real write would, and nothing is stored.
+cn_addr() { k get ciliumnode "$(nn "$1")" -o jsonpath='{.spec.addresses[?(@.type=="InternalIP")].ip}'; }
+cn_cidr() { k get ciliumnode "$(nn "$1")" -o jsonpath='{.spec.ipam.podCIDRs[0]}'; }
+cidr_ip() { local b="${1%/*}"; echo "${b%.*}.250"; }   # cidr_ip <a.b.c.0/24>: an address inside it that no test pod holds
+agent_write() { # agent_write <as-node> <kubectl verb and args...> <<manifest: kubectl with that node's Cilium agent token, manifest on stdin
+  local n="$1"; shift; local t m; t=$(agent_token "$n") || return 1; m=$(cat)   # both before the pipe (incus exec reads stdin)
+  echo "$m" | nx "$n" k3s kubectl --server "https://$CP_NEB:6443" --certificate-authority /var/lib/rancher/k3s/agent/server-ca.crt --token "$t" "$@" 2>&1
+}
+cep_manifest() { # cep_manifest <name> <node-address> <pod-ip> <identity-id>: a CiliumEndpoint as an agent publishes one
+  cat <<YAML
+apiVersion: cilium.io/v2
+kind: CiliumEndpoint
+metadata: {name: $1, namespace: default}
+status:
+  id: 4242
+  identity: {id: $4, labels: ["k8s:app=web"]}
+  networking: {node: "$2", addressing: [{ipv4: "$3"}]}
+YAML
+}
+denied_29() { grep -q 'issue #29' <<<"$1" && ! grep -qE 'created|patched|deleted|configured' <<<"$1"; }
+endpoint_guard_holds() { # from n2, with its agent token: an endpoint naming another node, or another node's pod IP, and a takeover or removal of
+  # web's endpoint (on n1) are refused; n2's own kind of endpoint (its address, a pod IP of its own range) and its own cli endpoint still pass
+  local id out own_addr own_ip; id=$(k get cep web -o jsonpath='{.status.identity.id}'); own_addr=$(cn_addr n2); own_ip=$(cidr_ip "$(cn_cidr n2)")
+  [ -n "$id" ] && [ -n "$own_addr" ] && [ -n "$(cn_cidr n2)" ] || { echo "cannot read web's identity or n2's CiliumNode"; return 1; }
+  out=$(cep_manifest forged-cp "$(cn_addr cp)" "$(cidr_ip "$(cn_cidr cp)")" "$id" | agent_write n2 create --dry-run=server -f -)
+  echo "n2 creates an endpoint on cp's address and range: $out"; denied_29 "$out" || return 1
+  out=$(cep_manifest forged-ip "$own_addr" "$(web_ip)" "$id" | agent_write n2 create --dry-run=server -f -)
+  echo "n2 creates an endpoint for web's pod IP ($(web_ip), n1's range) on its own address: $out"; denied_29 "$out" || return 1
+  out=$(echo '{"status":{"networking":{"node":"'"$own_addr"'"}}}' | agent_write n2 patch cep web --type merge --dry-run=server --patch-file /dev/stdin)
+  echo "n2 points web's endpoint at itself: $out"; denied_29 "$out" || return 1
+  out=$(: | agent_write n2 delete cep web --dry-run=server); echo "n2 deletes web's endpoint: $out"; denied_29 "$out" || return 1
+  out=$(cep_manifest own-range "$own_addr" "$own_ip" "$id" | agent_write n2 create --dry-run=server -f -)
+  echo "n2 creates an endpoint on its own address and range: $out"; grep -q 'created (server dry run)' <<<"$out" || return 1
+  out=$(echo '{"metadata":{"labels":{"edge-mesh-probe":"own"}}}' | agent_write n2 patch cep cli --type merge --dry-run=server --patch-file /dev/stdin)
+  echo "n2 patches its own cli endpoint: $out"; grep -q 'patched (server dry run)' <<<"$out"
+}
+identity_guard_holds() { # identities come from the operator; from n2, with its agent token, no identity can be created, relabelled or deleted,
+  # and its own CiliumNode cannot take another node's pod range
+  local mode id out; mode=$(k -n kube-system get configmap cilium-config -o jsonpath='{.data.identity-management-mode}')
+  id=$(k get cep web -o jsonpath='{.status.identity.id}'); echo "identity-management-mode: $mode; web's identity: $id"
+  [ "$mode" = operator ] && [ -n "$id" ] && k get ciliumidentity "$id" >/dev/null || return 1
+  out=$(printf 'apiVersion: cilium.io/v2\nkind: CiliumIdentity\nmetadata: {name: "65000"}\nsecurity-labels: {"k8s:app": "web"}\n' | agent_write n2 create --dry-run=server -f -)
+  echo "n2 creates an identity for app=web: $out"; denied_29 "$out" || return 1
+  out=$(echo '{"security-labels":{"k8s:app":"cli"}}' | agent_write n2 patch ciliumidentity "$id" --type merge --dry-run=server --patch-file /dev/stdin)
+  echo "n2 relabels web's identity: $out"; denied_29 "$out" || return 1
+  out=$(: | agent_write n2 delete ciliumidentity "$id" --dry-run=server); echo "n2 deletes web's identity: $out"; denied_29 "$out" || return 1
+  out=$(echo '{"spec":{"ipam":{"podCIDRs":["'"$(cn_cidr cp)"'"]}}}' | agent_write n2 patch ciliumnode "$(nn n2)" --type merge --dry-run=server --patch-file /dev/stdin)
+  echo "n2 gives its own CiliumNode cp's pod range: $out"; denied_29 "$out"
+}

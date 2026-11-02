@@ -1,7 +1,10 @@
-# The Cilium agents share one service account (kube-system/cilium), and that account may update every CiliumNode. A CiliumNode carries the
-# node's WireGuard public key and addresses, which every other node uses to encrypt to it. The owner of a remote node is root there and can read
-# the agent's token from his disk, so without this policy he could rewrite another node's key or addresses (issue #8). With it, a write by the
-# agent account is admitted only for the CiliumNode of the node its token was issued on (the pod-bound token carries the node name).
+# The Cilium agents share one service account (kube-system/cilium). The owner of a remote node is root there and can read the agent's token from
+# his disk, so whatever that account may write, a joined node may write. Its ClusterRole comes fixed from the chart; these policies narrow what a
+# write by it may claim. Each one admits by the node its pod-bound token was issued on (the token carries the node name). Applied by cilium.sh.
+#
+# 1. CiliumNodes (issue #8). A CiliumNode carries the node's WireGuard public key, addresses and pod CIDRs, which every other node uses to encrypt
+#    and route to it. A write is admitted only for the CiliumNode of the agent's own node, and never changes its pod CIDRs: in cluster-pool IPAM
+#    the operator hands them out, so an agent that could set them could claim another node's pod range (issue #29).
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
 metadata:
@@ -17,11 +20,18 @@ spec:
   matchConditions:
   - name: cilium-agent
     expression: request.userInfo.username == 'system:serviceaccount:kube-system:cilium'
+  variables:
+  - name: cidrs
+    expression: "request.operation == 'DELETE' || !has(object.spec.ipam) || !has(object.spec.ipam.podCIDRs) ? [] : object.spec.ipam.podCIDRs"
+  - name: oldCidrs
+    expression: "request.operation != 'UPDATE' || !has(oldObject.spec.ipam) || !has(oldObject.spec.ipam.podCIDRs) ? [] : oldObject.spec.ipam.podCIDRs"
   validations:
   - expression: >-
       'authentication.kubernetes.io/node-name' in request.userInfo.extra &&
       request.userInfo.extra['authentication.kubernetes.io/node-name'][0] == request.name
     message: a Cilium agent may write only the CiliumNode of its own node
+  - expression: "variables.cidrs.all(c, c in variables.oldCidrs) && variables.oldCidrs.all(c, c in variables.cidrs)"
+    message: the pod CIDRs of a CiliumNode are set by the operator, never by a Cilium agent (edge-mesh, issue #29)
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding
@@ -30,3 +40,102 @@ metadata:
 spec:
   policyName: cilium-agent-own-ciliumnode
   validationActions: [Deny]
+---
+# 2. CiliumIdentities (issue #29). An identity maps a numeric ID to a set of labels, cluster-wide; every node enforces policy by it. With the agent
+#    allocating them (the chart's default) any agent may create one for any labels or rewrite an existing one's labels. cilium.sh runs Cilium
+#    with identityManagementMode=operator (the operator creates identities from the pods' labels), so the agents never need to write one, and
+#    this policy refuses every write by the agent account.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: cilium-agent-no-identity-writes
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+    - apiGroups: [cilium.io]
+      apiVersions: ["*"]
+      operations: [CREATE, UPDATE, DELETE]
+      resources: [ciliumidentities]
+  matchConditions:
+  - name: cilium-agent
+    expression: request.userInfo.username == 'system:serviceaccount:kube-system:cilium'
+  validations:
+  - expression: "false"
+    message: CiliumIdentities are created by the Cilium operator only (identityManagementMode=operator); a Cilium agent may not write one (edge-mesh, issue #29)
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: cilium-agent-no-identity-writes
+spec:
+  policyName: cilium-agent-no-identity-writes
+  validationActions: [Deny]
+---
+# 3. CiliumEndpoints (issue #29). A CiliumEndpoint tells every node "this pod IP lives on that node, with that identity"; the other nodes put it
+#    in their ipcache and tunnel traffic for the IP to the node it names. Any agent may create and patch any of them. Here a write by the agent
+#    account is checked against every CiliumNode (the params, selected all at once; each one is evaluated and all must pass):
+#    - against the agent's own CiliumNode: the endpoint names one of that node's addresses and its pod IPs are inside that node's pod CIDRs;
+#    - against every other CiliumNode: the endpoint names none of its addresses and none of its pod IPs is inside its pod CIDRs.
+#    The old object counts too (UPDATE, DELETE), so an agent can neither create an endpoint for another node's IP nor take over or remove an
+#    existing one. What this does NOT check: the identity an agent writes into its own endpoints. Its own pods are its own (golden rule 1), and a
+#    joined node can put any identity on the traffic it sends anyway (DESIGN.md 3.3).
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: cilium-agent-own-endpoints
+spec:
+  failurePolicy: Fail
+  paramKind:
+    apiVersion: cilium.io/v2
+    kind: CiliumNode
+  matchConstraints:
+    resourceRules:
+    - apiGroups: [cilium.io]
+      apiVersions: ["*"]
+      operations: [CREATE, UPDATE, DELETE]
+      resources: [ciliumendpoints, ciliumendpoints/status]
+  matchConditions:
+  - name: cilium-agent
+    expression: request.userInfo.username == 'system:serviceaccount:kube-system:cilium'
+  variables:
+  - name: node
+    expression: "'authentication.kubernetes.io/node-name' in request.userInfo.extra ? request.userInfo.extra['authentication.kubernetes.io/node-name'][0] : ''"
+  - name: claims
+    expression: "request.operation == 'CREATE' ? [object] : (request.operation == 'DELETE' ? [oldObject] : [object, oldObject])"
+  - name: nets
+    expression: "variables.claims.filter(c, has(c.status) && has(c.status.networking)).map(c, c.status.networking)"
+  - name: hosts
+    expression: "variables.nets.filter(n, has(n.node)).map(n, n.node)"
+  - name: ips
+    expression: >-
+      variables.nets.filter(n, has(n.addressing)).map(n, n.addressing.filter(a, has(a.ipv4)).map(a, a.ipv4)
+      + n.addressing.filter(a, has(a.ipv6)).map(a, a.ipv6))
+  - name: addrs
+    expression: "has(params.spec.addresses) ? params.spec.addresses.filter(a, has(a.ip)).map(a, a.ip) : []"
+  - name: cidrs
+    expression: "has(params.spec.ipam) && has(params.spec.ipam.podCIDRs) ? params.spec.ipam.podCIDRs : []"
+  - name: own
+    expression: "params.metadata.name == variables.node"
+  validations:
+  - expression: "variables.node != ''"
+    message: a Cilium agent token not bound to a node may not write CiliumEndpoints
+  - expression: >-
+      !variables.own || (variables.hosts.all(h, h in variables.addrs) &&
+      variables.ips.all(l, l.all(i, variables.cidrs.exists(c, cidr(c).containsIP(i)))))
+    messageExpression: "'a Cilium agent may write only endpoints of its own node (' + variables.node + '): node address and pod IPs from its CiliumNode (edge-mesh, issue #29)'"
+  - expression: >-
+      variables.own || (variables.hosts.all(h, !(h in variables.addrs)) &&
+      variables.ips.all(l, l.all(i, !variables.cidrs.exists(c, cidr(c).containsIP(i)))))
+    messageExpression: "'a Cilium agent may not write an endpoint of another node (' + params.metadata.name + ') (edge-mesh, issue #29)'"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: cilium-agent-own-endpoints
+spec:
+  policyName: cilium-agent-own-endpoints
+  validationActions: [Deny]
+  paramRef:
+    selector: {}
+    parameterNotFoundAction: Deny
