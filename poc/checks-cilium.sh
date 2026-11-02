@@ -321,6 +321,7 @@ identity_guard_holds() { # from n2, with its agent token: web's identity cannot 
   obj=$(k get ciliumnode "$(nn n2)" -o json) || return 1   # (the role may update a CiliumNode, not patch it)
   out=$(sed "s#\"$(cn_cidr "$(nn n2)")\"#\"$(cn_cidr "$(nn cp)")\"#" <<<"$obj" | agent_write n2 replace --dry-run=server -f -)
   echo "n2 gives its own CiliumNode cp's pod range: $out"; denied_29 "$out" || return 1
-  out=$(printf 'apiVersion: cilium.io/v2\nkind: CiliumIdentity\nmetadata: {name: "65000"}\nsecurity-labels: {"k8s:app": "web"}\n' | agent_write n2 create --dry-run=server -f -)
-  echo "n2 creates a new identity 65000 in the global range (allowed, recorded): $out"; grep -q 'created (server dry run)' <<<"$out"
+  local free=65000; while k get ciliumidentity "$free" >/dev/null 2>&1; do free=$((free - 1)); done   # identity IDs are allocated at random
+  out=$(printf 'apiVersion: cilium.io/v2\nkind: CiliumIdentity\nmetadata: {name: "%s"}\nsecurity-labels: {"k8s:app": "web"}\n' "$free" | agent_write n2 create --dry-run=server -f -)
+  echo "n2 creates a new identity $free in the global range (allowed, recorded): $out"; grep -q 'created (server dry run)' <<<"$out"
 }
