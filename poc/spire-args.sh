@@ -17,8 +17,9 @@ SPIRE_TOL='[{"key":"node-role.kubernetes.io/control-plane","operator":"Exists","
 # an identity and every policy that requires authentication drops it. The list is the chart's default plus the trust taint.
 SPIRE_AGENT_TOL='[{"key":"node.kubernetes.io/not-ready","effect":"NoSchedule"},{"key":"node-role.kubernetes.io/master","effect":"NoSchedule"},{"key":"node-role.kubernetes.io/control-plane","effect":"NoSchedule"},{"key":"node.cloudprovider.kubernetes.io/uninitialized","effect":"NoSchedule","value":"true"},{"key":"CriticalAddonsOnly","operator":"Exists"},{"key":"trust","operator":"Exists","effect":"NoSchedule"}]'
 SPIRE_SC='{"runAsNonRoot":true,"runAsUser":1000,"runAsGroup":1000,"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]}}'
-# The agent runs under its own account and role (poc/spire-agent-rbac.yaml, issue #35), not the chart's (get pods, nodes, nodes/proxy cluster-wide).
-SPIRE_AGENT_SA=spire-agent-narrow
+# The agent runs under our account and role (poc/spire-agent-rbac.yaml, issue #35), not the chart's (get pods, nodes, nodes/proxy cluster-wide).
+# Same name as the chart's: its SPIRE init script registers the agents by agent_sa:spire-agent, fixed.
+SPIRE_AGENT_SA=spire-agent
 S=authentication.mutual.spire
 SPIRE_ARGS=(--set authentication.enabled=true --set $S.enabled=true --set $S.install.enabled=true
   --set $S.install.existingNamespace=true --set $S.install.agent.serviceAccount.create=false --set $S.install.agent.serviceAccount.name=$SPIRE_AGENT_SA
@@ -30,8 +31,13 @@ SPIRE_ARGS=(--set authentication.enabled=true --set $S.enabled=true --set $S.ins
   --set-json "$S.install.server.tolerations=$SPIRE_TOL"
   --set-json "$S.install.agent.tolerations=$SPIRE_AGENT_TOL")
 spire_prepare() { # before the helm install: the namespace, the agent's account and its narrow role (poc/spire-agent-rbac.yaml). Uses the caller's `k`.
-  # A namespace an older install let the chart create carries Helm's ownership; with existingNamespace=true helm would delete it (and the SPIRE
-  # datastore with it) on this upgrade, so it is marked to keep first. The chart's old spire-agent account and role are removed by helm itself.
-  if k get namespace "$SPIRE_NS" >/dev/null 2>&1; then k annotate namespace "$SPIRE_NS" helm.sh/resource-policy=keep --overwrite >/dev/null || return 1; fi
+  # An older install let the chart create the namespace and the agent's account, role and binding (same names). With existingNamespace=true and
+  # agent.serviceAccount.create=false they leave the release, and helm would delete them on this upgrade (the namespace with the SPIRE datastore,
+  # the account with the agents' identity), so each one that exists is marked to keep first; then the apply narrows the role.
+  local o
+  for o in "namespace/$SPIRE_NS" "-n $SPIRE_NS serviceaccount/$SPIRE_AGENT_SA" "clusterrole/$SPIRE_AGENT_SA" "clusterrolebinding/$SPIRE_AGENT_SA"; do
+    # shellcheck disable=SC2086
+    if k get $o >/dev/null 2>&1; then k annotate $o helm.sh/resource-policy=keep --overwrite >/dev/null || return 1; fi
+  done
   k apply -f - <"$POC/spire-agent-rbac.yaml" >/dev/null
 }

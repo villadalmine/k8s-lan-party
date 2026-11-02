@@ -241,14 +241,15 @@ g7_trust_frozen() { # reused from lib.sh (poc-placement L52b, poc-bgp G09b): the
   trust_frozen_api "$FRIENDS" friends
 }
 
-g3_spire_agent_narrow() { # issue #35: the SPIRE agent (it runs on joined nodes) has its own account whose only right is get nodes/pods, what its
+g3_spire_agent_narrow() { # issue #35: the SPIRE agent (it runs on joined nodes) runs under our role whose only right is get nodes/pods, what its
   # workload attestor asks the local kubelet for; nodes/proxy (the API server's relay to any kubelet: pod lists, logs, exec), pods, nodes: refused
   k get ns cilium-spire >/dev/null 2>&1 || { echo "SPIRE is not installed: run MUTUAL=yes ./cilium.sh to add mutual authentication"; return 3; }
   local sa ans r; sa=system:serviceaccount:cilium-spire:$(k -n cilium-spire get ds spire-agent -o jsonpath='{.spec.template.spec.serviceAccountName}')
-  echo "the SPIRE agent runs as $sa"; [ "$sa" = system:serviceaccount:cilium-spire:spire-agent-narrow ] || return 1
+  echo "the SPIRE agent runs as $sa"; [ "$sa" = system:serviceaccount:cilium-spire:spire-agent ] || return 1
   ans=$(k auth can-i get nodes/pods --as="$sa"); echo "get nodes/pods: $ans"; [ "$ans" = yes ] || return 1
   for r in nodes/proxy nodes/log pods nodes secrets; do ans=$(k auth can-i get "$r" --as="$sa"); echo "get $r: $ans"; [ "$ans" = no ] || return 1; done
-  ! k get clusterrole spire-agent >/dev/null 2>&1 || { echo "the chart's broad spire-agent ClusterRole is still there"; return 1; }
+  r=$(k get clusterrole spire-agent -o jsonpath='{.rules}'); echo "ClusterRole spire-agent: $r"
+  [ "$r" = '[{"apiGroups":[""],"resources":["nodes/pods"],"verbs":["get"]}]' ]
 }
 
 # ---- rule 4: tokens per node, burned; credentials encrypted in transit ----

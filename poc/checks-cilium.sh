@@ -181,19 +181,27 @@ as_spire_agent_of() { # as_spire_agent_of <node> <kubectl args...>: kubectl on t
   local n="$1"; shift; local t; t=$(spire_agent_token "$n") || return 1
   nx "$n" k3s kubectl --server "https://$CP_NEB:6443" --certificate-authority /var/lib/rancher/k3s/agent/server-ca.crt --token "$t" "$@" 2>&1
 }
-spire_agent_narrow() { # issue #35: the SPIRE agent runs under its own account (poc/spire-agent-rbac.yaml) whose only right is `get nodes/pods`, what the
+spire_agent_narrow() { # issue #35: the SPIRE agent runs under our account and role (poc/spire-agent-rbac.yaml) whose only right is `get nodes/pods`, what the
   # kubelet asks for when the local workload attestor lists its pods (mutual auth working at V92-V102 is the proof it is enough). The RBAC answer
   # for the old reach is no, and with the token read from n2's disk the API server refuses the proxy to cp's kubelet, and pods and nodes.
-  local sa=system:serviceaccount:cilium-spire:${SPIRE_AGENT_SA:-spire-agent-narrow} v r ans out
+  local sa=system:serviceaccount:cilium-spire:${SPIRE_AGENT_SA:-spire-agent} v r ans out
   ans=$(k auth can-i get nodes/pods --as="$sa"); echo "get nodes/pods: $ans"; [ "$ans" = yes ] || return 1
   for r in nodes/proxy nodes/log pods nodes secrets; do ans=$(k auth can-i get "$r" --as="$sa"); echo "get $r: $ans"; [ "$ans" = no ] || return 1; done
   for v in create update patch delete; do for r in nodes/proxy nodes/pods pods nodes; do ans=$(k auth can-i "$v" "$r" --as="$sa"); echo "$v $r: $ans"; [ "$ans" = no ] || return 1; done; done
-  ! k get clusterrole spire-agent >/dev/null 2>&1 || { echo "the chart's broad spire-agent ClusterRole is still there"; return 1; }
+  out=$(k get clusterrole spire-agent -o jsonpath='{.rules}'); echo "ClusterRole spire-agent: $out"
+  [ "$out" = '[{"apiGroups":[""],"resources":["nodes/pods"],"verbs":["get"]}]' ] || return 1
   out=$(as_spire_agent_of n2 auth whoami -o jsonpath='{.status.userInfo.username}'); echo "n2's SPIRE agent token is: $out"; [ "$out" = "$sa" ] || return 1
   out=$(as_spire_agent_of n2 get --raw "/api/v1/nodes/$(nn cp)/proxy/pods"); echo "proxy to cp's kubelet /pods: $(echo "$out" | head -c 300)"
   echo "$out" | grep -q Forbidden || return 1
   out=$(as_spire_agent_of n2 get pod web); echo "get pod web: $out"; echo "$out" | grep -q Forbidden || return 1
-  out=$(as_spire_agent_of n2 get node "$(nn cp)"); echo "get node cp: $out"; echo "$out" | grep -q Forbidden
+  out=$(as_spire_agent_of n2 get node "$(nn cp)"); echo "get node cp: $out"; echo "$out" | grep -q Forbidden || return 1
+  # what nodes/pods still reaches: a kubelet the token can talk to directly. cp's must not answer it (Nebula opens 10250 to the control plane
+  # group only); n1's answer is recorded, not judged (DESIGN.md 3.3: between joined nodes the kubelet port is reachable)
+  local t c; t=$(spire_agent_token n2) || return 1
+  for c in "$(nn cp) $CP_NEB" "$(nn n1) $N1_NEB"; do set -- $c
+    out=$(nx n2 curl -sk -m 8 -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $t" "https://$2:10250/pods"); echo "n2 -> kubelet of $1 ($2:10250/pods): ${out:-none}"
+    [ "$1" != "$(nn cp)" ] || [ "$out" != 200 ] || return 1
+  done
 }
 
 # --- mutual authentication, the deny half (issue #8). The same policy (web needs mutual auth from app=cli) must DROP a peer that cannot authenticate.

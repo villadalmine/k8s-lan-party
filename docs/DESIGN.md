@@ -167,12 +167,16 @@ identity) puts its service account token there. The chart's ClusterRole was `get
 lets the API server relay a request to any node's kubelet (pod lists, container logs, and over a websocket even exec), so the owner of a joined node
 could have reached the maintainer's own nodes with it. What the agent needs is one call: its Kubernetes workload attestor asks the local kubelet for
 `/pods`, which the kubelet authorizes as `get nodes/pods` (fine-grained kubelet authorization) before it falls back to `nodes/proxy`. So the agent
-now runs under its own account, `spire-agent-narrow` (`poc/spire-agent-rbac.yaml`, applied by `spire-args.sh` before the helm install, the chart's
-own account and role turned off), whose only right is `get nodes/pods`. Mutual authentication still works with it (`poc-vm` V92-V102, the deny half
+now runs under our own account and role (`poc/spire-agent-rbac.yaml`, applied by `spire-args.sh` before the helm install, the chart's own account
+and role turned off; the account keeps the chart's name, `spire-agent`, because the chart's SPIRE init script registers the agents by that name), whose only right is `get nodes/pods`. Mutual authentication still works with it (`poc-vm` V92-V102, the deny half
 included), and `poc-vm` V103 is the negative test: with the token read from a joined node's disk, the proxy to the control plane's kubelet, `get pod`
-and `get node` are refused. **What is left:** `nodes/pods` is honoured by any kubelet the token reaches directly, so it reads the pod specs (not logs,
-not exec) of a node whose kubelet port it can reach; the narrowed Nebula firewall opens the kubelet port to the control plane only (J13), and every
-joined machine already reads all pod specs through the k3s controller credential (above). Accepted for the same reason.
+and `get node` are refused. **What is left (measured 2026-11-02):** `nodes/pods` is honoured by any kubelet the token reaches directly, and it
+reads the pod specs (not logs, not exec) of that node. On the Dell VMs, from the public node with that token: the control plane's kubelet does not
+answer (the Nebula firewall opens 10250 to the control plane group only), but the friends node's kubelet answered `/pods` with 200. So between joined
+nodes the kubelet port is reachable even though the narrowed Nebula firewall lists it for the control plane only. Our reading is that host-to-host
+traffic between Cilium nodes rides Cilium's own WireGuard (UDP 51871, allowed) and so is not filtered per port by Nebula, but that cause is not proven
+(followed up separately). An `own` node that is not the control plane could be reached the same way. Its pod specs are also readable by every joined
+machine through the k3s controller credential (above), so this adds no new kind of exposure; private data never belongs in a pod spec.
 
 ## 4. Trust and placement policy
 
