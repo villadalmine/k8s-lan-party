@@ -185,9 +185,14 @@ spire_agent_narrow() { # issue #35: the SPIRE agent runs under our account and r
   # kubelet asks for when the local workload attestor lists its pods (mutual auth working at V92-V102 is the proof it is enough). The RBAC answer
   # for the old reach is no, and with the token read from n2's disk the API server refuses the proxy to cp's kubelet, and pods and nodes.
   local sa=system:serviceaccount:cilium-spire:${SPIRE_AGENT_SA:-spire-agent} v r ans out
-  ans=$(k auth can-i get nodes/pods --as="$sa"); echo "get nodes/pods: $ans"; [ "$ans" = yes ] || return 1
-  for r in nodes/proxy nodes/log pods nodes secrets; do ans=$(k auth can-i get "$r" --as="$sa"); echo "get $r: $ans"; [ "$ans" = no ] || return 1; done
-  for v in create update patch delete; do for r in nodes/proxy nodes/pods pods nodes; do ans=$(k auth can-i "$v" "$r" --as="$sa"); echo "$v $r: $ans"; [ "$ans" = no ] || return 1; done; done
+  # (kubectl auth can-i reads "nodes/pods" as the node named pods: subresources go in --subresource)
+  ans=$(k auth can-i get nodes --subresource=pods --as="$sa"); echo "get nodes/pods: $ans"; [ "$ans" = yes ] || return 1
+  for r in proxy log; do ans=$(k auth can-i get nodes --subresource="$r" --as="$sa"); echo "get nodes/$r: $ans"; [ "$ans" = no ] || return 1; done
+  for r in pods nodes secrets; do ans=$(k auth can-i get "$r" --as="$sa"); echo "get $r: $ans"; [ "$ans" = no ] || return 1; done
+  for v in create update patch delete; do
+    for r in proxy pods; do ans=$(k auth can-i "$v" nodes --subresource="$r" --as="$sa"); echo "$v nodes/$r: $ans"; [ "$ans" = no ] || return 1; done
+    for r in pods nodes; do ans=$(k auth can-i "$v" "$r" --as="$sa"); echo "$v $r: $ans"; [ "$ans" = no ] || return 1; done
+  done
   out=$(k get clusterrole spire-agent -o jsonpath='{.rules}'); echo "ClusterRole spire-agent: $out"
   [ "$out" = '[{"apiGroups":[""],"resources":["nodes/pods"],"verbs":["get"]}]' ] || return 1
   out=$(as_spire_agent_of n2 auth whoami -o jsonpath='{.status.userInfo.username}'); echo "n2's SPIRE agent token is: $out"; [ "$out" = "$sa" ] || return 1

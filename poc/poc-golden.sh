@@ -246,8 +246,9 @@ g3_spire_agent_narrow() { # issue #35: the SPIRE agent (it runs on joined nodes)
   k get ns cilium-spire >/dev/null 2>&1 || { echo "SPIRE is not installed: run MUTUAL=yes ./cilium.sh to add mutual authentication"; return 3; }
   local sa ans r; sa=system:serviceaccount:cilium-spire:$(k -n cilium-spire get ds spire-agent -o jsonpath='{.spec.template.spec.serviceAccountName}')
   echo "the SPIRE agent runs as $sa"; [ "$sa" = system:serviceaccount:cilium-spire:spire-agent ] || return 1
-  ans=$(k auth can-i get nodes/pods --as="$sa"); echo "get nodes/pods: $ans"; [ "$ans" = yes ] || return 1
-  for r in nodes/proxy nodes/log pods nodes secrets; do ans=$(k auth can-i get "$r" --as="$sa"); echo "get $r: $ans"; [ "$ans" = no ] || return 1; done
+  ans=$(k auth can-i get nodes --subresource=pods --as="$sa"); echo "get nodes/pods: $ans"; [ "$ans" = yes ] || return 1
+  for r in proxy log; do ans=$(k auth can-i get nodes --subresource="$r" --as="$sa"); echo "get nodes/$r: $ans"; [ "$ans" = no ] || return 1; done
+  for r in pods nodes secrets; do ans=$(k auth can-i get "$r" --as="$sa"); echo "get $r: $ans"; [ "$ans" = no ] || return 1; done
   r=$(k get clusterrole spire-agent -o jsonpath='{.rules}'); echo "ClusterRole spire-agent: $r"
   [ "$r" = '[{"apiGroups":[""],"resources":["nodes/pods"],"verbs":["get"]}]' ]
 }
