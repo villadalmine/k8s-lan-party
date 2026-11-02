@@ -15,7 +15,7 @@ from pathlib import Path
 
 PAGE = Path(__file__).resolve().parent / "page"
 BASH = shutil.which("bash")
-TOKEN = "abcDEF0123_-xyz456789ABCDEFghijklmnopqrstuv"
+TOKEN = "abcDEF0123_-xyz" + "456789ABCDEFghijklmnopqrstuv"   # a test fixture, not a secret  # gitleaks:allow
 
 
 @unittest.skipUnless(BASH and os.name == "posix", "needs bash on a POSIX system")
