@@ -172,15 +172,28 @@ spire_survives_restart() {
   [ -n "$before" ] && [ "$before" = "$after" ] && [ "${before##*entries=}" -ge 3 ]
 }
 mutual_after_restart() { wait_for 120 mutual_works; }
-spire_agent_reach() { # what the SPIRE agent's service account may read, measured as an RBAC inventory (impersonation from the host, nothing is read
-  # with the token): the chart's ClusterRole is get on pods, nodes and nodes/proxy, cluster-wide. nodes/proxy is what lets the apiserver relay a
-  # GET to ANY node's kubelet (/pods, container logs), so the agent that now runs on joined nodes (spire-args.sh) can read pod specs and logs of
-  # the maintainer's nodes. It cannot be dropped without breaking mutual auth: the k8s workload attestor asks the local kubelet for the pods
-  # through the kubelet's own authn/authz, which needs that permission. Recorded, not fixed: DESIGN.md 3.3, POC-STATUS, issue #29's family.
-  local sa=system:serviceaccount:cilium-spire:spire-agent v r ans
-  for r in nodes/proxy pods nodes; do ans=$(k auth can-i get "$r" --as="$sa"); echo "get $r: $ans"; [ "$ans" = yes ] || return 1; done
-  for v in create update patch delete; do for r in nodes/proxy pods nodes secrets; do ans=$(k auth can-i "$v" "$r" --as="$sa"); echo "$v $r: $ans"; [ "$ans" = no ] || return 1; done; done
-  ans=$(k auth can-i get secrets --as="$sa"); echo "get secrets: $ans"; [ "$ans" = no ]
+spire_agent_token() { # spire_agent_token <node>: the SPIRE agent's API token (the automounted one its workload attestor uses), read from the node's
+  # disk as its owner would
+  local uid; uid=$(k -n cilium-spire get pod -l app=spire-agent --field-selector "spec.nodeName=$(nn "$1")" -o jsonpath='{.items[0].metadata.uid}')
+  [ -n "$uid" ] && nx "$1" sh -c "cat /var/lib/kubelet/pods/$uid/volumes/kubernetes.io~projected/kube-api-access-*/token"
+}
+as_spire_agent_of() { # as_spire_agent_of <node> <kubectl args...>: kubectl on that node with its SPIRE agent's token
+  local n="$1"; shift; local t; t=$(spire_agent_token "$n") || return 1
+  nx "$n" k3s kubectl --server "https://$CP_NEB:6443" --certificate-authority /var/lib/rancher/k3s/agent/server-ca.crt --token "$t" "$@" 2>&1
+}
+spire_agent_narrow() { # issue #35: the SPIRE agent runs under its own account (poc/spire-agent-rbac.yaml) whose only right is `get nodes/pods`, what the
+  # kubelet asks for when the local workload attestor lists its pods (mutual auth working at V92-V102 is the proof it is enough). The RBAC answer
+  # for the old reach is no, and with the token read from n2's disk the API server refuses the proxy to cp's kubelet, and pods and nodes.
+  local sa=system:serviceaccount:cilium-spire:${SPIRE_AGENT_SA:-spire-agent-narrow} v r ans out
+  ans=$(k auth can-i get nodes/pods --as="$sa"); echo "get nodes/pods: $ans"; [ "$ans" = yes ] || return 1
+  for r in nodes/proxy nodes/log pods nodes secrets; do ans=$(k auth can-i get "$r" --as="$sa"); echo "get $r: $ans"; [ "$ans" = no ] || return 1; done
+  for v in create update patch delete; do for r in nodes/proxy nodes/pods pods nodes; do ans=$(k auth can-i "$v" "$r" --as="$sa"); echo "$v $r: $ans"; [ "$ans" = no ] || return 1; done; done
+  ! k get clusterrole spire-agent >/dev/null 2>&1 || { echo "the chart's broad spire-agent ClusterRole is still there"; return 1; }
+  out=$(as_spire_agent_of n2 auth whoami -o jsonpath='{.status.userInfo.username}'); echo "n2's SPIRE agent token is: $out"; [ "$out" = "$sa" ] || return 1
+  out=$(as_spire_agent_of n2 get --raw "/api/v1/nodes/$(nn cp)/proxy/pods"); echo "proxy to cp's kubelet /pods: $(echo "$out" | head -c 300)"
+  echo "$out" | grep -q Forbidden || return 1
+  out=$(as_spire_agent_of n2 get pod web); echo "get pod web: $out"; echo "$out" | grep -q Forbidden || return 1
+  out=$(as_spire_agent_of n2 get node "$(nn cp)"); echo "get node cp: $out"; echo "$out" | grep -q Forbidden
 }
 
 # --- mutual authentication, the deny half (issue #8). The same policy (web needs mutual auth from app=cli) must DROP a peer that cannot authenticate.
