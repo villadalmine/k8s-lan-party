@@ -40,7 +40,10 @@ step H06 "alice's node becomes Ready" wait_for 180 ready alice
 step H07 "mesh host players lists alice as Ready" players_lists
 step H08 "mesh host kick alice: node deleted and machine out" bash -c "'$MESH' host kick alice"
 step H09 "alice is gone and stays gone" kicked
-step H10 "mesh host down cleans everything" bash -c "'$MESH' host down"
+# issue #36: down must not depend on the players having been kicked first: bob is still there when the game goes down
+step H09b "bob joins (mesh play bob) and is left running, not kicked" bash -c "'$MESH' host invite bob --ttl 2h && '$MESH' play bob"
+step H09c "bob's machine is running" machine_running bob
+step H10 "mesh host down with bob still running cleans everything" bash -c "'$MESH' host down"
 step H11 "nothing is left: no machine, no container on the network, no network, no state" all_gone
 
 echo "----"
