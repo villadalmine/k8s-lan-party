@@ -241,6 +241,16 @@ g7_trust_frozen() { # reused from lib.sh (poc-placement L52b, poc-bgp G09b): the
   trust_frozen_api "$FRIENDS" friends
 }
 
+g3_spire_agent_narrow() { # issue #35: the SPIRE agent (it runs on joined nodes) has its own account whose only right is get nodes/pods, what its
+  # workload attestor asks the local kubelet for; nodes/proxy (the API server's relay to any kubelet: pod lists, logs, exec), pods, nodes: refused
+  k get ns cilium-spire >/dev/null 2>&1 || { echo "SPIRE is not installed: run MUTUAL=yes ./cilium.sh to add mutual authentication"; return 3; }
+  local sa ans r; sa=system:serviceaccount:cilium-spire:$(k -n cilium-spire get ds spire-agent -o jsonpath='{.spec.template.spec.serviceAccountName}')
+  echo "the SPIRE agent runs as $sa"; [ "$sa" = system:serviceaccount:cilium-spire:spire-agent-narrow ] || return 1
+  ans=$(k auth can-i get nodes/pods --as="$sa"); echo "get nodes/pods: $ans"; [ "$ans" = yes ] || return 1
+  for r in nodes/proxy nodes/log pods nodes secrets; do ans=$(k auth can-i get "$r" --as="$sa"); echo "get $r: $ans"; [ "$ans" = no ] || return 1; done
+  ! k get clusterrole spire-agent >/dev/null 2>&1 || { echo "the chart's broad spire-agent ClusterRole is still there"; return 1; }
+}
+
 # ---- rule 4: tokens per node, burned; credentials encrypted in transit ----
 g4_no_shared_token() { # every player has its own join token; none is the server's shared token
   local srv b ids n=0; srv=$(cpx cat /var/lib/rancher/k3s/server/token) || return 1
@@ -392,6 +402,7 @@ check 3 G3.1 "Cilium is the CNI: its agent is Ready on every node" g3_cilium_eve
 check 3 G3.2 "WireGuard is on in every agent, with a peer for every other node" g3_wireguard_peers
 check 3 G3.3 "a capture on the control plane: the canary is in clear only on cilium_wg0, never on nebula1 or the underlay" g3_capture
 check 3 G3.4 "mutual authentication: with SPIRE installed, a peer whose node has no SPIRE agent is DROPPED by the policy that lets its authenticated twin in (no answer, 'Authentication required' drops counted), and let in again when the agent is back" g3_mutual_deny
+check 3 G3.6 "the SPIRE agent on joined nodes may only get nodes/pods (its attestor's one call): nodes/proxy, pods, nodes and secrets are refused" g3_spire_agent_narrow
 check 4 G4.1 "every player has its own join token; no bundle carries the shared server token" g4_no_shared_token
 check 4 G4.2 "after mesh host burn no registered player's join token is left" g4_burned
 check 4 G4.3 "a fresh invite: token lives 8 min at most, pinned to the cluster CA, for the API on the Nebula IP, and it authenticates" g4_fresh_invite

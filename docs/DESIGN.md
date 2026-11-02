@@ -162,13 +162,17 @@ working. Applied by `up.sh` before any node joins; `poc-bgp` G09b and `poc-place
 the rest of `status` (conditions, capacity, addresses of any Node) is writable by it, and the reads above include every pod spec. Accepted for a node
 you do not own, as the paragraph above says.
 
-**The SPIRE agent (found in the same review).** Running it on joined nodes (a toleration, so their pods get an identity) puts its service account token
-there. The chart's ClusterRole is `get` on `pods`, `nodes` and `nodes/proxy` cluster-wide (measured by `poc-vm` V103 as an RBAC inventory). `nodes/proxy`
-lets the API server relay a GET to any node's kubelet (`/pods`, container logs), so the owner of a joined node can read the pod specs and logs of the
-maintainer's own nodes with it. The chart offers no way to narrow that role, and the SPIRE Kubernetes workload attestor needs that permission to ask the
-local kubelet about its pods (not re-measured by removing it), so mutual authentication toward joined nodes and this exposure come together. The
-decision is the maintainer's: accept it as golden-rule exposure (nothing private belongs where such a node can be reached through the API), a kubelet-side
-authorizer, or no SPIRE agent on joined nodes (then no mutual auth for their pods). Open: see the issue linked in POC-STATUS.
+**The SPIRE agent (found in the same review, narrowed 2026-11-02, issue #35).** Running it on joined nodes (a toleration, so their pods get an
+identity) puts its service account token there. The chart's ClusterRole was `get` on `pods`, `nodes` and `nodes/proxy` cluster-wide; `nodes/proxy`
+lets the API server relay a request to any node's kubelet (pod lists, container logs, and over a websocket even exec), so the owner of a joined node
+could have reached the maintainer's own nodes with it. What the agent needs is one call: its Kubernetes workload attestor asks the local kubelet for
+`/pods`, which the kubelet authorizes as `get nodes/pods` (fine-grained kubelet authorization) before it falls back to `nodes/proxy`. So the agent
+now runs under its own account, `spire-agent-narrow` (`poc/spire-agent-rbac.yaml`, applied by `spire-args.sh` before the helm install, the chart's
+own account and role turned off), whose only right is `get nodes/pods`. Mutual authentication still works with it (`poc-vm` V92-V102, the deny half
+included), and `poc-vm` V103 is the negative test: with the token read from a joined node's disk, the proxy to the control plane's kubelet, `get pod`
+and `get node` are refused. **What is left:** `nodes/pods` is honoured by any kubelet the token reaches directly, so it reads the pod specs (not logs,
+not exec) of a node whose kubelet port it can reach; the narrowed Nebula firewall opens the kubelet port to the control plane only (J13), and every
+joined machine already reads all pod specs through the k3s controller credential (above). Accepted for the same reason.
 
 ## 4. Trust and placement policy
 
@@ -400,7 +404,7 @@ Where each suite passed, how often, and what is still relaxed is in [POC-STATUS.
 | `make poc-ca` | two CAs (persistent and pool); pulling the pool CA cuts only the pool (13) |
 | `make poc-revoke` | `mesh host revoke` is idempotent, the negative test (`kubectl delete node` alone does not revoke), time to loss of access (10) |
 | `make poc-placement` | trust levels and Kyverno placement, the golden rule (31, 15 of them negative; L52b: no identity but the host can change a node's trust labels) |
-| `make poc-cilium` / `poc-vm` / `poc-kind` | step 2: Cilium tunnel + WireGuard over Nebula (`cilium-dbg encrypt status` with every other node a peer, the kernel's peers are the published keys), the MTU set once, encryption on the wire, a remote node's Cilium token cannot rewrite another node's WireGuard key, mutual auth with SPIRE non-root and persistent: an authenticated peer passes and an unauthenticated one (its node has no SPIRE identity) is dropped by the same policy (34 on the Incus VMs, V103 inventories the SPIRE agent's reach) |
+| `make poc-cilium` / `poc-vm` / `poc-kind` | step 2: Cilium tunnel + WireGuard over Nebula (`cilium-dbg encrypt status` with every other node a peer, the kernel's peers are the published keys), the MTU set once, encryption on the wire, a remote node's Cilium token cannot rewrite another node's WireGuard key, mutual auth with SPIRE non-root and persistent: an authenticated peer passes and an unauthenticated one (its node has no SPIRE identity) is dropped by the same policy (34 on the Incus VMs, V103: the SPIRE agent's token may only get nodes/pods) |
 | `make poc-bgp` | the maintainer's endpoints (section 6): Envoy Gateway and cert-manager only on `own` nodes, TLS issued from the Gateway by itself, BGP only from `own` nodes to a test router, a remote node never announces (no BGP instance, cannot select itself with the kubelet's or the k3s controller's credential, its Cilium token writes no BGP object, the router refuses it) (20, 6 of them negative) |
 | `make poc-lighthouse` | a lighthouse on a separate public server (a VM plays it): prepare, sign and deploy are idempotent, a player joins through it, `revoke` reaches it; `mesh host refresh` with no change, with a change that restarts Nebula (the API and the node come back) and with one read on reload (23) |
 | `make poc-admission` | admission with manual approval ([ADMISSION.md](ADMISSION.md)): request, approve, join, places full, the lease ends, `reap` expels, the next one in line enters, `reap --all`, a burned join token refused to a second machine, a non-cooperative copy of a bundle refused by the node guard and cut with the lease, another guest's issued name refused by its node password, a name whose node password k3s dropped refused by the guard (31) |
