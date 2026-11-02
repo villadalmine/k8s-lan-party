@@ -21,10 +21,9 @@ helm_cp upgrade --install cilium cilium --repo https://helm.cilium.io --version 
   --set k8sServiceHost="$CP_NEB" --set k8sServicePort=6443 \
   --set ipam.operator.clusterPoolIPv4PodCIDRList="10.42.0.0/16" \
   --set operator.replicas=1 \
-  --set identityManagementMode=operator \
   "${EXTRA_FLAGS[@]}" \
   --wait --timeout "${HELM_TIMEOUT:-10m}"
 # every agent shares one service account, and its token sits on every node's disk. poc/cilium-node-guard.yaml narrows what a write by it may claim:
-# only its own node's CiliumNode, never the pod CIDRs (issue #8), no CiliumIdentity at all (the operator creates them: identityManagementMode
-# above, beta in Cilium), and only CiliumEndpoints of its own node's address and pod CIDRs (issue #29)
+# only its own node's CiliumNode, never its pod CIDRs (issues #8, #29); a CiliumIdentity only in the global range, never a reserved label, never
+# relabelled; and only CiliumEndpoints of its own node's address and pod CIDRs (issue #29)
 k apply -f - <"$POC/cilium-node-guard.yaml" >/dev/null

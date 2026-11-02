@@ -31,7 +31,7 @@ spec:
       request.userInfo.extra['authentication.kubernetes.io/node-name'][0] == request.name
     message: a Cilium agent may write only the CiliumNode of its own node
   - expression: "variables.cidrs.all(c, c in variables.oldCidrs) && variables.oldCidrs.all(c, c in variables.cidrs)"
-    message: the pod CIDRs of a CiliumNode are set by the operator, never by a Cilium agent (edge-mesh, issue #29)
+    message: "the pod CIDRs of a CiliumNode are set by the operator, never by a Cilium agent (edge-mesh, issue #29)"
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding
@@ -41,14 +41,20 @@ spec:
   policyName: cilium-agent-own-ciliumnode
   validationActions: [Deny]
 ---
-# 2. CiliumIdentities (issue #29). An identity maps a numeric ID to a set of labels, cluster-wide; every node enforces policy by it. With the agent
-#    allocating them (the chart's default) any agent may create one for any labels or rewrite an existing one's labels. cilium.sh runs Cilium
-#    with identityManagementMode=operator (the operator creates identities from the pods' labels), so the agents never need to write one, and
-#    this policy refuses every write by the agent account.
+# 2. CiliumIdentities (issue #29). An identity maps a numeric ID to a set of labels, cluster-wide; every node enforces policy by it. The agents
+#    allocate them (identityManagementMode=agent, the chart's default), so the shared account may create and update every identity. Here:
+#    - an existing identity's security labels never change (an update is the agents' garbage-collection bookkeeping): nobody can make the ID
+#      of a private workload mean other labels, or another workload's labels mean his ID;
+#    - a new identity takes a name in the global range (256-65535) and no `reserved:` label (host, world, health, ... are fixed IDs);
+#    - no agent deletes one (the chart's role has no delete; refused here too, so a wider role cannot reopen it).
+#    Creating a NEW identity for labels the agent chooses is still possible: policy selects by labels, so a second ID for the same labels gets
+#    exactly what the first one gets, and a joined node can put any identity on the traffic it sends anyway (DESIGN.md 3.3). Operator-managed
+#    identities (the agents write none) are the full fix; in Cilium 1.20.3 they break every pod with a named port (coredns never gets an
+#    identity: the agent adds a named-ports label the operator does not), fixed upstream after 1.20.4 (cilium/cilium e27ce9ee66).
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
 metadata:
-  name: cilium-agent-no-identity-writes
+  name: cilium-agent-identities
 spec:
   failurePolicy: Fail
   matchConstraints:
@@ -60,16 +66,28 @@ spec:
   matchConditions:
   - name: cilium-agent
     expression: request.userInfo.username == 'system:serviceaccount:kube-system:cilium'
+  variables:
+  - name: labels
+    expression: "request.operation == 'DELETE' || !('security-labels' in object) ? {} : object['security-labels']"
   validations:
-  - expression: "false"
-    message: CiliumIdentities are created by the Cilium operator only (identityManagementMode=operator); a Cilium agent may not write one (edge-mesh, issue #29)
+  - expression: "request.operation != 'DELETE'"
+    message: "a Cilium agent may not delete a CiliumIdentity (edge-mesh, issue #29)"
+  - expression: >-
+      request.operation != 'UPDATE' ||
+      ('security-labels' in oldObject ? oldObject['security-labels'] : {}) == variables.labels
+    message: "the security labels of an existing CiliumIdentity never change (edge-mesh, issue #29)"
+  - expression: >-
+      request.operation != 'CREATE' ||
+      (request.name.matches('^[0-9]{3,5}$') && int(request.name) >= 256 && int(request.name) <= 65535 &&
+      variables.labels.all(k, !k.startsWith('reserved:')))
+    message: "a Cilium agent may create an identity only in the global range (256-65535) and without reserved labels (edge-mesh, issue #29)"
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding
 metadata:
-  name: cilium-agent-no-identity-writes
+  name: cilium-agent-identities
 spec:
-  policyName: cilium-agent-no-identity-writes
+  policyName: cilium-agent-identities
   validationActions: [Deny]
 ---
 # 3. CiliumEndpoints (issue #29). A CiliumEndpoint tells every node "this pod IP lives on that node, with that identity"; the other nodes put it
