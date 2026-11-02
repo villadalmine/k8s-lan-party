@@ -91,7 +91,7 @@ Each recipe of [TRY-IT.md](TRY-IT.md) was run as the table says; the run is reco
 | Recipe | Where | Date | Result |
 | :--- | :--- | :--- | :--- |
 | 1. Incus VMs (host init, invite, play, label, placement, three pods, revoke, down) | the maintainer's lab host, own Incus project | 2026-10-28 | PASS: `joined`, `placement installed`, `bad-app` refused (`private-cannot-name-a-foreign-node`), `private-app` on `cp`, `shared-app` on `alice`, revoke leaves only `cp`, `VM flow removed` |
-| 2. Docker (the same steps, `RUNTIME=docker`) | an Ubuntu 24.04 VM with Docker 29.9 | 2026-10-28 | PASS for every step; **`down` left the player container and the network** (found; issue #36, not fixed here) |
+| 2. Docker (the same steps, `RUNTIME=docker`) | an Ubuntu 24.04 VM with Docker 29.9 | 2026-10-28 | PASS for every step; **`down` left the player container and the network** (found; fixed in issue #36: `down.sh` removes every container on the network, H11 checks it) |
 | 3. kind | WSL2 | earlier (3 runs) | not re-run on 2026-10-28 |
 | 4. WSL2 as a player | a fresh Ubuntu 24.04 distro on Windows 11 | 2026-10-28 | PASS twice (see above); as a host: not run |
 | 5. A cloud VM (lighthouse with relay; player arm64) | AWS eu-west-1, t3.small and t4g.small, destroyed afterwards, nothing billing checked | 2026-10-28 | not run as one recipe: its parts ran in recipe 6 (lighthouse + relay on amd64, a player on arm64) and in the cloud-VM admission cycle recorded above |

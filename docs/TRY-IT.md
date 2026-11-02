@@ -26,7 +26,7 @@ others do not, is the matrix in [REQUIREMENTS.md](REQUIREMENTS.md) ("Host kind a
 | You have | Recipe | Host (control plane + lighthouse) | Players | Last run |
 | :--- | :--- | :--- | :--- | :--- |
 | a Linux machine with Incus | [1. Incus VMs](#1-incus-vms-a-linux-host) | VMs | VMs | 2026-10-28, PASS |
-| a Linux machine (or a VM, or WSL2) with Docker | [2. Docker](#2-docker-k3s-in-privileged-containers) | privileged containers | privileged containers | 2026-10-28, PASS in a Docker VM for every step except teardown, which leaves the player container (issue #36) |
+| a Linux machine (or a VM, or WSL2) with Docker | [2. Docker](#2-docker-k3s-in-privileged-containers) | privileged containers | privileged containers | 2026-10-28, PASS in a Docker VM (teardown fixed since: issue #36) |
 | kind, to try the encrypted pod network only | [3. kind](#3-kind-the-pod-network-only) | kind nodes | none (no Nebula) | earlier version PASS (3 runs, WSL2); **not re-run on 2026-10-28** |
 | Windows | [4. WSL2 as a player](#4-wsl2-on-windows-as-a-player) (as a host: recipe 2 inside WSL2, **not run**) | any of the others | a WSL2 distro | 2026-10-28, PASS (as a player) |
 | a cloud account | [5. A cloud VM](#5-a-cloud-vm-lighthouse-or-player) | its public lighthouse (and relay) | cloud VMs (amd64, arm64) | not run as written; its parts ran in recipe 6 and in the admission cycle of #31 (2026-10-28) |
@@ -122,8 +122,7 @@ export RUNTIME=docker TAINT=yes
 
 **Expected:** the same lines as recipe 1.
 
-**Tear down:** `./mesh host down` (removes the containers, the network and the state). **Known limitation (issue #36):** the run of 2026-10-28 found that `down.sh`
-leaves the player container (`alice`) and the network behind. After `down`, check `docker ps -a` and `docker network ls` and remove what is left by hand.
+**Tear down:** `./mesh host down` removes every container on the network `emesh` (the host's and every player's), the network and the state; step H11 of `make poc-host` checks that none is left.
 
 **What it cannot do:** the players are containers on the same machine; machines outside cannot reach a Docker bridge, so the same
 "public lighthouse" rule applies. In WSL2 this recipe is how WSL2 hosts a game; a player from another machine needs a public lighthouse

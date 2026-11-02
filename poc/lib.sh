@@ -198,6 +198,10 @@ machine_running() { # machine_running <name>
   else [ -n "$(docker ps -q -f "name=^$1$")" ]; fi
 }
 any_machines() { if [ "$RUNTIME" = incus ]; then [ -n "$(incus list emesh- -c n -f csv)" ]; else [ -n "$(docker ps -aq -f 'name=^(lh|cp|n1|n2|alice)$')" ]; fi; }
+docker_left() { # what the Docker flow leaves: a container on the game's network or the network itself (Incus: nothing to check here)
+  [ "$RUNTIME" != incus ] || return 1
+  [ -n "$(docker ps -aq --filter "network=$DOCKER_NET")" ] || docker network inspect "$DOCKER_NET" >/dev/null 2>&1
+}
 cpx() { if [ "$RUNTIME" = incus ]; then incus exec emesh-cp -- "$@"; else docker exec -i cp "$@"; fi; }
 k() { if [ "$RUNTIME" = incus ]; then incus exec emesh-cp -- k3s kubectl "$@"; else docker exec -i cp kubectl "$@"; fi; }
 helm_cp() { # helm inside cp's network namespace: the API is reachable only on the Nebula IP

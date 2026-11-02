@@ -10,7 +10,12 @@ case "${RUNTIME:-docker}" in docker|incus) ;; *) echo "RUNTIME '$RUNTIME' (from 
 [ "${RUNTIME:-docker}" = incus ] && RUNTIME=incus exec "$POC/vm/down.sh"
 . "$POC/stack.env"
 [ ! -f "$STATE/lighthouse.env" ] || echo "note: the external lighthouse keeps running; remove it first with poc/lighthouse-vps.sh remove (its certificate dies with the CA)"
-docker rm -f lh cp n1 n2 >/dev/null 2>&1 || true
+# every container on the game's network (lh, cp, n1, n2, and every player `mesh play <name>` made: alice, bob...; issue #36), then the fixed names
+# (fwl joins n2's namespace, so it is not on the network) and the network itself
+ids=$(docker ps -aq --filter "network=$DOCKER_NET" 2>/dev/null || true)
+# shellcheck disable=SC2086
+[ -z "$ids" ] || docker rm -f $ids >/dev/null 2>&1 || true
+docker rm -f lh cp n1 n2 fwl >/dev/null 2>&1 || true
 docker network rm "$DOCKER_NET" >/dev/null 2>&1 || true
 rm -rf "$STATE"
 echo "poc down"
