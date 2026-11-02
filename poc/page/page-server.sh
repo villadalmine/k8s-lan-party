@@ -9,7 +9,8 @@
 #        https://<ip> with --tls internal. --with-caddy: also install Caddy (pinned, sha512 checked) when the server has none.
 #   page-server.sh puller-token --ssh "<ssh command>" [--token-file FILE]
 #        make the puller's token HERE (default <state>/page/puller.token, 0600) and send only its SHA-256 to the server
-#   page-server.sh verify --ssh "<ssh command>" --site <address>      services, loopback-only listener, the API through Caddy, no key on disk
+#   page-server.sh verify --ssh "<ssh command>" --site <address> [--token-file FILE]   services, loopback-only listener, the API through Caddy, no key
+#        on disk, and the puller's token accepted (200) on /api/v1/puller/intake
 #   page-server.sh close|open --ssh "<ssh command>"                    the operator's switch on the server (the host's panic closes it too)
 #   page-server.sh cacert --ssh "<ssh command>"                        print Caddy's internal root (only with --tls internal: the lab)
 #   page-server.sh remove --ssh "<ssh command>" [--with-caddy]         stop it and delete the page, its unit, its state and its Caddy site; --with-caddy also
@@ -18,7 +19,7 @@
 # The server's firewall is yours: open TCP 443 (and 80 for ACME). Nothing of the mesh lives on the server but the lighthouse (lighthouse-vps.sh).
 set -eu
 . "$(dirname "$0")/../lib.sh"
-usage() { sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
+usage() { sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
 [ $# -ge 1 ] || usage
 cmd="$1"; shift
 RSH=""; SITE=""; TLS=""; WITH_CADDY=0; TOKEN_FILE="$STATE/page/puller.token"
@@ -128,13 +129,22 @@ systemctl is-active -q k8s-lan-party-page || { echo "FAIL: the page is not activ
 EOF
 }
 
+# The puller reads the token with Python's .strip(), a shell hashes bytes: the file is normalized (one line, no CR, no blanks) on write AND
+# read, so the hash on the server is the hash of what the puller sends, whatever wrote the file (Git Bash writes CRLF; issue #47).
+token_value() { tr -d '[:space:]' <"$TOKEN_FILE"; }
+token_ok() { case "$1" in "" | *[!A-Za-z0-9._~-]*) return 1 ;; esac; }   # what token_urlsafe writes; also keeps the value safe inside a script
 puller_token() {
   if [ ! -s "$TOKEN_FILE" ]; then
     mkdir -p "$(dirname "$TOKEN_FILE")"; (umask 077; python3 -c 'import secrets; print(secrets.token_urlsafe(32))' >"$TOKEN_FILE")
     echo "changed: puller token made in $TOKEN_FILE (it stays here)"
   fi
   chmod 600 "$TOKEN_FILE"
-  local h; h=$(tr -d '\n' <"$TOKEN_FILE" | sha256sum | cut -d' ' -f1)
+  local v; v=$(token_value)
+  token_ok "$v" || { echo "the token file $TOKEN_FILE holds no token, or one with characters outside A-Za-z0-9._~-"; exit 1; }
+  if [ "$(cat "$TOKEN_FILE"; echo x)" != "$v"$'\n'x ]; then   # a CR, a blank or a missing newline: rewrite it as one line
+    (umask 077; printf '%s\n' "$v" >"$TOKEN_FILE"); echo "changed: $TOKEN_FILE normalized (CR and blanks stripped, one newline)"
+  fi
+  local h; h=$(printf '%s' "$v" | sha256sum | cut -d' ' -f1)
   r <<EOF
 set -eu
 install -d -m 755 /etc/k8s-lan-party-page
@@ -148,6 +158,8 @@ EOF
 verify() {
   [ -n "$SITE" ] || { echo "verify needs --site"; exit 2; }; site_ok
   local url="$SITE"; case "$url" in https://*) ;; *) url="https://$url" ;; esac
+  # the puller's token, normalized as the puller reads it: verify sends it (header read from stdin, never in argv) and needs a 200
+  local tok=""; [ -s "$TOKEN_FILE" ] && tok=$(token_value); token_ok "$tok" || tok=""
   r <<EOF
 fail=0; ok() { echo "ok:   \$*"; }; no() { echo "FAIL: \$*"; fail=1; }
 systemctl is-active -q k8s-lan-party-page && ok "page service active" || no "page service is not active"
@@ -163,6 +175,11 @@ d=/var/lib/private/k8s-lan-party-page
 [ "\$(stat -c %a \$d 2>/dev/null)" = 700 ] && ok "state directory 0700" || no "state directory mode: \$(stat -c %a \$d 2>/dev/null)"
 if grep -rlE 'PRIVATE KEY|K10[0-9a-f]{20}' \$d /opt/k8s-lan-party-page /etc/k8s-lan-party-page >/dev/null 2>&1; then no "a private key or a join token on disk"; else ok "no private key and no join token in the page's files"; fi
 [ -s /etc/k8s-lan-party-page/puller.sha256 ] && ok "the puller's hash is set" || no "no puller hash (run puller-token)"
+if [ -z "$tok" ]; then no "no puller token in $TOKEN_FILE: cannot prove the puller is accepted (run puller-token, or pass --token-file)"
+else
+  s=\$(printf 'Authorization: Bearer %s\n' '$tok' | curl -sk --connect-to ::127.0.0.1: -H @- -o /dev/null -w '%{http_code}' "$url/api/v1/puller/intake")
+  [ "\$s" = 200 ] && ok "the puller's token is accepted (200)" || no "the puller's token is refused or the route failed: \$s (the hash on the server is not the token's: run puller-token)"
+fi
 exit \$fail
 EOF
 }

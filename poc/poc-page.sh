@@ -47,7 +47,7 @@ page_install() { "$PS" install --ssh "$PUB_SSH" --site "$SITE" --tls internal --
 cp_up() { HOST_ONLY=1 "$POC/vm/up.sh" && incus exec emesh-cp -- ping -c1 -W2 "$LH_NEB"; }
 token_only_hash() { # the token stays on the host (0600); the server holds its SHA-256 and nothing that equals the token
   "$PS" puller-token --ssh "$PUB_SSH" && [ "$(stat -c %a "$TOKEN")" = 600 ] &&
-  [ "$(echo 'cat /etc/k8s-lan-party-page/puller.sha256' | pub)" = "$(tr -d '\n' <"$TOKEN" | sha256sum | cut -d' ' -f1)" ] &&
+  [ "$(echo 'cat /etc/k8s-lan-party-page/puller.sha256' | pub)" = "$(tr -d '\r\n' <"$TOKEN" | sha256sum | cut -d' ' -f1)" ] &&
   ! echo "grep -rqsF -- '$(cat "$TOKEN")' /etc /opt /var/lib /root /home" | pub; }
 cacert() { "$PS" cacert --ssh "$PUB_SSH" >"$CA" && grep -q 'BEGIN CERTIFICATE' "$CA"; }
 api() { curl -s --cacert "$CA" -m 20 "$@"; }
