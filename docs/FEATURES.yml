@@ -1,0 +1,318 @@
+# The feature catalog (issue #62): the single, deterministic list of what this project does, which suite steps prove each feature,
+# which files touch it, and which docs and diagrams describe it. `make regression` runs the suites in the order below and writes the
+# feature x result table into docs/POC-STATUS.md; tests/test_features.py fails when a Makefile suite is missing here, a feature names
+# no suite step, or a step, path, doc or diagram does not exist. Change the catalog in the same PR that changes a suite or a feature.
+#
+# suites:   one entry per `poc-*` target of the Makefile, in the order `make regression` runs them (cheap and offline first).
+#   runtime: where the suite can run: none (no machines), docker, incus, kind. Two values: either one (make regression picks one).
+#   on_game_of: the suite builds nothing and checks the game another suite leaves up (make regression runs that one with KEEP=1).
+#   role: teardown: a target that proves nothing by itself (it removes); make regression runs it last.
+# features: steps are ids from the suite's source (`step <id>`, `check <rule> <id>`); `A-B` is every step from A to B in source order.
+#   paths: globs of tracked files that change the feature; components: the pieces it relies on (the feature graph's last column).
+meta:
+  tipo: catalogo
+  id: k8s-lan-party-features
+  version: 0.1.0
+  fecha_alta: 2026-11-03
+  fecha_ultimo_cambio: 2026-11-03
+  categoria: plataforma
+  dueno_agente: casa-orquestador
+  pieza: k8s-lan-party
+  meta: ../meta.yml
+  depende_de: [Makefile, poc/README.md]
+  lo_usan: [poc/regression.sh, scripts/features.py, tests/test_features.py, docs/POC-STATUS.md]
+  docs: [docs/POC-STATUS.md, CONTRIBUTING.md]
+  scripts: [scripts/features.py, poc/regression.sh]
+  runbooks: []
+  tags: [features, regression, tests, catalogo]
+
+suites:
+  - {id: poc-participants, script: poc/poc-participants.sh, runtime: [none]}
+  - {id: poc-cilium, script: poc/poc-cilium.sh, runtime: [docker]}
+  - {id: poc-kind, script: poc/kind-cilium.sh, runtime: [kind]}
+  - {id: poc-join, script: poc/poc-join.sh, runtime: [docker, incus]}
+  - {id: poc-host, script: poc/poc-host.sh, runtime: [docker, incus]}
+  - {id: poc-weakness, script: poc/poc-weakness.sh, runtime: [docker, incus]}
+  - {id: poc-ca, script: poc/poc-ca.sh, runtime: [docker, incus]}
+  - {id: poc-revoke, script: poc/poc-revoke.sh, runtime: [docker, incus]}
+  - {id: poc-placement, script: poc/poc-placement.sh, runtime: [docker, incus]}
+  - {id: poc-lighthouse, script: poc/poc-lighthouse.sh, runtime: [incus]}
+  - {id: poc-admission, script: poc/poc-admission.sh, runtime: [incus]}
+  - {id: poc-admission-auto, script: poc/poc-admission-auto.sh, runtime: [incus]}
+  - {id: poc-pool, script: poc/poc-pool.sh, runtime: [incus]}
+  - {id: poc-participants-e2e, script: poc/poc-participants-e2e.sh, runtime: [incus]}
+  - {id: poc-page, script: poc/poc-page.sh, runtime: [incus]}
+  - {id: poc-nat, script: poc/poc-nat.sh, runtime: [incus]}
+  - {id: poc-bgp, script: poc/vm/poc-bgp.sh, runtime: [incus]}
+  - {id: poc-vm, script: poc/vm/poc-vm.sh, runtime: [incus]}
+  - {id: poc-golden, script: poc/poc-golden.sh, runtime: [incus], on_game_of: poc-vm}
+  - {id: poc-down, script: poc/down.sh, runtime: [docker, incus], role: teardown}
+
+features:
+  - id: join
+    description: one bundle and one command join a machine to the game over Nebula; the node is Ready on its Nebula IP; clear failures
+    proven_by:
+      - {suite: poc-join, steps: [J01-J07, J15-J16]}
+      - {suite: poc-vm, steps: [V01, V04]}
+    paths: [poc/edge-mesh, poc/up.sh, poc/vm/up.sh, poc/vm/lib-vm.sh, poc/lib.sh, poc/issue.sh, poc/stack.env]
+    components: [Nebula, k3s, edge-mesh]
+    docs: [docs/JOIN.md, docs/REQUIREMENTS.md, docs/TROUBLESHOOTING.md]
+    diagrams: [docs/diagrams/layers-endpoints-join.mmd]
+
+  - id: study-lab
+    description: a real study lab (CKA 1.1) breaks, verifies and is fixed on the joined outside nodes, never on the control plane
+    proven_by:
+      - {suite: poc-join, steps: [J09-J12]}
+    paths: [poc/labs/*, poc/poc-join.sh]
+    components: [k3s, study lab]
+    docs: [poc/README.md, README.md]
+
+  - id: host-your-own
+    description: mesh host init, invite with a TTL, play, players and kick; the API answers on the Nebula IP only
+    proven_by:
+      - {suite: poc-host, steps: [H01-H09c]}
+    paths: [poc/mesh, poc/game-env.sh, poc/kc, poc/lib.sh, poc/issue.sh]
+    components: [Nebula, k3s, mesh]
+    docs: [docs/HOST-YOUR-OWN.md, docs/TRY-IT.md]
+
+  - id: api-members-only
+    description: the Kubernetes API listens on the control plane's Nebula IP only; outside the mesh, and from the lighthouse, it does not answer
+    proven_by:
+      - {suite: poc-host, steps: [H02, H02b]}
+      - {suite: poc-golden, steps: [G6.1-G6.2]}
+    paths: [poc/up.sh, poc/vm/lib-vm.sh, poc/issue.sh]
+    components: [k3s, Nebula]
+    docs: [docs/NETWORKING.md, docs/GOLDEN-RULES.md]
+    diagrams: [docs/diagrams/who-sees-what.mmd]
+
+  - id: nebula-firewall
+    description: the narrowed Nebula firewall lets ICMP, 6443 and the documented ports through and refuses any other port between hosts
+    proven_by:
+      - {suite: poc-join, steps: [J13]}
+      - {suite: poc-cilium, steps: [C13-C14]}
+      - {suite: poc-vm, steps: [V14-V15]}
+    paths: [poc/issue.sh, poc/checks-cilium.sh]
+    components: [Nebula]
+    docs: [docs/NETWORKING.md]
+
+  - id: mtu-once
+    description: the MTU is set once (Nebula); the pod MTU is derived from it and a full-size packet crosses (issue #8)
+    proven_by:
+      - {suite: poc-join, steps: [J08]}
+      - {suite: poc-cilium, steps: [C10-C11]}
+      - {suite: poc-kind, steps: [K10-K11]}
+      - {suite: poc-vm, steps: [V11-V12]}
+    paths: [poc/stack.env, poc/cilium.sh, poc/checks-cilium.sh]
+    components: [Nebula, Cilium]
+    docs: [docs/NETWORKING.md]
+
+  - id: join-token-burn
+    description: every player has its own join token; it lives 8 minutes at most and is burned once the node registered
+    proven_by:
+      - {suite: poc-join, steps: [J14]}
+      - {suite: poc-admission, steps: [A09, A11-A13]}
+      - {suite: poc-admission-auto, steps: [AA15, AA23-AA24]}
+      - {suite: poc-golden, steps: [G4.1-G4.3]}
+    paths: [poc/lib.sh, poc/issue.sh, poc/mesh]
+    components: [k3s]
+    docs: [docs/ADMISSION.md, docs/GOLDEN-RULES.md]
+
+  - id: node-guard
+    description: a copy of a bundle on another machine, or another guest's name, is refused by the node guard and the node password
+    proven_by:
+      - {suite: poc-admission, steps: [A15-A18, A30]}
+      - {suite: poc-admission-auto, steps: [AA13, AA20]}
+    paths: [poc/node-guard.yaml, poc/node_password.py, poc/nodes_sweep.py, poc/lib.sh]
+    components: [k3s, admission policy]
+    docs: [docs/ADMISSION.md, docs/DESIGN.md]
+
+  - id: admission-manual
+    description: people ask for a place, the host approves one at a time within pool.yaml; the lease ends, reap expels, the next one enters
+    proven_by:
+      - {suite: poc-admission, steps: [A01-A08, A10, A14, A19-A29, A31]}
+    paths: [poc/admission.py, poc/pool.yaml, poc/mesh]
+    components: [admission, Nebula, k3s]
+    docs: [docs/ADMISSION.md]
+
+  - id: admission-auto
+    description: the automatic pool (phase B1) approves, warns, expels at the lease end and promotes; auto off, daily cap, panic, notify, metrics
+    proven_by:
+      - {suite: poc-admission-auto, steps: [AA01-AA12, AA14, AA16-AA19, AA21-AA22, AA25-AA37]}
+    paths: [poc/admission.py, poc/pool.yaml, poc/mesh]
+    components: [admission, Nebula, k3s]
+    docs: [docs/ADMISSION.md]
+
+  - id: pool
+    description: a namespace and a kubeconfig per player (RBAC, quota, NetworkPolicy), the error matrix, the idle kick, the lease end removes node, namespace and token
+    proven_by:
+      - {suite: poc-pool, steps: [PL01-PL25]}
+    paths: [poc/pool.py, poc/pool.yaml, poc/participant.py, poc/participant-policy.yaml, poc/admission.py]
+    components: [admission, k3s, Kyverno]
+    docs: [docs/ADMISSION.md, docs/JOIN.md]
+
+  - id: public-page
+    description: the public page (phase B2) on a server that holds no credential; a visitor asks, waits, collects a sealed bundle, joins, is expelled; panic closes it
+    proven_by:
+      - {suite: poc-page, steps: [G01-G26]}
+    paths: [poc/page/*, poc/poc-page.sh]
+    components: [page, Caddy, Nebula, admission]
+    docs: [docs/PUBLIC-PAGE.md, docs/ADMISSION.md]
+
+  - id: lighthouse-external
+    description: a lighthouse on a separate public server, prepared, signed and deployed idempotently; its key never leaves it; players join through it
+    proven_by:
+      - {suite: poc-lighthouse, steps: [P01-P15]}
+      - {suite: poc-page, steps: [G02]}
+      - {suite: poc-nat, steps: [N02-N03]}
+    paths: [poc/lighthouse-vps.sh, poc/mesh]
+    components: [Nebula, lighthouse]
+    docs: [docs/HOST-YOUR-OWN.md, docs/NETWORKING.md]
+
+  - id: revoke
+    description: one command revokes a player (blocklist on every host, the external lighthouse included, the Node deleted); idempotent, measured
+    proven_by:
+      - {suite: poc-revoke, steps: [R01-R10]}
+      - {suite: poc-join, steps: [J17]}
+      - {suite: poc-lighthouse, steps: [P16-P17]}
+      - {suite: poc-nat, steps: [N25-N26]}
+      - {suite: poc-golden, steps: [G5.1-G5.5]}
+    paths: [poc/revoke.sh, poc/nodes_sweep.py, poc/lighthouse-vps.sh, poc/mesh]
+    components: [Nebula, k3s, lighthouse]
+    docs: [docs/HOST-YOUR-OWN.md, docs/GOLDEN-RULES.md]
+
+  - id: two-level-ca
+    description: a persistent CA and a pool CA constrained to group public; pulling the pool CA cuts only the pool
+    proven_by:
+      - {suite: poc-ca, steps: [B01-B13]}
+      - {suite: poc-golden, steps: [G8.2, G9.1]}
+    paths: [poc/issue.sh, poc/lib.sh]
+    components: [Nebula, CA]
+    docs: [docs/DESIGN.md, docs/HOST-YOUR-OWN.md]
+
+  - id: placement
+    description: golden rule 1 - trust-based placement with Kyverno; a private pod on someone else's node is rejected; shareable pods opt in
+    proven_by:
+      - {suite: poc-placement, steps: [L01-L45]}
+      - {suite: poc-golden, steps: [G2.1-G2.7]}
+    paths: [poc/placement/*, poc/install-placement.sh, poc/vm/poc-placement.sh]
+    components: [Kyverno, k3s]
+    docs: [docs/GOLDEN-RULES.md, docs/HOST-YOUR-OWN.md]
+    diagrams: [docs/diagrams/placement-kyverno.mmd]
+
+  - id: trust-freeze
+    description: a node cannot raise or change its own trust label or drop its taint; only the host can
+    proven_by:
+      - {suite: poc-placement, steps: [L50-L53]}
+      - {suite: poc-bgp, steps: [G09-G09b]}
+      - {suite: poc-golden, steps: [G7.2]}
+    paths: [poc/node-trust-freeze.yaml, poc/placement/node-trust-vap.yaml]
+    components: [k3s, admission policy]
+    docs: [docs/GOLDEN-RULES.md, docs/DESIGN.md]
+
+  - id: golden-rules
+    description: one check per golden rule against a running game (issue #23); rule 1 is said at join time and in the docs
+    proven_by:
+      - {suite: poc-golden, steps: [G1.1-G2.7, G3.1-G10.1]}
+    paths: [poc/poc-golden.sh, poc/golden.py, docs/GOLDEN-RULES.md]
+    components: [golden suite]
+    docs: [docs/GOLDEN-RULES.md, docs/POC-STATUS.md]
+
+  - id: encrypted-pod-network
+    description: Cilium in tunnel mode with WireGuard over Nebula; pod to pod, DNS, the clear text never on the Nebula interface, 30 MB intact
+    proven_by:
+      - {suite: poc-cilium, steps: [C01-C09, C12, C13b]}
+      - {suite: poc-vm, steps: [V03-V06b, V07-V09, V10, V13-V13b]}
+      - {suite: poc-golden, steps: [G3.1-G3.3]}
+    paths: [poc/cilium.sh, poc/checks-cilium.sh, poc/poc-cilium.sh]
+    components: [Cilium, WireGuard, Nebula]
+    docs: [docs/NETWORKING.md, docs/DESIGN.md]
+    diagrams: [docs/diagrams/layers-endpoints-join.mmd]
+
+  - id: mutual-auth
+    description: SPIRE mutual authentication by policy; non-root, pinned to an own node, on a PVC, survives a restart; a node without an identity is dropped
+    proven_by:
+      - {suite: poc-cilium, steps: [C90-C97]}
+      - {suite: poc-vm, steps: [V90-V102]}
+      - {suite: poc-golden, steps: [G3.4]}
+    paths: [poc/cilium.sh, poc/spire-args.sh, poc/checks-cilium.sh]
+    components: [SPIRE, Cilium]
+    docs: [docs/DESIGN.md, docs/NETWORKING.md]
+
+  - id: cilium-guard
+    description: issue #53 - the Cilium agent token on a remote node cannot forge another node's endpoints, WireGuard key or identities
+    proven_by:
+      - {suite: poc-vm, steps: [V06c, V09b-V09c]}
+      - {suite: poc-golden, steps: [G3.5]}
+    paths: [poc/cilium-node-guard.yaml, poc/cilium.sh]
+    components: [Cilium, admission policy]
+    docs: [docs/DESIGN.md, docs/TROUBLESHOOTING.md]
+
+  - id: spire-scope
+    description: issue #54 - the SPIRE agent token on a joined node may only get nodes/pods; nodes/proxy, pods and nodes are refused
+    proven_by:
+      - {suite: poc-vm, steps: [V103]}
+      - {suite: poc-golden, steps: [G3.6]}
+    paths: [poc/spire-agent-rbac.yaml, poc/spire-args.sh]
+    components: [SPIRE]
+    docs: [docs/DESIGN.md, docs/TROUBLESHOOTING.md]
+
+  - id: nat-relay
+    description: issue #15 - port-preserving NAT gives a direct tunnel; symmetric NAT on both sides falls back to the lighthouse relay, firewall intact
+    proven_by:
+      - {suite: poc-nat, steps: [N01, N04-N24]}
+    paths: [poc/poc-nat.sh, poc/lighthouse-vps.sh, poc/issue.sh]
+    components: [Nebula, lighthouse]
+    docs: [docs/NETWORKING.md, docs/DESIGN.md]
+
+  - id: bgp-gateway
+    description: issue #13 - the gateway (Envoy Gateway, cert-manager TLS) and BGP only on own nodes; remote nodes never announce
+    proven_by:
+      - {suite: poc-bgp, steps: [G01-G08, G10-G19]}
+      - {suite: poc-golden, steps: [G7.1]}
+    paths: [poc/gateway.sh, poc/gateway/*, poc/vm/poc-bgp.sh]
+    components: [Cilium BGP, Envoy Gateway, cert-manager]
+    docs: [docs/NETWORKING.md, docs/DESIGN.md]
+    diagrams: [docs/diagrams/who-sees-what.mmd]
+
+  - id: down-clean
+    description: down leaves nothing behind - no machine, container, network, state, page or lighthouse
+    proven_by:
+      - {suite: poc-host, steps: [H10-H11]}
+      - {suite: poc-lighthouse, steps: [P18]}
+      - {suite: poc-page, steps: [G26b-G27]}
+    paths: [poc/down.sh, poc/vm/down.sh, poc/page/page-server.sh, poc/lighthouse-vps.sh]
+    components: [mesh]
+    docs: [docs/HOST-YOUR-OWN.md, docs/TRY-IT.md]
+
+  - id: participants
+    description: issue #12 - join by signed pull request (cosign against a local test CA), encrypted delivery, removal revokes access
+    proven_by:
+      - {suite: poc-participants, steps: [S00-S30]}
+      - {suite: poc-participants-e2e, steps: [E01-E11]}
+    paths: [poc/participants.py, poc/participants-tools.sh, poc/sigstore_test_ca.py, participants/*, .github/workflows/participants.yml]
+    components: [cosign, age, Nebula]
+    docs: [participants/README.md, docs/JOIN.md]
+
+  - id: weakness
+    description: what one control plane costs - flapping, eviction delay, a lossy link, the control plane down - measured
+    proven_by:
+      - {suite: poc-weakness, steps: [W00-W06]}
+    paths: [poc/poc-weakness.sh]
+    components: [k3s, Nebula]
+    docs: [docs/DESIGN.md]
+
+  - id: kind
+    description: Cilium with WireGuard and hardened SPIRE on kind (no Nebula) - the same assertions on this machine's kernel
+    proven_by:
+      - {suite: poc-kind, steps: [K01-K97]}
+    paths: [poc/kind-cilium.sh, poc/checks-cilium.sh]
+    components: [kind, Cilium, SPIRE]
+    docs: [docs/TRY-IT.md]
+
+  - id: vm
+    description: the step-2 checks on Incus VMs with a distro kernel; remote nodes tainted at registration as in a real join
+    proven_by:
+      - {suite: poc-vm, steps: [V01-V02, V04b, V06d]}
+    paths: [poc/vm/*]
+    components: [Incus, k3s, Cilium]
+    docs: [poc/README.md, docs/TRY-IT.md]
