@@ -170,7 +170,9 @@ def table(cat: dict, runs: Path, commit: str, date: str, env: str = "") -> str:
     lines = [f"Commit `{commit}`, {date}{', ' + env if env else ''}.", "",
              "| Suite | Runtime | Result | Steps |", "| :--- | :--- | :--- | :--- |"]
     for sid, (runtime, status, steps, result) in runs_of.items():
-        if status in ("RAN", "TIMEOUT"):
+        if status == "RAN" and suites[sid].get("role") == "teardown":
+            lines.append(f"| `{sid}` | {runtime} | done (teardown) | - |")
+        elif status in ("RAN", "TIMEOUT"):
             fails = [k for k, v in steps.items() if v == "FAIL"]
             res = (result[len("RESULT "):] if result else "no RESULT line") + (" (timeout)" if status == "TIMEOUT" else "")
             counts = ", ".join(f"{sum(v == k for v in steps.values())} {k}" for k in ("PASS", "FAIL", "SKIP", "DEP")
