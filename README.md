@@ -54,6 +54,7 @@ Live list: `gh issue list --repo villadalmine/k8s-lan-party --state open`; proof
 - [#12](https://github.com/villadalmine/k8s-lan-party/issues/12) real cosign keyless signing from a fork: needs a second account that signs.
 - [#29](https://github.com/villadalmine/k8s-lan-party/issues/29) a joined node can claim any Cilium identity for the traffic it sends (tunnel mode trusts it): mutual auth does not protect against a node's owner. Its token can no longer forge another node's endpoints or relabel identities (DESIGN.md 3.3).
 - [#35](https://github.com/villadalmine/k8s-lan-party/issues/35) the SPIRE agent token on remote nodes can read pods and `nodes/proxy`.
+- [#58](https://github.com/villadalmine/k8s-lan-party/issues/58) a joined node can pre-claim a free mesh IP as its CiliumNode's InternalIP (DESIGN.md 3.3, residual 5).
 - [#36](https://github.com/villadalmine/k8s-lan-party/issues/36) `down.sh` leaves a participant container in the Docker flow.
 - [#26](https://github.com/villadalmine/k8s-lan-party/issues/26) and [#16](https://github.com/villadalmine/k8s-lan-party/issues/16) the public request page and the open demo are not open yet.
 - [#9](https://github.com/villadalmine/k8s-lan-party/issues/9) and [#11](https://github.com/villadalmine/k8s-lan-party/issues/11) per-player namespaces and the 1 h pool with limits: in review (PR #30), not merged at the time of writing.
