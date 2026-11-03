@@ -89,7 +89,8 @@ want of a runtime; the VM goes with the project. The run writes one table,
 suite and feature x result with the commit and the date, into [`docs/POC-STATUS.md`](docs/POC-STATUS.md); the same commit on the same host
 and UTC day gives the same table (exit 1 when a suite that ran has no `RESULT PASS`). Paste it (or its failing rows) under *Evidence*.
 
-**What `pr-format` asks for (`scripts/check_pr.py`).** It maps the PR's changed paths to the features of `docs/FEATURES.yml` (their `paths`):
+**What `pr-format` asks for (`scripts/check_pr.py`).** It maps the PR's changed paths to the features of `docs/FEATURES.yml` (their `paths`;
+a workflow can be one, e.g. `.github/workflows/participants.yml` belongs to `participants`):
 
 - a PR that touches features cites, under *Evidence*, the `RESULT PASS` of every suite those features list, one line each
   (`poc-golden: RESULT PASS`), or the `make regression` table;
