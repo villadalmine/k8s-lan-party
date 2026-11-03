@@ -38,7 +38,7 @@ pod_mtu() { [ "$(k exec cli -- cat /sys/class/net/eth0/mtu)" = "$POD_MTU" ]; }
 step K10 "MTU: pod eth0 is $POD_MTU" pod_mtu
 step K11 "MTU: a full-size DF packet crosses, one byte more is refused" df_ping
 step K12 "30 MB pod-to-pod over WireGuard arrives intact" big_transfer
-mutual_up() { . "$POC/spire-args.sh"; helm upgrade cilium cilium --repo https://helm.cilium.io --version "$CILIUM_VERSION" -n kube-system --kube-context kind-emesh --reuse-values "${SPIRE_ARGS[@]}" --wait --timeout 4m; }
+mutual_up() { . "$POC/spire-args.sh"; spire_prepare || return 1; helm upgrade cilium cilium --repo https://helm.cilium.io --version "$CILIUM_VERSION" -n kube-system --kube-context kind-emesh --reuse-values "${SPIRE_ARGS[@]}" --wait --timeout 4m; }
 k label node emesh-control-plane node-restriction.kubernetes.io/trust=own --overwrite >>"$LOG" 2>&1
 step K90 "mutual authentication: SPIRE installed on top (helm --wait)" mutual_up
 step K91 "SPIRE server and agents ready, the 3 registration entries created" wait_for 240 spire_full

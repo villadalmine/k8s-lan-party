@@ -27,7 +27,7 @@ directory). Where each suite passed and how often is in [docs/POC-STATUS.md](../
 | :--- | :--- | :--- | :--- |
 | `make poc-join` | `poc-join.sh` | 17 (J01-J17) | **step 1**: Nebula CA + lighthouse + control plane; two outside nodes join with one bundle and one command; a study lab (CKA 1.1) runs on them; narrowed firewall, token reuse, expired certificate, blocked UDP and revocation behave. Pins `CNI=flannel TAINT=no` (issue #59) |
 | `make poc-host` | `poc-host.sh` | 14 (H01-H11, H02b, H09b, H09c) | **host your own game**: `mesh host init / invite / players / kick / down` |
-| `make poc-golden` | `poc-golden.sh` | 31 (G1.1-G10.1; 30 run, G2.8 waits for #9; G3.4 needs `MUTUAL=yes ./cilium.sh`, else it SKIPs) | **golden path**: one check per golden rule against a game that is already up (yours or a stranger's); `GOLDEN_ENV="<column>"` writes the table in POC-STATUS.md; it builds nothing |
+| `make poc-golden` | `poc-golden.sh` | 32 (G1.1-G10.1; 31 run, G2.8 waits for #9; G3.4 needs `MUTUAL=yes ./cilium.sh`, else it SKIPs) | **golden path**: one check per golden rule against a game that is already up (yours or a stranger's); `GOLDEN_ENV="<column>"` writes the table in POC-STATUS.md; it builds nothing |
 | `make poc-weakness` | `poc-weakness.sh` | 8 (W00-W06, W03b) | what one control plane costs: flapping, tolerance, a lossy link, control plane down, the supervised k3s agent |
 | `make poc-ca` | `poc-ca.sh` | 13 (B01-B13) | two CAs (persistent and pool); the pool CA is constrained to group `public`; pulling it cuts only the pool |
 | `make poc-revoke` | `poc-revoke.sh` | 10 (R01-R10) | `mesh host revoke` is one command and idempotent; the negative test (`kubectl delete node` without the blocklist does not revoke, R03); time to loss of access |
@@ -72,6 +72,7 @@ WSL2 as a node was run by hand (docs/REQUIREMENTS.md, the host matrix); the refu
 | `install-placement.sh`, `placement/` | install Kyverno and the trust-placement policies on your own control plane |
 | `cilium.sh`, `checks-cilium.sh`, `spire-args.sh` | step 2: the Cilium install (`BGP=yes` adds the BGP control plane, `MUTUAL=yes` SPIRE), its assertions (shared by Docker and VMs), the hardened SPIRE arguments |
 | `node-trust-freeze.yaml` | only the host (`system:masters`) may change a node's `node-restriction.kubernetes.io/` labels or `trust` taint, on a Node or its status: closes the k3s controller credential on every joined machine; `up.sh` applies it |
+| `spire-agent-rbac.yaml` | the SPIRE agent's own namespace, account and role, `get nodes/pods` only (issue #35); `spire-args.sh` applies it before the helm install. After `helm uninstall` they stay (the chart does not own them): delete them by hand |
 | `cilium-node-guard.yaml` | what a write by the Cilium agents' shared token may claim: only its own `CiliumNode`, no address or pod range of another node, endpoints only of its own address and range, identities never relabelled, shadowed or reserved (DESIGN.md 3.3); `cilium.sh` applies it |
 | `gateway.sh`, `gateway/` | issue #13: `gateway.sh bgp` (BGP from own nodes only, the pool by Service label, `gateway/bgp.yaml`), `install` (Envoy Gateway, cert-manager, a local CA and the Gateway, all on own nodes, `gateway/gateway.yaml`), `router` (the test FRR router, `gateway/frr.conf`) |
 | `kind-cilium.sh` | step 2 on kind |

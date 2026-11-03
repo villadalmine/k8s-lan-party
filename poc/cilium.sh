@@ -10,7 +10,7 @@
 set -eu
 . "$(dirname "$0")/lib.sh"
 EXTRA_FLAGS=()
-[ "${MUTUAL:-no}" = yes ] && { . "$POC/spire-args.sh"; EXTRA_FLAGS=("${SPIRE_ARGS[@]}"); }
+[ "${MUTUAL:-no}" = yes ] && { . "$POC/spire-args.sh"; spire_prepare; EXTRA_FLAGS=("${SPIRE_ARGS[@]}"); }
 [ "${BGP:-no}" = yes ] && EXTRA_FLAGS+=(--set bgpControlPlane.enabled=true)
 helm_cp repo add cilium https://helm.cilium.io >/dev/null 2>&1 || true
 helm_cp upgrade --install cilium cilium --repo https://helm.cilium.io --version "$CILIUM_VERSION" -n kube-system \
