@@ -280,3 +280,72 @@ cni_dropin_everywhere() { # the fix of the first attempt (Cilium pods in CreateC
   for n in cp n1 n2; do nx "$n" grep -q "conf_dir = '/etc/cni/net.d'" "$f" && nx "$n" grep -q "/var/lib/rancher/k3s/data/cni" "$f" || return 1; done
   ! k -n kube-system get pod -l k8s-app=cilium -o jsonpath='{range .items[*]}{.status.containerStatuses[*].state.waiting.reason}{" "}{.status.initContainerStatuses[*].state.waiting.reason}{"\n"}{end}' | grep -q CreateContainerError
 }
+
+# --- issue #29: what else the shared agent token may claim (poc/cilium-node-guard.yaml, policies 2 and 3). Every write below is a server-side dry run
+# made with the Cilium agent token read from n2's disk: it passes RBAC and admission exactly as a real write would, and nothing is stored.
+agent_write() { # agent_write <as-node> <kubectl verb and args...> <<manifest: kubectl with that node's Cilium agent token, manifest on stdin
+  local n="$1"; shift; local t m; m=$(cat); t=$(agent_token "$n") || return 1   # stdin first: agent_token runs incus exec, which would eat it
+  echo "$m" | nx "$n" k3s kubectl --server "https://$CP_NEB:6443" --certificate-authority /var/lib/rancher/k3s/agent/server-ca.crt --token "$t" "$@" 2>&1
+}
+endpoint_guard_holds() { # from n2, with its agent token: an endpoint naming another node, or another node's pod IP, and a takeover or removal of
+  # web's endpoint (on n1) are refused; n2's own kind of endpoint (its address, a pod IP of its own range) and its own cli endpoint still pass
+  local id out own_addr own_ip; id=$(k get cep web -o jsonpath='{.status.identity.id}'); own_addr=$(cn_addr "$(nn n2)"); own_ip=$(cidr_ip "$(cn_cidr "$(nn n2)")")
+  [ -n "$id" ] && [ -n "$own_addr" ] && [ -n "$(cn_cidr "$(nn n2)")" ] || { echo "cannot read web's identity or n2's CiliumNode"; return 1; }
+  out=$(cep_manifest forged-cp "$(cn_addr "$(nn cp)")" "$(cidr_ip "$(cn_cidr "$(nn cp)")")" "$id" | agent_write n2 create --dry-run=server -f -)
+  echo "n2 creates an endpoint on cp's address and range: $out"; denied_29 "$out" || return 1
+  out=$(cep_manifest forged-ip "$own_addr" "$(web_ip)" "$id" | agent_write n2 create --dry-run=server -f -)
+  echo "n2 creates an endpoint for web's pod IP ($(web_ip), n1's range) on its own address: $out"; denied_29 "$out" || return 1
+  out=$(echo '{"status":{"networking":{"node":"'"$own_addr"'"}}}' | agent_write n2 patch cep web --type merge --dry-run=server --patch-file /dev/stdin)
+  echo "n2 points web's endpoint at itself: $out"; denied_29 "$out" || return 1
+  out=$(: | agent_write n2 delete cep web --dry-run=server); echo "n2 deletes web's endpoint: $out"; denied_29 "$out" || return 1
+  # residual (4), recorded not judged: the name is not checked, so an endpoint under the name of another node's future pod passes (DESIGN.md 3.3)
+  out=$(cep_manifest web-to-come "$own_addr" "$own_ip" "$id" | agent_write n2 create --dry-run=server -f -)
+  echo "n2 creates default/web-to-come on its own address and range (accepted, recorded: residual 4): $out"; grep -q 'created (server dry run)' <<<"$out" || return 1
+  out=$(cep_manifest cp-own "$(cn_addr "$(nn cp)")" "$(cidr_ip "$(cn_cidr "$(nn cp)")")" "$id" | agent_write cp create --dry-run=server -f -)
+  echo "cp's agent creates an endpoint on its own address and range: $out"; grep -q 'created (server dry run)' <<<"$out" || return 1
+  out=$(echo '{"metadata":{"labels":{"edge-mesh-probe":"own"}}}' | agent_write n2 patch cep cli --type merge --dry-run=server --patch-file /dev/stdin)
+  echo "n2 patches its own cli endpoint: $out"; grep -q 'cli patched' <<<"$out" || return 1
+  [ -z "$(k get cep cli -o jsonpath='{.metadata.labels.edge-mesh-probe}')" ]   # a dry run: nothing was stored
+}
+forbidden() { grep -q 'Forbidden\|forbidden' <<<"$1" && ! grep -qE 'created|patched|deleted|replaced|configured' <<<"$1"; }
+identity_guard_holds() { # from n2, with its agent token: web's identity cannot be relabelled or deleted, no identity in the reserved range or with a
+  # reserved label can be created, and n2's own CiliumNode cannot take another node's pod range. The one write left (a new identity in the
+  # global range, for labels of its choosing) still passes: it grants nothing a policy did not already grant those labels (DESIGN.md 3.3)
+  local id obj out; id=$(k get cep web -o jsonpath='{.status.identity.id}'); echo "web's identity: $id"
+  # (the agent role may list identities, not get one: the object is read with the host's credential, the write is the agent's)
+  [ -n "$id" ] && obj=$(k get ciliumidentity "$id" -o json) && grep -q '"k8s:app": "web"' <<<"$obj" || return 1
+  out=$(sed 's#"k8s:app": "web"#"k8s:app": "cli"#' <<<"$obj" | agent_write n2 replace --dry-run=server -f -)
+  echo "n2 relabels web's identity to app=cli: $out"; denied_29 "$out" || return 1
+  out=$(: | agent_write n2 delete ciliumidentity "$id" --dry-run=server); echo "n2 deletes web's identity: $out"; forbidden "$out" || return 1
+  out=$(printf 'apiVersion: cilium.io/v2\nkind: CiliumIdentity\nmetadata: {name: "100"}\nsecurity-labels: {"k8s:app": "web"}\n' | agent_write n2 create --dry-run=server -f -)
+  echo "n2 creates identity 100 (reserved range): $out"; denied_29 "$out" || return 1
+  # the agents key identities on ParseUint(name): "0<id>" would be a second object that remaps web's ID to other labels
+  out=$(printf 'apiVersion: cilium.io/v2\nkind: CiliumIdentity\nmetadata: {name: "0%s"}\nsecurity-labels: {"k8s:app": "attacker"}\n' "$id" | agent_write n2 create --dry-run=server -f -)
+  echo "n2 creates identity 0$id (web's ID with a leading zero): $out"; denied_29 "$out" || return 1
+  out=$(printf 'apiVersion: cilium.io/v2\nkind: CiliumIdentity\nmetadata: {name: "65001"}\nsecurity-labels: {"reserved:host": ""}\n' | agent_write n2 create --dry-run=server -f -)
+  echo "n2 creates an identity with reserved:host: $out"; denied_29 "$out" || return 1
+  obj=$(k get ciliumnode "$(nn n2)" -o json) || return 1   # (the role may update a CiliumNode, not patch it)
+  out=$(sed "s#\"$(cn_cidr "$(nn n2)")\"#\"$(cn_cidr "$(nn cp)")\"#" <<<"$obj" | agent_write n2 replace --dry-run=server -f -)
+  echo "n2 gives its own CiliumNode cp's pod range: $out"; denied_29 "$out" || return 1
+  local mine; mine=$(cn_addr "$(nn n2)")
+  out=$(sed "s#\"ip\": \"$mine\"#\"ip\": \"$(cn_addr "$(nn cp)")\"#" <<<"$obj" | agent_write n2 replace --dry-run=server -f -)
+  echo "n2 takes cp's address as its InternalIP: $out"; denied_29 "$out" || return 1
+  out=$(sed '0,/"addresses": \[/s//"addresses": [{"ip": "'"${MESH_CIDR%.*}"'.201", "type": "InternalIP"},/' <<<"$obj" | agent_write n2 replace --dry-run=server -f -)
+  echo "n2 adds a second InternalIP: $out"; denied_29 "$out" || return 1
+  out=$(sed '0,/"addresses": \[/s//"addresses": [{"ip": "'"${MESH_CIDR%.*}"'.202", "type": "ExternalIP"},/' <<<"$obj" | agent_write n2 replace --dry-run=server -f -)
+  echo "n2 adds an ExternalIP: $out"; denied_29 "$out" || return 1
+  out=$(sed "s#\"ip\": \"$mine\"#\"ip\": \"192.0.2.10\"#" <<<"$obj" | agent_write n2 replace --dry-run=server -f -)
+  echo "n2 claims an address outside the mesh (192.0.2.10) as its InternalIP: $out"; denied_29 "$out" || return 1
+  # the other addresses (health, ingress, CiliumInternalIP, an entry with no type) must lie in its own pod CIDRs: every node loads them too
+  local hip; hip=$(k get ciliumnode "$(nn n2)" -o jsonpath='{.spec.health.ipv4}'); [ -n "$hip" ] || { echo "n2's CiliumNode has no health IP"; return 1; }
+  out=$(sed "s#\"ipv4\": \"$hip\"#\"ipv4\": \"192.0.2.10\"#" <<<"$obj" | agent_write n2 replace --dry-run=server -f -)
+  echo "n2 sets its health IP to 192.0.2.10: $out"; denied_29 "$out" || return 1
+  out=$(sed '0,/"addresses": \[/s//"addresses": [{"ip": "192.0.2.11"},/' <<<"$obj" | agent_write n2 replace --dry-run=server -f -)
+  echo "n2 adds an address with no type (192.0.2.11): $out"; denied_29 "$out" || return 1
+  # residual (5), recorded not judged: a FREE address of the mesh as its one InternalIP passes (DESIGN.md 3.3; the close is issue #58)
+  out=$(sed "s#\"ip\": \"$mine\"#\"ip\": \"${MESH_CIDR%.*}.200\"#" <<<"$obj" | agent_write n2 replace --dry-run=server -f -)
+  echo "n2 claims a free mesh address (${MESH_CIDR%.*}.200) as its InternalIP (accepted, recorded: residual 5): $out"; grep -q 'replaced (server dry run)' <<<"$out" || return 1
+  local free=65000; while k get ciliumidentity "$free" >/dev/null 2>&1; do free=$((free - 1)); done   # identity IDs are allocated at random
+  out=$(printf 'apiVersion: cilium.io/v2\nkind: CiliumIdentity\nmetadata: {name: "%s"}\nsecurity-labels: {"k8s:app": "web"}\n' "$free" | agent_write n2 create --dry-run=server -f -)
+  echo "n2 creates a new identity $free in the global range (allowed, recorded): $out"; grep -q 'created (server dry run)' <<<"$out"
+}

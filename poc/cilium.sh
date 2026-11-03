@@ -23,6 +23,12 @@ helm_cp upgrade --install cilium cilium --repo https://helm.cilium.io --version 
   --set operator.replicas=1 \
   "${EXTRA_FLAGS[@]}" \
   --wait --timeout "${HELM_TIMEOUT:-10m}"
-# every agent shares one service account that may update every CiliumNode (where each node publishes its WireGuard key); this policy limits a
-# write by that account to the CiliumNode of the node its token was issued on (poc/cilium-node-guard.yaml, issue #8)
-k apply -f - <"$POC/cilium-node-guard.yaml" >/dev/null
+# every agent shares one service account, and its token sits on every node's disk. poc/cilium-node-guard.yaml narrows what a write by it may claim:
+# only its own node's CiliumNode, never its pod CIDRs (issues #8, #29); a CiliumIdentity only in the global range, never a reserved label, never
+# relabelled; and only CiliumEndpoints of its own node's address and pod CIDRs (issue #29)
+# (the file names the game's Nebula subnet as @MESH_CIDR@: one InternalIP per CiliumNode, inside it). A bad value would not open the policy but
+# would fail every CiliumNode write closed (no node gets a network) with nothing reported, so it is checked first and the rendered file after.
+[[ $MESH_CIDR =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}/[0-9]{1,2}$ ]] || { echo "MESH_CIDR is not a CIDR: '$MESH_CIDR' (stack.env derives it from LH_NEB)"; exit 1; }
+guard_yaml=$(sed "s#@MESH_CIDR@#$MESH_CIDR#g" "$POC/cilium-node-guard.yaml")
+! grep -q '@MESH_CIDR@' <<<"$guard_yaml" || { echo "cilium-node-guard.yaml still names @MESH_CIDR@ after rendering"; exit 1; }
+k apply -f - <<<"$guard_yaml" >/dev/null

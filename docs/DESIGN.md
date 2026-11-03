@@ -107,7 +107,7 @@ Out of scope for phase 1: marketplaces, billing, storage, GPUs, scheduling fairn
 | **Nebula** | join/"login" (node identity: certificate from our CA with expiry and groups) and NAT traversal/connectivity | yes; it always encrypts (Noise) and cannot be turned off, which is fine: the team does not manage it | Tailscale, Headscale, NetBird, zrok, ngrok, ClusterMesh |
 | **Cilium, tunnel mode** (VXLAN/Geneve over the Nebula IPs) | the CNI; joiners configure nothing extra. MTU is set once. Native routing is **not** the default; it is an optional optimisation for the maintainer's own nodes | yes | flannel (kept only as plan B) |
 | **Cilium WireGuard** (transparent encryption) | encrypt pod-to-pod across nodes, plus node-to-node | **always on** | app-level TLS for transit |
-| **Cilium mutual authentication** (SPIFFE/SPIRE, "mTLS") | authenticate workload identity between nodes that are honest; not evidence against a joined node's owner (section 3.3, issue #29); WireGuard provides the encryption | per policy, `authentication.mode: required`, when a user asks (beta: prove it in the PoC) | a service mesh |
+| **Cilium mutual authentication** (SPIFFE/SPIRE, "mTLS") | authenticate workload identity between nodes that are honest; not evidence against a joined node's owner (section 3.3: tunnel mode trusts the identity a node sends, issue #29); WireGuard provides the encryption | per policy, `authentication.mode: required`, when a user asks (beta: prove it in the PoC) | a service mesh |
 | **Kyverno + labels + taints** | placement by trust (section 4) | yes | goodwill |
 
 Each layer does one job. Nebula does not do placement; Cilium does not do the identity of machines; Kyverno does
@@ -141,15 +141,41 @@ with node-to-node enabled. Mutual authentication needs the SPIRE server and agen
 agent tolerates the `trust` taint: it must run on every node a workload may land on. Cilium's own service account can read Secrets
 cluster-wide unless `tls.readSecretsOnlyFromSecretsNamespace: true` is set; the PoC inventories what each node-side credential can do.
 
-**What the node-side Cilium credential can do (measured 2026-10-28).** Every Cilium agent runs under one service account, and its token sits on
-the node's disk, where the node's owner is root. That account may `update` every `CiliumNode`, and a `CiliumNode` carries the node's WireGuard
-public key: the owner of a remote node could replace another node's key (seen live with the agent token of a joined node). **Guard:**
-`poc/cilium-node-guard.yaml`, a `ValidatingAdmissionPolicy` that admits a write by that account only to the `CiliumNode` of the node its
-pod-bound token was issued on (`cilium.sh` applies it; `poc-vm` V06c). The same account may also create `CiliumEndpoints` and
-`CiliumIdentities`, which no per-node rule scopes, and the SPIRE registration entries are not tied to a node (selector `cilium:mutual-auth`,
-parented to the operator). So **mutual authentication proves that the peer node holds a certificate from the cluster's SPIRE for that
-identity; it is not evidence against the owner of a joined node** claiming another workload's identity (section 1: authorize each request in
-the application). That attack is not tested yet: a follow-up (issue #29).
+**What the node-side Cilium credential can do (measured 2026-10-28, narrowed 2026-11-02).** Every Cilium agent runs under one service account,
+and its token sits on the node's disk, where the node's owner is root. Its ClusterRole comes fixed from the chart: `update` every `CiliumNode`,
+`create`/`update` every `CiliumIdentity`, `create`/`patch`/`delete` every `CiliumEndpoint`. `poc/cilium-node-guard.yaml` (applied by `cilium.sh`)
+narrows what a write by that account may claim, keyed on the node its pod-bound token was issued on:
+
+| Object | Without the guard, the owner of a joined node could | Guard (ValidatingAdmissionPolicy) | Negative test |
+| :--- | :--- | :--- | :--- |
+| `CiliumNode` | replace another node's WireGuard key or addresses; give his own node another node's pod range; claim in his own object an address of another node, of another node's pod range, or of anything outside the cluster (the lighthouse, a resolver), which every node puts in its WireGuard allowed IPs and ipcache with him as peer | only its own node's object; `spec.ipam.podCIDRs` never changes (the operator hands them out); its own addresses are bounded: at most one `InternalIP`, inside the game's Nebula subnet (`MESH_CIDR`), no `ExternalIP`, every other address (CiliumInternalIP, health, ingress) inside its own pod CIDRs, and none equal to another node's address or inside another node's pod CIDRs (every `CiliumNode` is a param). Not bounded: which free mesh IP it takes, residual (5) | `poc-vm` V06c, V09c |
+| `CiliumEndpoint` | publish "this pod IP lives on my node" for another node's pod, or take over or delete another node's endpoint, so the other nodes tunnel that pod's traffic to him | every `CiliumNode` is a param: the endpoint (new and old) must name an address of the agent's own `CiliumNode` with pod IPs inside its pod CIDRs, and no pod IP in another node's pod CIDRs (other nodes are judged by their operator-owned CIDRs only, so a claimed address cannot veto them) | `poc-vm` V09b |
+| `CiliumIdentity` | rewrite an existing identity's labels (the ID of a private workload would mean his labels), directly or by creating `0<id>` (agents key identities on `ParseUint(name)`); create one in the reserved range or with a `reserved:` label | security labels of an existing identity never change; a new one only in 256-65535, as the canonical decimal, without `reserved:` labels (assumes `cluster.id` 0: with ClusterMesh every allocation would be refused); no delete | `poc-vm` V09c |
+
+Every test is a server-side dry run made with the agent token read from a joined node's disk: it goes through RBAC and admission exactly as the
+real write would, and nothing is stored. Each one also checks that the node's own writes still pass.
+
+**What still holds for the owner of a joined node, and why.** (1) **Tunnel mode trusts the identity in the VXLAN header.** Cilium carries the
+source identity in the VXLAN header and the receiving node takes it from any WireGuard peer; there is no per-packet proof. A joined node's owner,
+root on his node, can send packets that claim any identity, without any token. That is Cilium's design (found in the review of PR #28), not
+exercised by a PoC test: no admission rule reaches the data path, so there is nothing of ours to test; only Cilium upstream could close it (a
+per-node proof on the identity, or native routing with per-node identity checks). (2) He can still create a **new** identity for
+labels he chooses, and put any identity in the endpoints of his own pods. That grants nothing (1) does not already grant: policy selects by
+labels, so a second ID for the same labels gets exactly what the first gets. (3) **Mutual authentication does not close it.** Every Cilium agent
+asks its SPIRE agent for the certificate of any identity (the registration entries use the selector `cilium:mutual-auth`, parented to the
+operator, not tied to a node), so the peer node proves it holds a certificate from the cluster's SPIRE, not which workload it runs. (4) **Endpoint names are not checked.** He can create an endpoint under the namespace and name of another node's pod (with his own address and
+an IP of his own range) before that pod's agent does; the honest agent then cannot take it over, and the operator keeps it while the pod runs, so
+the other nodes never learn that pod's real IP from its endpoint (a denial of service on that pod, not a redirect: the squatted endpoint
+carries his own address and range; recorded by `poc-vm` V09b). Closing it would need
+the Pod as an admission param. (5) **A free mesh IP can be pre-claimed.** The guard knows the game's Nebula subnet, not which IP the host issued to which node, so a joined
+node can take a free IP of the mesh as its one InternalIP: the node that later gets that IP is refused when its agent creates its `CiliumNode`
+(first writer wins), and until then every node tunnels that /32 to him. Recorded by `poc-vm` V09c; the close (pin the InternalIP to the issued IP,
+which the host already lists in `kube-system/edge-mesh-nodes`) is issue #58. The full fix
+for identities, operator-managed identities (the agents write none), was tried: in Cilium 1.20.3 it leaves every pod with a named port without
+an identity (coredns: the agent adds a `named-ports` label the operator does not), fixed upstream after 1.20.4 (cilium/cilium e27ce9ee66); it is
+the next step when that ships. **So:** identity-based policy and mutual authentication are a boundary between honest nodes, not against the
+owner of a joined node. What a private workload accepts from a remote node is decided by placement (section 4: it never runs there) and by
+authorizing each request in the application (section 1). Issue #29 keeps this record.
 
 **The k3s controller credential (found in the review of PR #28, 2026-10-28).** Every joined machine also holds
 `/var/lib/rancher/k3s/agent/k3scontroller.kubeconfig` (user `system:k3s-controller`). Its ClusterRole in k3s v1.37.1 reads nodes, pods, endpoints,
@@ -400,7 +426,7 @@ Where each suite passed, how often, and what is still relaxed is in [POC-STATUS.
 | `make poc-ca` | two CAs (persistent and pool); pulling the pool CA cuts only the pool (13) |
 | `make poc-revoke` | `mesh host revoke` is idempotent, the negative test (`kubectl delete node` alone does not revoke), time to loss of access (10) |
 | `make poc-placement` | trust levels and Kyverno placement, the golden rule (31, 15 of them negative; L52b: no identity but the host can change a node's trust labels) |
-| `make poc-cilium` / `poc-vm` / `poc-kind` | step 2: Cilium tunnel + WireGuard over Nebula (`cilium-dbg encrypt status` with every other node a peer, the kernel's peers are the published keys), the MTU set once, encryption on the wire, a remote node's Cilium token cannot rewrite another node's WireGuard key, mutual auth with SPIRE non-root and persistent: an authenticated peer passes and an unauthenticated one (its node has no SPIRE identity) is dropped by the same policy (34 on the Incus VMs, V103 inventories the SPIRE agent's reach) |
+| `make poc-cilium` / `poc-vm` / `poc-kind` | step 2: Cilium tunnel + WireGuard over Nebula (`cilium-dbg encrypt status` with every other node a peer, the kernel's peers are the published keys), the MTU set once, encryption on the wire, a remote node's Cilium token cannot rewrite another node's WireGuard key, forge another node's endpoints or relabel identities, mutual auth with SPIRE non-root and persistent: an authenticated peer passes and an unauthenticated one (its node has no SPIRE identity) is dropped by the same policy (36 on the Incus VMs, V103 inventories the SPIRE agent's reach) |
 | `make poc-bgp` | the maintainer's endpoints (section 6): Envoy Gateway and cert-manager only on `own` nodes, TLS issued from the Gateway by itself, BGP only from `own` nodes to a test router, a remote node never announces (no BGP instance, cannot select itself with the kubelet's or the k3s controller's credential, its Cilium token writes no BGP object, the router refuses it) (20, 6 of them negative) |
 | `make poc-lighthouse` | a lighthouse on a separate public server (a VM plays it): prepare, sign and deploy are idempotent, a player joins through it, `revoke` reaches it; `mesh host refresh` with no change, with a change that restarts Nebula (the API and the node come back) and with one read on reload (23) |
 | `make poc-admission` | admission with manual approval ([ADMISSION.md](ADMISSION.md)): request, approve, join, places full, the lease ends, `reap` expels, the next one in line enters, `reap --all`, a burned join token refused to a second machine, a non-cooperative copy of a bundle refused by the node guard and cut with the lease, another guest's issued name refused by its node password, a name whose node password k3s dropped refused by the guard (31) |

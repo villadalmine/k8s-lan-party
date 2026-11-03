@@ -322,7 +322,8 @@ exempt (the Cilium and SPIRE agents must run on every node).
 To run a game with Cilium instead of flannel, set `CNI=cilium` before `init` (later commands inherit it), then run `./cilium.sh` and `MUTUAL=yes ./cilium.sh`. Read
 [TROUBLESHOOTING.md](TROUBLESHOOTING.md) first: mutual auth is beta and has one known trap (the "sticky failure"), fixed in the PoC by a small MSS on the mesh route.
 `cilium.sh` also applies `cilium-node-guard.yaml`: every Cilium agent shares one service account, and without the guard the owner of any joined node could
-rewrite another node's WireGuard key with the token he finds on his disk. Mutual auth proves that the peer node got a certificate from your SPIRE; it does
+use the token he finds on his disk to rewrite another node's WireGuard key, claim its addresses or pod IPs, or remap identities. The four policies and
+what each refuses are in DESIGN.md section 3.3 (the table). Mutual auth proves that the peer node got a certificate from your SPIRE; it does
 not protect a workload from the owner of a node that joined (DESIGN.md section 3.3).
 
 ## 6b. Your endpoints: gateway, TLS and BGP on your own nodes only

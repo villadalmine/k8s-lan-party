@@ -35,8 +35,9 @@ set -eu
 usage() { sed -n '2,31p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
 [ $# -ge 1 ] || usage
 
-next_ip() { # first free Nebula IP from .5 up (1 lighthouse, 2 control plane, 3 and 4 are the PoC players)
-  local i=5; while [ -d "$STATE/bundles/ip-$i" ] || grep -qs "NODE_IP=10.77.0.$i\$" "$STATE"/bundles/*/join.env; do i=$((i+1)); done; echo "10.77.0.$i"
+next_ip() { # first free Nebula IP from .5 up (1 lighthouse, 2 control plane, 3 and 4 are the PoC players), in the subnet of LH_NEB (stack.env,
+  # the same one MESH_CIDR is derived from: cilium-node-guard.yaml refuses a CiliumNode InternalIP outside it)
+  local net=${LH_NEB%.*} i=5; while [ -d "$STATE/bundles/ip-$i" ] || grep -qs "NODE_IP=$net.$i\$" "$STATE"/bundles/*/join.env; do i=$((i+1)); done; echo "$net.$i"
 }
 
 case "$1 ${2:-}" in
