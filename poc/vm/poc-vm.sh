@@ -53,6 +53,9 @@ step V100 "the twin on a node with an identity is authenticated and allowed by t
 step V101 "NEGATIVE: the twin on the node without an identity is dropped: no answer, drops 'Authentication required' counted" auth_denied_twin
 step V102 "the SPIRE agent back on $AUTH_DENY_NODE: the same pod is let in (the drop was authentication, nothing else)" auth_restored
 step V103 "NEGATIVE: the SPIRE agent token on a remote node may only get nodes/pods: the proxy to another node's kubelet, pods and nodes are refused" spire_agent_narrow
+# the test pods (web, cli and the SPIRE twins) are unlabelled, pinned and tolerate everything: they go before the game is handed on, so a
+# game kept with KEEP=1 (make regression gives it to poc-golden) holds no private pod on a shared node (issue #68; G2.3 audits exactly that)
+k delete pod web cli auth-ok auth-no --ignore-not-found --wait=true --timeout=120s >>"$LOG" 2>&1
 cp "$LOG" /tmp/poc-vm-last.log 2>/dev/null
 [ "${KEEP:-0}" = 1 ] || "$POC/vm/down.sh" >/dev/null 2>&1
 echo "----"
