@@ -29,6 +29,14 @@ meta:
   runbooks: []
   tags: [features, regression, tests, catalogo]
 
+# The cluster: the files that build or run a game. A PR that changes one of them proves the whole stack: its Evidence carries the table of
+# `make regression` (no FAIL row), or every feature it touches with PASS (scripts/check_pr.py, CONTRIBUTING.md). Suites, tests and docs are
+# not here: a change to them needs the RESULT PASS of the suites of the features it touches.
+cluster_paths: [poc/lib.sh, poc/up.sh, poc/down.sh, poc/vm/up.sh, poc/vm/lib-vm.sh, poc/vm/down.sh, poc/issue.sh, poc/revoke.sh, poc/cilium.sh,
+  poc/gateway.sh, poc/install-placement.sh, poc/lighthouse-vps.sh, poc/spire-args.sh, poc/game-env.sh, poc/edge-mesh, poc/mesh, poc/kc,
+  poc/stack.env, poc/*.yaml, poc/placement/*, poc/gateway/*, poc/admission.py, poc/pool.py, poc/nodes_sweep.py, poc/node_password.py,
+  poc/participant.py, poc/participants.py, poc/page/*]
+
 suites:
   - {id: poc-participants, script: poc/poc-participants.sh, runtime: [none]}
   - {id: poc-cilium, script: poc/poc-cilium.sh, runtime: [docker]}

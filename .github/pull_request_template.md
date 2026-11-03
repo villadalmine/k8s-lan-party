@@ -37,8 +37,9 @@
 ```
 make pr-check   # CI's PR checks, locally (CONTRIBUTING -> Check before you push)
 ```
-<!-- A change to the cluster under poc/: paste the table of `make regression` (docs/POC-STATUS.md), or the RESULT line of every suite that
-     docs/FEATURES.yml lists for the features you touched (CONTRIBUTING -> A PR that touches the cluster proves the whole stack). -->
+<!-- check_pr.py maps your changed paths to features (docs/FEATURES.yml) and wants, one line each, the RESULT PASS of their suites
+     ("poc-join: RESULT PASS"). A change to the cluster (cluster_paths): the table of `make regression` with no FAIL row, or every touched
+     feature with PASS ("`join`: PASS"). CONTRIBUTING -> A PR that touches the cluster proves the whole stack. -->
 
 ### Where it ran
 
@@ -53,6 +54,12 @@ make pr-check   # CI's PR checks, locally (CONTRIBUTING -> Check before you push
 ### Known gaps
 
 <!-- What this evidence does NOT cover. Always present; 'none' is a claim, not a default. -->
+
+### Docs impact
+
+<!-- The docs and diagrams that docs/FEATURES.yml lists for the features your paths touch: name each one you updated, or write
+     "none: <reason>". A diagram changed: `make diagrams NAME=<name>` (its SVG and PNG carry the hash of the .mmd). -->
+- 
 
 ## Authorship
 

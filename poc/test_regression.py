@@ -99,7 +99,7 @@ class Runner(unittest.TestCase):
 
     def test_only_tracked_files_travel_to_the_docker_vm(self):
         planted = []
-        for rel in (".env", "examples/aws/terraform.tfvars", "poc/zz-planted.key"):
+        for rel in (".env", "examples/aws/terraform.tfvars", "poc/zz-planted.key", "poc/zz-wip.yaml"):
             p = ROOT / rel
             if not p.exists():
                 p.write_text("SECRET=planted\n")
@@ -108,6 +108,7 @@ class Runner(unittest.TestCase):
         self.run_regression({"REGRESSION_RUNTIME": "docker-vm", "ONLY": "poc-cilium"})
         names = subprocess.run(["tar", "tf", f"{self.log}.tar"], capture_output=True, text=True, check=True).stdout.splitlines()
         self.assertIn("poc/regression.sh", names)
+        self.assertIn("poc/zz-wip.yaml", names)   # new work not committed yet travels: it is what the run tests
         for rel in (".env", "examples/aws/terraform.tfvars", "poc/zz-planted.key"):
             self.assertNotIn(rel, names)
         self.assertFalse(any(n.startswith(("poc/.cache", ".git/")) for n in names))

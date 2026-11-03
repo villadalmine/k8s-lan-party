@@ -109,10 +109,13 @@ dvm_up() { # the docker VM: Ubuntu, Docker, kind, kubectl and helm (poc/vm/docke
     incus init "$DVM_IMAGE" "$DVM" --vm -c limits.cpu="${DVM_CPU:-8}" -c limits.memory="${DVM_MEM:-16GiB}" -d root,size="${DVM_DISK:-40GiB}" \
       --network "$NET_DVM" >/dev/null && incus start "$DVM" || return 1
   local i; for i in $(seq 120); do incus exec "$DVM" -- true 2>/dev/null && break; sleep 2; done
-  incus exec "$DVM" -- sh -c 'cloud-init status --wait >/dev/null 2>&1; mkdir -p /root/repo /root/state' &&
-    # tracked files only (their working-tree content): what .gitignore keeps out (.env, keys, tfstate/tfvars, poc/.cache) never travels
-    git -C "$ROOT" ls-files -z | tar -C "$ROOT" --null -T - --ignore-failed-read -cf - | incus exec "$DVM" -- tar xf - -C /root/repo &&
-    dvm ./poc/vm/docker-vm.sh && dvm ./poc/vm/docker-vm.sh   # the second run must change nothing (idempotent)
+  incus exec "$DVM" -- sh -c 'cloud-init status --wait >/dev/null 2>&1; mkdir -p /root/repo /root/state' || return 1
+  # the files git knows or would add (tracked, and new ones not ignored), with their working-tree content: what .gitignore keeps out (.env,
+  # keys, tfstate/tfvars, poc/.cache) never travels; a file that cannot be read stops the run instead of being left out silently
+  git -C "$ROOT" ls-files -z --cached --others --exclude-standard | tar -C "$ROOT" --null -T - -cf - | incus exec "$DVM" -- tar xf - -C /root/repo
+  local st="${PIPESTATUS[*]}"
+  [ "$st" = "0 0 0" ] || { echo "copying the tree into the docker VM failed (git ls-files, tar, tar in the VM: $st): a tracked file deleted?"; return 1; }
+  dvm ./poc/vm/docker-vm.sh && dvm ./poc/vm/docker-vm.sh   # the second run must change nothing (idempotent)
 }
 pool_ok() { # pool_ok: the storage pool under POOL_MAX %
   local pct; pct=$(incus query "/1.0/storage-pools/$POOL/resources" 2>/dev/null | "$PY" -c 'import json,sys; s=json.load(sys.stdin)["space"]; print(s["used"]*100//s["total"])') || return 1

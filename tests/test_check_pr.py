@@ -194,5 +194,53 @@ class CheckPr(unittest.TestCase):
         src = (Path(check_pr.__file__).parent / "pr_check.py").read_text(encoding="utf-8")
         self.assertIn('"--action", "synchronize"', src)  # make pr-check runs before the push
 
+
+CAT = check_pr.catalog()
+GATED = GOOD.replace("### Known gaps\nnone\n", "poc-golden: RESULT PASS\n### Known gaps\nnone\n### Docs impact\n- docs/GOLDEN-RULES.md, POC-STATUS.md\n")
+
+
+class FeatureGate(unittest.TestCase):
+    """Issue #62: the changed paths -> features (docs/FEATURES.yml) -> the suites' RESULT PASS, the regression table, Docs impact."""
+
+    def gate(self, body: str, *files: str) -> list[str]:
+        return check_pr.feature_gate(body, list(files), CAT)
+
+    def test_paths_that_touch_no_feature_ask_nothing(self):
+        self.assertEqual(self.gate(GOOD, "README.md", "scripts/check_pr.py"), [])
+
+    def test_the_suites_of_the_touched_features_must_pass(self):
+        self.assertEqual(self.gate(GATED, "docs/GOLDEN-RULES.md"), [])
+        self.assertIn("cite the RESULT PASS of poc-golden", self.gate(GATED.replace("RESULT PASS", "RESULT FAIL (1)"), "docs/GOLDEN-RULES.md")[0])
+        self.assertIn("poc-placement", self.gate(GATED, "poc/vm/poc-placement.sh")[0])   # placement: poc-placement and poc-golden
+
+    def test_a_cluster_change_needs_the_regression_table_or_every_feature(self):
+        none = GOOD.replace("### Known gaps", "### Docs impact\nnone: a comment in lib.sh, no behaviour changes\n### Known gaps")
+        self.assertIn("paste the table of `make regression`", self.gate(none, "poc/lib.sh")[0])
+        table = none.replace("### Docs impact", "| Feature | Result | Proven by |\n| :--- | :--- | :--- |\n| `join` | PASS | x |\n### Docs impact")
+        self.assertEqual(self.gate(table, "poc/lib.sh"), [])
+        self.assertIn("FAIL rows: `join`", self.gate(table.replace("| `join` | PASS", "| `join` | FAIL"), "poc/lib.sh")[0])
+        listed = none.replace("### Docs impact", "".join(f"- `{f}`: PASS\n" for f in
+                              ("join", "host-your-own", "join-token-burn", "node-guard", "two-level-ca")) + "### Docs impact")
+        self.assertEqual(self.gate(listed, "poc/lib.sh"), [])
+
+    def test_docs_impact_names_the_listed_docs_or_says_none_with_a_reason(self):
+        self.assertIn("add a '### Docs impact'", self.gate(GOOD.replace("### Known gaps", "poc-golden: RESULT PASS\n### Known gaps"),
+                                                           "docs/GOLDEN-RULES.md")[0])
+        self.assertIn("docs/POC-STATUS.md", self.gate(GATED.replace(", POC-STATUS.md", ""), "docs/GOLDEN-RULES.md")[0])
+        self.assertTrue(self.gate(GATED.replace("- docs/GOLDEN-RULES.md, POC-STATUS.md", "none"), "docs/GOLDEN-RULES.md"))
+        self.assertEqual(self.gate(GATED.replace("- docs/GOLDEN-RULES.md, POC-STATUS.md", "none: the check ids did not change"),
+                                   "docs/GOLDEN-RULES.md"), [])
+
+    def test_only_a_warning_on_a_push_strict_on_the_edit(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            body = Path(tmp) / "b.md"
+            body.write_text(GOOD, encoding="utf-8")
+            args = ("--title", "docs: x", "--body-file", str(body), "--files", "docs/GOLDEN-RULES.md")
+            code, out = CheckPr._main(self, *args, "--action", "synchronize")
+            self.assertEqual(code, 0, out)
+            self.assertIn("::warning::PR: Evidence", out)
+            self.assertEqual(CheckPr._main(self, *args, "--action", "edited")[0], 1)
+
 if __name__ == "__main__":
     unittest.main()

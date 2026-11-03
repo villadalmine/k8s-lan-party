@@ -7,8 +7,9 @@ BASE     ?= origin/main
 PR_BODY  ?=
 PR_TITLE ?=
 ONLY     ?=
+NAME     ?=
 
-.PHONY: regression features-check poc-lighthouse poc-cilium help labels-check test verify-ci pr-check install-hooks uninstall-hooks poc-join poc-host poc-weakness poc-down poc-ca poc-placement poc-kind poc-vm poc-revoke poc-admission poc-admission-auto poc-participants poc-participants-e2e poc-nat poc-bgp poc-golden poc-pool poc-page
+.PHONY: regression features-check diagrams poc-lighthouse poc-cilium help labels-check test verify-ci pr-check install-hooks uninstall-hooks poc-join poc-host poc-weakness poc-down poc-ca poc-placement poc-kind poc-vm poc-revoke poc-admission poc-admission-auto poc-participants poc-participants-e2e poc-nat poc-bgp poc-golden poc-pool poc-page
 
 help:
 	@grep -E '^[a-z-]+:.*##' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-14s %s\n", $$1, $$2}'
@@ -28,6 +29,10 @@ verify-ci: ## what the CI job `verify` runs
 
 features-check: ## docs/FEATURES.yml against the Makefile and the suites: every suite listed, every feature proven by steps that exist
 	$(PYTHON) scripts/features.py validate
+
+diagrams: ## the feature graph from docs/FEATURES.yml, then render docs/diagrams (NAME=x for one) with mermaid-cli, each SVG and PNG stamped with its source's hash
+	$(PYTHON) scripts/features.py graph --write
+	$(PYTHON) scripts/diagrams.py render $(NAME)
 
 pr-check: ## the checks CI runs on a PR, locally, one line each (BASE= PR_BODY=draft.md PR_TITLE=)
 	@$(PYTHON) scripts/pr_check.py --base $(BASE) $(if $(PR_BODY),--body-file $(PR_BODY)) $(if $(PR_TITLE),--title "$(PR_TITLE)")

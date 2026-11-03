@@ -89,6 +89,24 @@ want of a runtime; the VM goes with the project. The run writes one table,
 suite and feature x result with the commit and the date, into [`docs/POC-STATUS.md`](docs/POC-STATUS.md); the same commit on the same host
 and UTC day gives the same table (exit 1 when a suite that ran has no `RESULT PASS`). Paste it (or its failing rows) under *Evidence*.
 
+**What `pr-format` asks for (`scripts/check_pr.py`).** It maps the PR's changed paths to the features of `docs/FEATURES.yml` (their `paths`):
+
+- a PR that touches features cites, under *Evidence*, the `RESULT PASS` of every suite those features list, one line each
+  (`poc-golden: RESULT PASS`), or the `make regression` table;
+- a PR that changes the cluster (`cluster_paths` in the catalog: the files that build or run a game) pastes the `make regression` table with
+  no `FAIL` row, or lists every touched feature with PASS (`` `join`: PASS ``);
+- `### Docs impact` (under *Evidence*) names each doc and diagram the catalog lists for those features that the PR updated, or says
+  `none: <reason>`.
+
+Like the run link, these are warnings on a push and required on the edit that pastes the link.
+
+**Diagrams cannot go stale.** Every `docs/diagrams/<name>.mmd` has a `<name>.svg` and a `<name>.png` that carry the SHA-256 of the source
+(a comment in the SVG, a `tEXt` chunk in the PNG). Change a `.mmd` and render it again: `make diagrams NAME=<name>` (needs mermaid-cli,
+`MMDC=/path/to/mmdc` or `mmdc` on the `PATH`; 12.0.0 was used). `docs/diagrams/features.mmd` is generated from `docs/FEATURES.yml`
+(`make diagrams` writes it first): the graph suite and steps -> feature -> components and files. `tests/test_diagrams.py` fails when a source
+changed and its SVG or PNG was not rendered again, or when the feature graph does not match the catalog; without mermaid-cli it compares the
+hashes only.
+
 ## Pull requests
 
 One template, [`.github/pull_request_template.md`](.github/pull_request_template.md). Every PR has the same
