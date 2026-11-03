@@ -74,9 +74,14 @@ for net in $NETS; do case " $NEVER " in *" $net "*)
 finish_project() { # the run (or down) is over: the project goes if this run created it, then the marker
   [ "$(mark created)" != yes ] || incus project delete "$INCUS_PROJECT" >/dev/null 2>&1; rm -f "$MARK"
 }
-save_logs() { # save_logs <id> <runtime> <state dir>: keep the suite's logs (poc.log, golden.log...) in runs/ before its state goes
+save_logs() { # save_logs <id> <runtime> <state dir>: keep the suite's logs (poc.log, golden.log...) in runs/ before its state goes;
+  # a line that could carry a credential (a join token, a private key, a kubeconfig's CA) is replaced, never copied
   local f; mkdir -p "$REG/runs"
-  for f in "$3"/*.log; do [ -f "$f" ] && cp "$f" "$REG/runs/$1@$2.$(basename "$f")"; done; return 0
+  for f in "$3"/*.log; do
+    [ -f "$f" ] || continue
+    sed -E 's/.*(K3S_TOKEN=|::server:|PRIVATE KEY|certificate-authority-data).*/[line removed by make regression: it may hold a credential]/' \
+      "$f" >"$REG/runs/$1@$2.$(basename "$f")"
+  done; return 0
 }
 if [ "${1:-}" = save-logs ]; then save_logs "$2" "$3" "$4"; exit 0; fi
 if [ "${1:-}" = down ]; then

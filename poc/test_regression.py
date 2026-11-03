@@ -126,12 +126,16 @@ class Runner(unittest.TestCase):
         state = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, state)
         (state / "poc.log").write_text("STEP V01\n")
-        (state / "golden.log").write_text("CHECK G2.3\n")
+        (state / "golden.log").write_text("CHECK G2.3\nK3S_TOKEN=K10abc::server:secret\n-----BEGIN PRIVATE KEY-----\n"
+                                          "    certificate-authority-data: LS0t\nCHECK G2.4\n")
         (state / "bundles").mkdir()
         r, reg = self.run_regression({}, "", "save-logs", "poc-vm", "incus", str(state))
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertEqual(sorted(p.name for p in (reg / "runs").iterdir()), ["poc-vm@incus.golden.log", "poc-vm@incus.poc.log"])
-        self.assertEqual((reg / "runs" / "poc-vm@incus.golden.log").read_text(), "CHECK G2.3\n")
+        kept = (reg / "runs" / "poc-vm@incus.golden.log").read_text().splitlines()
+        self.assertEqual([kept[0], kept[-1], len(kept)], ["CHECK G2.3", "CHECK G2.4", 5])   # the other lines kept their place
+        self.assertTrue(all(ln.startswith("[line removed") for ln in kept[1:4]), kept)
+        self.assertNotIn("secret", "".join(kept))
         src = (ROOT / "poc/regression.sh").read_text()
         cleanup = src[src.index("cleanup() {"):src.index("\n}\n", src.index("cleanup() {"))]
         self.assertLess(cleanup.index("save_logs \""), cleanup.index("\"$POC/vm/down.sh\""))   # before anything deletes the state

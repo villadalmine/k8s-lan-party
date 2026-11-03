@@ -3,6 +3,8 @@
 # joining with "one bundle + one command" (edge-mesh join). Idempotent: down.sh first if you want a clean slate.
 set -eu
 . "$(dirname "$0")/lib.sh"
+. "$POC/pool-lease.sh"
+LEASE="$(lease_seconds)s" || exit 2   # before any machine: a public certificate lives the pool's lease (golden rule 8, G8.2)
 
 fetch_nebula() {
   [ -x "$CACHE/nebula" ] && return 0
@@ -64,8 +66,7 @@ k apply -f - <"$POC/node-trust-freeze.yaml" >/dev/null
 [ "${HOST_ONLY:-0}" = 1 ] && { echo "host up"; exit 0; }
 # 2. outside nodes: issue the bundle (cert + config + join token), then ONE command on the node
 "$POC/issue.sh" n1 "$N1_NEB" friends 24h
-# a public certificate lives the pool's lease (pool.yaml lease_seconds, the one number; vm/up.sh reads it the same way): golden rule 8, G8.2
-"$POC/issue.sh" n2 "$N2_NEB" public "$(sed -n 's/^lease_seconds: *\([0-9]*\).*/\1/p' "$POC/pool.yaml")s"
+"$POC/issue.sh" n2 "$N2_NEB" public "$LEASE"
 node n1 172.31.0.4; node n2 172.31.0.5
 docker exec n1 edge-mesh join /bundle --accept-golden-rule
 docker exec n2 edge-mesh join /bundle --accept-golden-rule
