@@ -60,6 +60,7 @@ make install-hooks                               # OPTIONAL: run it before every
 ```
 
 `make test` runs the unit tests of the gates; `make labels-check` checks the labels.
+`make pr-check` runs before the push, so like CI's push run it does not ask for the *Where it ran* link yet.
 
 ## Pull requests
 
@@ -67,11 +68,27 @@ One template, [`.github/pull_request_template.md`](.github/pull_request_template
 required sections: **What and why · Kind · Scope · Provenance · Evidence · Authorship · How to test it from a
 clean clone · Risk and rollback · Depends on**. `scripts/check_pr.py` runs on every PR (job `pr-format`) and
 fails when one is missing, the title is not a Conventional Commit, the provenance is undeclared, a commit has
-no sign-off, or the evidence does not cite a green CI run.
+no sign-off, or (except on a push) the description does not cite a green CI run on the head.
 
 **Where it ran.** Under *Evidence*, `### Where it ran` links the green CI run on the PR's **current head
-commit**, and `### Known gaps` says what that evidence does not cover. After each push CI posts a
-*where-it-ran* comment with the line to paste; a new push makes the old link stale on purpose.
+commit**, and `### Known gaps` says what that evidence does not cover. The flow, with no red check at any step:
+
+1. **Push** (or open the PR). The run to cite does not exist yet, so on `opened`, `synchronize` and `reopened`
+   `pr-format` does not ask for it: it checks the format, and the subsection may say `- CI: pending`. A stale
+   link only gets a warning. The proof for this head is the `verify` run that the same push starts, a required
+   check on the same commit.
+2. When `verify` passes, CI posts (or updates) the *where-it-ran* comment with the line to paste.
+3. **Edit the description** and paste it. The edit re-runs `pr-format`, which **requires** that the link is a
+   green run of `verify.yml` on the exact head, asked to the GitHub API; if that run is queued or running, it
+   waits (up to 30 min).
+
+Every action other than a push (an edit, a label, anything new) is strict, so **paste the line before adding or
+removing a label**; a label on a stale link makes `pr-format` red until the next edit. `pr-format` lives in its
+own workflow (`pr-format.yml`), and `verify.yml` runs only on pushes, so an edit or a label never creates a
+skipped `verify` check run that would hide a red one (GitHub counts `skipped` as passing, and takes the newest
+check run of each name). A new push makes the old link stale on purpose: paste the new line after its `verify`
+passes. Only a newer push cancels a run (its checks are on the old head); edits, labels and pushes to `main`
+never cancel one (issue #60).
 
 **Authorship.** A table with the author (`Human: <who>` or `AI: <agent> · <model>`), one row per review
 (the `revisor-pr` agent, a person) and the approval and merge (always a human maintainer); and a
