@@ -171,7 +171,7 @@ Choices and limits:
 | Goal (issue) | Evidence | Status |
 | :--- | :--- | :--- |
 | Step 1: it joins, one bundle and one command, study lab runs, token reuse / expired cert / blocked UDP (#4) | `poc-join` J01-J17, Dell VMs x2 and WSL Docker | **done** |
-| Host your own game: init / invite / players / kick / down (#5) | `poc-host` H01-H11, Dell VMs x2 and WSL Docker; `invite --trust public` run on WSL Docker | **done** |
+| Host your own game: init / invite / players / kick / down (#5) | `poc-host` H01-H11 + H02b/H09b/H09c, Dell VMs x2 and WSL Docker; `invite --trust public` run on WSL Docker | **done** |
 | Weaknesses of one control plane as data (#6) | `poc-weakness` W00-W06 and W03b, 8 of 8 on the Dell VMs (W03b and the supervised agent: 2026-10-26, one run; W05 had been failing since the agent died on the flannel panic, see TROUBLESHOOTING); numbers in DESIGN.md 13.1 | **done** |
 | Revocation in one command (#7) | `J17`: node deleted, cannot reach the lighthouse, does not come back | **done**: `mesh host revoke <name>` is the one command, idempotent, refuses an unknown name, covers pool nodes, and later invites inherit the blocklist; `poc-revoke` R01-R10 passes twice with identical output on WSL Docker and 10 of 10 on the Dell VMs (2026-10-26, one run); the negative test shows `kubectl delete node` alone does not revoke (the machine stays in the mesh); measured 3 to 5 s to lose access |
 | A lighthouse on a separate public server (needed by the public demo, #16) | `poc-lighthouse` P01-P18 with P09b, P12b-P12e (23 checks), a Dell VM plays the server | **done on a VM**; a real public server is the maintainer's step in DEMO.md |

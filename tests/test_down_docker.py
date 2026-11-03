@@ -32,7 +32,8 @@ elif a[:2] == ["network", "ls"]:
     print("\n".join(d["networks"]))
 elif a[:2] == ["ps", "-aq"]:
     net = a[3].split("=", 1)[1] if len(a) > 3 and a[2] == "--filter" else None
-    print("\n".join(c["name"] for c in d["containers"] if net is None or net in c["nets"]))
+    # like moby: a network filter is an exact name or a PREFIX of an id, so an empty value matches every container that has any network
+    print("\n".join(c["name"] for c in d["containers"] if net is None or (c["nets"] if net == "" else net in c["nets"])))
 elif a[:2] == ["rm", "-f"]:
     d["containers"] = [c for c in d["containers"] if c["name"] not in a[2:]]; save()
 elif a[:2] == ["network", "rm"]:
@@ -100,6 +101,28 @@ class DownDocker(unittest.TestCase):
         self.assertEqual(self.clean(), "not-clean")
         self.game(["lh", "cp", "alice"])                  # and with leftovers it is still not clean
         self.assertEqual(self.clean(), "not-clean")
+
+    def test_an_empty_network_name_removes_nothing(self) -> None:
+        """`--filter network=` with an empty value matches every container that has a network: down.sh must refuse, not `docker rm -f` the host."""
+        self.game(["lh", "cp", "alice"])
+        poc = self.tmp / "poc"
+        poc.mkdir()
+        shutil.copy(POC / "down.sh", poc / "down.sh")
+        (poc / "stack.env").write_text("DOCKER_NET=\nGAME_CONTAINERS=\"lh cp\"\n")
+        before = self.docker_state()
+        p = self.run_sh(f'RUNTIME=docker "{poc}/down.sh"')
+        self.assertNotEqual(p.returncode, 0)
+        self.assertIn("DOCKER_NET", p.stderr)
+        self.assertEqual(self.docker_state(), before)
+        self.assertTrue(self.state.exists())
+
+    def test_the_sidecars_are_cleaned_and_seen(self) -> None:
+        """htl and fwl share n2's namespace (not on the network): down removes them and docker_clean notices them."""
+        self.dstate.write_text(json.dumps({"containers": [{"name": "htl", "nets": []}], "networks": []}))
+        self.assertEqual(self.clean(), "not-clean")
+        self.run_sh(f'RUNTIME=docker "{POC}/down.sh"')
+        self.assertEqual(self.docker_state()["containers"], [])
+        self.assertEqual(self.clean(), "clean")
 
     def test_down_twice_is_safe(self) -> None:
         self.game(["lh", "cp", "alice"])
