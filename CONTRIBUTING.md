@@ -62,6 +62,27 @@ make install-hooks                               # OPTIONAL: run it before every
 `make test` runs the unit tests of the gates; `make labels-check` checks the labels.
 `make pr-check` runs before the push, so like CI's push run it does not ask for the *Where it ran* link yet.
 
+### A PR that touches the cluster proves the whole stack
+
+[`docs/FEATURES.yml`](docs/FEATURES.yml) is the single list of what the project does: one entry per feature, with the suites and step ids
+that prove it (`poc-join` J01-J07, `poc-vm` V06c...), the paths that change it, its docs and diagrams, and the runtime it needs (docker,
+incus, kind). `make features-check` (and `make test`) fail when a `poc-*` suite of the Makefile is missing from it or a feature names no
+step that exists. A new suite, step or feature goes into the catalog in the same PR.
+
+A PR that changes the cluster (the scripts and manifests under `poc/` that build or run a game) runs **every** suite, from the join to `down`:
+
+```bash
+make regression                                  # every suite in the catalog's order, one at a time, a failure stops nothing
+make regression ONLY="poc-join poc-revoke"       # a subset while you work; the rest are listed as NOT RUN
+poc/regression.sh down                           # remove what an interrupted run left (only its own Incus project and bridges)
+```
+
+Each suite gets its own state directory; the Incus ones run in their own project (`INCUS_PROJECT`, default `emesh-regression`, empty at
+the start) on an underlay checked free with `ip -4 -o addr` before anything runs (`UNDERLAY_NET`, default `10.83.0`; `poc-nat` uses the
+three /24 that start 20 above it). On a host without Docker the Docker suites are `SKIP(docker)`, never `FAIL`. The run writes one table,
+suite and feature x result with the commit and the date, into [`docs/POC-STATUS.md`](docs/POC-STATUS.md); the same commit on the same host
+gives the same table. Paste it (or its failing rows) under *Evidence*.
+
 ## Pull requests
 
 One template, [`.github/pull_request_template.md`](.github/pull_request_template.md). Every PR has the same
