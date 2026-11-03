@@ -15,10 +15,11 @@ exam versions). The PR format is the same whoever wrote the change, a person or 
 - the Authorship section has no `| Author | Human: ... |` or `| Author | AI: ... |` row, that row
   disagrees with Provenance, it has no `### Findings ledger`, or a ledger row is malformed (9 columns,
   a "Found by", and a status: fixed | open | rejected - <reason>);
-- Evidence has no `### Where it ran` subsection, or, when the description is edited (the `edited`
-  event), that subsection does not link a green run of verify.yml on the PR's head commit. On a push
-  (`opened`, `synchronize`, `reopened`) or a label change the link is advisory: that run's own `verify`
-  job, a required check on the same head, is the proof, and the run to cite does not exist yet;
+- Evidence has no `### Where it ran` subsection, or that subsection does not link a green run of
+  verify.yml on the PR's head commit. Only on a push (`opened`, `synchronize`, `reopened`) is the link
+  advisory: the run to cite does not exist yet, and the proof for that head is the `verify` run
+  verify.yml starts for the same event (a required check, never skipped). Every other action, also an
+  empty or unknown one, is strict (fail closed);
 - a non-merge commit of the PR has no `Signed-off-by:` trailer (Developer Certificate of Origin, the
   `DCO` file) whose email is the commit author's or the PR author's GitHub noreply address. EVERY
   commit of base..HEAD is checked, whatever the PR's number or dates; merged history never is. The
@@ -33,7 +34,7 @@ No model. No network either, except `--verify-runs` (CI only): that mode asks th
     # by hand
     scripts/check_pr.py --title "docs: x" --body-file body.md --files a b c
 
-    # CI (.github/workflows/verify.yml, job pr-format), step 1: the description
+    # CI (.github/workflows/pr-format.yml, job pr-format), step 1: the description
     scripts/check_pr.py --event "$GITHUB_EVENT_PATH" --pr-file pr.json --labels-file labels.txt \
         --base origin/<base> --runs-file cited-runs.txt
     # step 2: the cited run, against the API (required on `edited`, advisory on the other actions)
@@ -243,14 +244,15 @@ def cited_runs(body: str) -> list[tuple[str, str]]:
 
 
 # Who must cite the run, and when (issue #60). The run that proves a new head only exists after the
-# push, so the push run cannot cite itself: on a push its `verify` job (required by the ruleset, on the
-# same head) is the proof. When the description is edited, the citation is checked against the API.
-STRICT_ACTIONS = ("edited",)
+# push, so a push run cannot cite it: on these actions the `verify` run verify.yml starts for the same
+# event (required by the ruleset, never skipped) is the proof. They must be exactly verify.yml's
+# pull_request types (tests/test_check_pr.py checks it). Everything else is strict: fail closed.
+ADVISORY_ACTIONS = ("opened", "synchronize", "reopened")
 
 
 def citation_required(action: str | None) -> bool:
-    """True when the cited run must prove the head: an `edited` event, or a local check (no action)."""
-    return action is None or action in STRICT_ACTIONS
+    """True unless the action is a push (ADVISORY_ACTIONS); empty, unknown and None are strict."""
+    return action not in ADVISORY_ACTIONS
 
 
 def has_where_it_ran(body: str) -> bool:
@@ -296,8 +298,8 @@ def judge_run(run: dict, jobs: dict, head_sha: str) -> str | None:
 
     A job named `verify` is not enough: any workflow (one the PR itself adds) can name its jobs that
     way, so the run must come from verify.yml and from a pull_request event. The jobs, not the run's
-    conclusion: the run that proves the code also contains pr-format, which is red until the link is
-    pasted."""
+    conclusion: the run may hold other jobs (where-it-ran, which may not post on a fork) that say
+    nothing about the code."""
     if run.get("head_sha") != head_sha:
         return f"is on head {str(run.get('head_sha'))[:7]}, not the PR head {head_sha[:7]}"
     if run.get("path") != VERIFY_WORKFLOW:
@@ -326,7 +328,9 @@ def gh_api(path: str) -> dict:
     return json.loads(result.stdout)
 
 
-WAIT_SECONDS = 600   # how long to wait for a cited run of this head that is still running
+# How long to wait for a cited run of this head that is queued or running: verify's own timeout
+# (10 min) plus a margin for the queue. pr-format.yml's timeout-minutes is above it.
+WAIT_SECONDS = 1800
 POLL_SECONDS = 15
 
 
@@ -414,11 +418,12 @@ def main() -> int:
             return 0
         if not strict:
             print(f"::warning::'Where it ran' does not link a green run of {VERIFY_WORKFLOW} on {args.head[:7]} "
-                  f"yet. This {args.action} run's own verify job is the proof; after it passes, paste the "
-                  "line from the where-it-ran comment (the edit re-checks it).")
+                  f"yet. On '{args.action}' the verify run of the same push is the proof; after it passes, paste "
+                  "the line from the where-it-ran comment (the edit re-checks it).")
             return 0
         print(f"::error::'Where it ran' must link a green run of {VERIFY_WORKFLOW} in {args.repo} on the "
-              f"head commit {args.head}. Copy the line from the where-it-ran comment and edit the description.")
+              f"head commit {args.head}. Copy the line from the where-it-ran comment and edit the description "
+              "(if verify was still queued, edit again once it finishes).")
         return 1
 
     labels: set = set()
@@ -430,7 +435,7 @@ def main() -> int:
         action = action or event.get("action")
         if args.pr_file and Path(args.pr_file).is_file() and Path(args.pr_file).stat().st_size:
             live = json.loads(Path(args.pr_file).read_text(encoding="utf-8"))
-            pr = {**pr, "title": live.get("title", pr["title"]), "body": live.get("body")}
+            pr = {**pr, "title": live.get("title", pr["title"]), "body": live.get("body", pr.get("body"))}
         title, body = pr["title"], pr.get("body") or ""
         author = (pr.get("user") or {}).get("login")
         labels = {label["name"] for label in pr.get("labels") or []}

@@ -42,9 +42,9 @@ make pr-check   # CI's PR checks, locally (CONTRIBUTING -> Check before you push
 
 <!-- The CI run on this PR's HEAD commit, green: github.com/villadalmine/k8s-lan-party/actions/runs/<id>.
      When you push, write "pending": that run does not exist yet and pr-format does not ask for it
-     (its own verify job is the proof). When verify passes, CI posts a 'where-it-ran' comment with
-     the line; paste it here and save. The edit checks that the link is a green verify run on the
-     exact head. Add the machine or local environment too if you ran anything there. -->
+     (the verify run of that push is the proof). When verify passes, CI posts a 'where-it-ran'
+     comment with the line; paste it here and save. The edit, and any label change, checks that the
+     link is a green verify run on the exact head: paste it before touching labels. Add the machine or local environment too if you ran anything there. -->
 - CI: pending
 - Local: 
 

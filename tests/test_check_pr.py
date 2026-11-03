@@ -103,11 +103,56 @@ class CheckPr(unittest.TestCase):
 
     # --- issue #60: no red check on a normal push-then-edit flow, the guarantee kept ----------
 
-    def test_citation_required_only_on_edit(self):
-        self.assertTrue(check_pr.citation_required("edited"))
-        self.assertTrue(check_pr.citation_required(None))  # by hand (make pr-check): the final state
-        for action in ("opened", "synchronize", "reopened", "labeled", "unlabeled"):
+    def test_citation_advisory_only_on_a_push(self):
+        for action in ("opened", "synchronize", "reopened"):
             self.assertFalse(check_pr.citation_required(action), action)
+        # fail closed: every other action, also empty, unknown or none at all, is strict
+        for action in ("edited", "labeled", "unlabeled", "ready_for_review", "", "bogus", None):
+            self.assertTrue(check_pr.citation_required(action), action)
+
+    def _workflows(self):
+        import yaml
+        root = Path(check_pr.__file__).resolve().parent.parent / ".github" / "workflows"
+        return {f.name: yaml.safe_load(f.read_text(encoding="utf-8")) for f in sorted(root.glob("*.yml"))}
+
+    @staticmethod
+    def _on(workflow):
+        return workflow.get("on", workflow.get(True)) or {}  # YAML 1.1 reads a bare `on` as True
+
+    def test_verify_never_skips_by_event(self):
+        """No `verify` check run can be skipped on a PR head: a skipped one counts as passing and, as the
+        newest of its name, hides a red one (review of #61). So no job named verify has an `if:` that
+        looks at the event, and verify.yml runs only on the actions where the citation is advisory."""
+        for name, wf in self._workflows().items():
+            for job_id, job in (wf.get("jobs") or {}).items():
+                if job.get("name", job_id) == "verify":
+                    cond = str(job.get("if", ""))
+                    self.assertNotIn("event", cond, f"{name}: job verify is skipped by `if: {cond}`")
+        types = self._on(self._workflows()["verify.yml"])["pull_request"]["types"]
+        self.assertEqual(sorted(types), sorted(check_pr.ADVISORY_ACTIONS))
+
+    def test_pr_format_runs_on_every_body_and_label_change(self):
+        wf = self._workflows()["pr-format.yml"]
+        self.assertIn("pr-format", wf["jobs"])
+        types = set(self._on(wf)["pull_request"]["types"])
+        self.assertTrue({"opened", "synchronize", "reopened", "edited", "labeled", "unlabeled"} <= types)
+        self.assertNotIn("pr-format", self._workflows()["verify.yml"]["jobs"])
+
+    def test_live_pr_without_body_falls_back_to_the_payload(self):
+        import json, tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            event = Path(tmp) / "event.json"
+            live = Path(tmp) / "pr.json"
+            event.write_text(json.dumps({"action": "edited", "pull_request": {
+                "title": "docs: x", "body": GOOD, "user": {"login": "me"}, "labels": []}}))
+            live.write_text(json.dumps({"title": "docs: x"}))
+            self.assertEqual(self._main("--event", str(event), "--pr-file", str(live))[0], 0)
+
+    def test_wait_covers_verify_timeout_and_queue(self):
+        wf = self._workflows()
+        verify_min = wf["verify.yml"]["jobs"]["verify"]["timeout-minutes"]
+        self.assertGreater(check_pr.WAIT_SECONDS, verify_min * 60 + 300)
+        self.assertGreater(wf["pr-format.yml"]["jobs"]["pr-format"]["timeout-minutes"] * 60, check_pr.WAIT_SECONDS)
 
     def test_push_run_does_not_need_the_link(self):
         body = GOOD.replace("- CI: https://github.com/villadalmine/k8s-lan-party/actions/runs/123",
