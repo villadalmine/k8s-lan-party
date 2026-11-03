@@ -10,17 +10,23 @@
 # and a kind cluster emesh must not exist before the run (someone's game: the cleanup would remove it). Incus suites run in their own project (INCUS_PROJECT, empty at
 # the start) on an underlay that must be free on this host (UNDERLAY_NET, default 10.83.0; poc-nat uses the next three /24 after +20).
 # Before each Incus suite the storage pool must be under REGRESSION_POOL_MAX % (default 85), else SKIP(pool).
+# REGRESSION_RUNTIME=docker-vm (a host with Incus and no Docker): the preflight builds an Ubuntu VM with Docker and kind (poc/vm/docker-vm.sh,
+# pinned in stack.env) in the run's own project, on its own bridge (the /24 30 above UNDERLAY_NET); the docker and kind suites run inside it,
+# and a suite that runs on docker and incus runs on both, so nothing is SKIP and no feature is PARTIAL for want of a runtime. The VM goes with
+# the project at the end (and with `poc/regression.sh down`).
 set -u
 POC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; ROOT="$(cd "$POC/.." && pwd)"
 PY="${PYTHON:-python3}"
 REG="${REGRESSION_DIR:-$POC/.regression}"
 export UNDERLAY_NET="${UNDERLAY_NET:-10.83.0}" INCUS_PROJECT="${INCUS_PROJECT:-emesh-regression}" VMNET="${VMNET:-emregbr}"
-[[ "$UNDERLAY_NET" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.([0-9]{1,3})$ ]] && [ "${BASH_REMATCH[1]}" -le 232 ] ||
-  { echo "UNDERLAY_NET=$UNDERLAY_NET: three octets, the last at most 232"; exit 2; }
+[[ "$UNDERLAY_NET" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.([0-9]{1,3})$ ]] && [ "${BASH_REMATCH[1]}" -le 225 ] ||
+  { echo "UNDERLAY_NET=$UNDERLAY_NET: three octets, the last at most 225"; exit 2; }
 pfx=${UNDERLAY_NET%.*}; o3=${UNDERLAY_NET##*.}
 export NAT_PUB="${NAT_PUB:-$pfx.$((o3 + 20))}" NAT_A="${NAT_A:-$pfx.$((o3 + 21))}" NAT_B="${NAT_B:-$pfx.$((o3 + 22))}"
 export NET_PUB="${NET_PUB:-emregpub}" NET_A="${NET_A:-emrega}" NET_B="${NET_B:-emregb}"
-NETS="$UNDERLAY_NET $NAT_PUB $NAT_A $NAT_B"; BRIDGES="$VMNET $NET_PUB $NET_A $NET_B"
+DVM_NET="${DVM_NET:-$pfx.$((o3 + 30))}" NET_DVM="${NET_DVM:-emregdvm}" DVM=regdocker   # the docker VM: not emesh-*, so no suite's down removes it
+NETS="$UNDERLAY_NET $NAT_PUB $NAT_A $NAT_B $DVM_NET"; BRIDGES="$VMNET $NET_PUB $NET_A $NET_B $NET_DVM"
+DOCKER_VM=""; [ "${REGRESSION_RUNTIME:-}" != docker-vm ] || DOCKER_VM=1
 # never used, whatever the host says: the second game of docs/HOST-YOUR-OWN.md (a live game may sit there), and the PoC's own Nebula and pool
 NEVER="10.79.0 10.77.0 10.200.0"
 # never touched either: the default project, the live game's project and bridge, the PoC's default bridge (a game someone hosts)
@@ -31,7 +37,11 @@ TIMEOUT="${REGRESSION_TIMEOUT:-7200}"; POOL_MAX="${REGRESSION_POOL_MAX:-85}"; PO
 have_docker() { command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; }
 have_incus() { command -v incus >/dev/null 2>&1 && incus info >/dev/null 2>&1; }
 have_kind() { have_docker && command -v kind >/dev/null && command -v helm >/dev/null && command -v kubectl >/dev/null; }
-have() { case "$1" in none) return 0 ;; docker) have_docker ;; incus) have_incus ;; kind) have_kind ;; *) return 1 ;; esac; }
+have() { # in docker-vm mode docker and kind are the VM's (built in the preflight; the run aborts if it cannot be)
+  case "$1" in none) return 0 ;; incus) have_incus ;; docker) if [ -n "$DOCKER_VM" ]; then have_incus; else have_docker; fi ;;
+    kind) if [ -n "$DOCKER_VM" ]; then have_incus; else have_kind; fi ;; *) return 1 ;; esac
+}
+dvm() { incus exec "$DVM" --cwd /root/repo "$@"; }
 
 guard_project() { # the project every incus command of the suites uses (vm/down.sh deletes every emesh-* VM of its project)
   local b
@@ -45,10 +55,10 @@ owned() { # this run's marker names this project and these bridges: only then is
   [ "$(mark project)" = "$INCUS_PROJECT" ] && [ "$(mark bridges)" = "$BRIDGES" ] ||
     { echo "$MARK names project $(mark project) and bridges '$(mark bridges)', not $INCUS_PROJECT and '$BRIDGES'; nothing removed"; return 1; }
 }
-sweep() { # remove every instance of this run's project and this run's bridges (the project was empty when the run started)
+sweep() { # sweep [all]: the emesh-* instances of this run's project and its suite bridges; with `all` the docker VM and its bridge too
   owned || return 1
-  local n; for n in $(incus list -c n -f csv 2>/dev/null); do incus delete -f "$n" >/dev/null 2>&1; done
-  for n in $BRIDGES; do incus network delete "$n" >/dev/null 2>&1; done; return 0
+  local n; for n in $(incus list emesh- -c n -f csv 2>/dev/null) ${1:+$DVM}; do incus delete -f "$n" >/dev/null 2>&1; done
+  for n in $BRIDGES; do [ "$n" != "$NET_DVM" ] || [ -n "${1:-}" ] || continue; incus network delete "$n" >/dev/null 2>&1; done; return 0
 }
 leftovers() { # what this run left: instances in the project, its bridges, docker containers on the PoC network
   local n
@@ -66,7 +76,7 @@ finish_project() { # the run (or down) is over: the project goes if this run cre
 }
 if [ "${1:-}" = down ]; then
   owned || exit 2
-  sweep && finish_project; rm -rf "$REG/state"; echo "regression down"; exit 0
+  sweep all && finish_project; rm -rf "$REG/state"; echo "regression down"; exit 0
 fi
 
 preflight_incus() { # the underlay and the bridges must be free, the project ours and empty
@@ -93,6 +103,16 @@ preflight_docker() { # nothing of a Docker game may exist: the cleanup (down.sh,
   for c in lh cp n1 n2; do docker inspect "$c" >/dev/null 2>&1 && { echo "docker container $c exists (a game on this host?): nothing was run"; return 1; }; done
   ! { command -v kind >/dev/null && kind get clusters 2>/dev/null | grep -qx emesh; } || { echo "kind cluster emesh exists: nothing was run"; return 1; }
 }
+dvm_up() { # the docker VM: Ubuntu, Docker, kind, kubectl and helm (poc/vm/docker-vm.sh), this tree in /root/repo; once per run
+  . "$POC/stack.env"
+  incus network create "$NET_DVM" ipv4.address="$DVM_NET.1/24" ipv4.nat=true ipv6.address=none >/dev/null &&
+    incus init "$DVM_IMAGE" "$DVM" --vm -c limits.cpu="${DVM_CPU:-8}" -c limits.memory="${DVM_MEM:-16GiB}" -d root,size="${DVM_DISK:-40GiB}" \
+      --network "$NET_DVM" >/dev/null && incus start "$DVM" || return 1
+  local i; for i in $(seq 120); do incus exec "$DVM" -- true 2>/dev/null && break; sleep 2; done
+  incus exec "$DVM" -- sh -c 'cloud-init status --wait >/dev/null 2>&1; mkdir -p /root/repo /root/state' &&
+    tar -C "$ROOT" --exclude=./.git --exclude=./poc/.regression --exclude=./poc/.state -cf - . | incus exec "$DVM" -- tar xf - -C /root/repo &&
+    dvm ./poc/vm/docker-vm.sh && dvm ./poc/vm/docker-vm.sh   # the second run must change nothing (idempotent)
+}
 pool_ok() { # pool_ok: the storage pool under POOL_MAX %
   local pct; pct=$(incus query "/1.0/storage-pools/$POOL/resources" 2>/dev/null | "$PY" -c 'import json,sys; s=json.load(sys.stdin)["space"]; print(s["used"]*100//s["total"])') || return 1
   echo "pool $POOL at $pct %" >>"$REG/regression.log"; [ "$pct" -lt "$POOL_MAX" ]
@@ -108,23 +128,36 @@ pick() { # pick <runtimes, comma-separated>: the one this run uses (DUAL first),
   local r; for r in ${1//,/ }; do [ "$r" = "$DUAL" ] && have "$r" && { echo "$r"; return; }; done
   for r in ${1//,/ }; do have "$r" && { echo "$r"; return; }; done
 }
+plan() { # plan <runtimes>: the runtimes a suite runs on: one (pick), or with docker-vm every one it has
+  local r out=""; [ -n "$DOCKER_VM" ] || { pick "$1"; return; }
+  for r in ${1//,/ }; do have "$r" && out="$out $r"; done; echo $out
+}
 KEEPFOR=" "; USES_INCUS=""; USES_DOCKER=""
 while IFS=$'\t' read -r id runtimes _ game _; do
   selected "$id" || continue
-  [ "$game" = - ] || KEEPFOR="$KEEPFOR$game "; case "$(pick "$runtimes")" in incus) USES_INCUS=1 ;; docker | kind) USES_DOCKER=1 ;; esac
+  [ "$game" = - ] || KEEPFOR="$KEEPFOR$game "
+  for r in $(plan "$runtimes"); do case "$r" in incus) USES_INCUS=1 ;; docker | kind) USES_DOCKER=1 ;; esac; done
 done <<<"$SUITES"
+[ -z "$DOCKER_VM" ] || [ -z "$USES_DOCKER" ] || USES_INCUS=1   # the VM lives in the run's project
 # the underlay is checked before anything runs: a clash with a network of this host aborts the whole run
-if [ -n "$USES_DOCKER" ] && ! preflight_docker >>"$REG/regression.log" 2>&1; then tail -1 "$REG/regression.log"; exit 2; fi
+if [ -n "$USES_DOCKER" ] && [ -z "$DOCKER_VM" ] && ! preflight_docker >>"$REG/regression.log" 2>&1; then tail -1 "$REG/regression.log"; exit 2; fi
 if [ -n "$USES_INCUS" ] && ! preflight_incus >>"$REG/regression.log" 2>&1; then tail -1 "$REG/regression.log"; echo "nothing was run"; exit 2; fi
+if [ -n "$DOCKER_VM" ] && [ -n "$USES_DOCKER" ] && ! dvm_up >>"$REG/regression.log" 2>&1; then
+  echo "the docker VM could not be built (see $REG/regression.log): nothing was run"; sweep all; finish_project; exit 2
+fi
 
 run_suite() { # run_suite <id> <runtime> <script> <state> <game>: stdin is /dev/null (an incus exec must not eat the suite list)
-  local id="$1" rt="$2" script="$3" st="$4" game="$5" keep=0 rc
+  local id="$1" rt="$2" script="$3" st="$4" game="$5" keep=0 rc out="$REG/runs/$1@$2"
   case "$KEEPFOR" in *" $id "*) keep=1 ;; esac
+  if [ -n "$DOCKER_VM" ] && [ "$rt" != incus ] && [ "$rt" != none ]; then   # docker and kind: inside the VM, its own state there
+    dvm --env RUNTIME=docker --env EMESH_STATE="/root/state/$id" --env KEEP=0 -- timeout --kill-after=60 "$TIMEOUT" "./$script" </dev/null >"$out.out" 2>&1
+    rc=$?; [ "$rc" = 124 ] || [ "$rc" = 137 ] && return 124; return 0
+  fi
   [ "$game" != - ] || rm -rf "$st"
   ( cd "$ROOT" && export EMESH_STATE="$st" KEEP="$keep"; [ "$rt" = none ] || export RUNTIME="$rt"
     # a suite that checks another one's game (poc-golden on poc-vm's): that game opened the golden way, placement installed first
-    if [ "$game" != - ]; then export RUNTIME=incus CNI=cilium TAINT=yes; "$POC/install-placement.sh" >"$REG/runs/$id.placement.log" 2>&1; fi
-    exec timeout --kill-after=60 "$TIMEOUT" "$ROOT/$script" ) </dev/null >"$REG/runs/$id.out" 2>&1
+    if [ "$game" != - ]; then export RUNTIME=incus CNI=cilium TAINT=yes; "$POC/install-placement.sh" >"$out.placement.log" 2>&1; fi
+    exec timeout --kill-after=60 "$TIMEOUT" "$ROOT/$script" ) </dev/null >"$out.out" 2>&1
   rc=$?; [ "$rc" = 124 ] || [ "$rc" = 137 ] && return 124; return 0
 }
 cleanup() { # cleanup <id> <runtime> <state>: what the suite may have left (a timeout, a KEEP for the next suite is handled by that one)
@@ -132,32 +165,38 @@ cleanup() { # cleanup <id> <runtime> <state>: what the suite may have left (a ti
   case "$2" in
     incus) [ "$1" != poc-nat ] || EMESH_STATE="$3" "$POC/poc-nat.sh" down </dev/null >/dev/null 2>&1
       RUNTIME=incus EMESH_STATE="$3" "$POC/vm/down.sh" </dev/null >/dev/null 2>&1; sweep </dev/null ;;
-    docker) RUNTIME=docker EMESH_STATE="$3" "$POC/down.sh" </dev/null >/dev/null 2>&1 ;;
-    kind) kind delete cluster --name emesh </dev/null >/dev/null 2>&1 ;;
+    docker) if [ -n "$DOCKER_VM" ]; then dvm --env RUNTIME=docker --env EMESH_STATE="/root/state/$1" -- ./poc/down.sh </dev/null >/dev/null 2>&1
+      else RUNTIME=docker EMESH_STATE="$3" "$POC/down.sh" </dev/null >/dev/null 2>&1; fi ;;
+    kind) if [ -n "$DOCKER_VM" ]; then dvm -- kind delete cluster --name emesh </dev/null >/dev/null 2>&1
+      else kind delete cluster --name emesh </dev/null >/dev/null 2>&1; fi ;;
   esac
   rm -rf "$3"; return 0
 }
 
 while IFS=$'\t' read -r -u 3 id runtimes script game _; do
   selected "$id" || continue
-  rt=$(pick "$runtimes")
-  [ -n "$rt" ] || { printf '%s\tSKIP(%s)\n' "${runtimes%%,*}" "${runtimes%%,*}" >"$REG/runs/$id.status"; continue; }
-  if [ "$rt" = incus ] && ! pool_ok; then printf 'incus\tSKIP(pool)\n' >"$REG/runs/$id.status"; continue; fi
-  st="$REG/state/$id"; [ "$game" = - ] || st="$REG/state/$game"
-  if [ "$game" != - ] && [ ! -d "$st" ]; then printf '%s\tSKIP(no %s game)\n' "$rt" "$game" >"$REG/runs/$id.status"; continue; fi
-  echo "### $id ($rt)"
-  run_suite "$id" "$rt" "$script" "$st" "$game"; rc=$?
-  if [ "$rc" = 124 ]; then printf '%s\tTIMEOUT\n' "$rt" >"$REG/runs/$id.status"; else printf '%s\tRAN\n' "$rt" >"$REG/runs/$id.status"; fi
-  grep -E '^(FAIL|RESULT)' "$REG/runs/$id.out"
-  if [ "$game" != - ]; then KEEPFOR=${KEEPFOR/ $game / }; cleanup "$game" "$rt" "$st"; fi
-  cleanup "$id" "$rt" "$st"
+  rts=$(plan "$runtimes")
+  [ -n "$rts" ] || { printf '%s\tSKIP(%s)\n' "${runtimes%%,*}" "${runtimes%%,*}" >"$REG/runs/$id@${runtimes%%,*}.status"; continue; }
+  for rt in $rts; do
+    if { [ "$rt" = incus ] || [ -n "$DOCKER_VM" ] && [ "$rt" != none ]; } && ! pool_ok; then printf '%s\tSKIP(pool)\n' "$rt" >"$REG/runs/$id@$rt.status"; continue; fi
+    st="$REG/state/$id"; [ "$game" = - ] || st="$REG/state/$game"
+    if [ "$game" != - ] && [ ! -d "$st" ]; then printf '%s\tSKIP(no %s game)\n' "$rt" "$game" >"$REG/runs/$id@$rt.status"; continue; fi
+    echo "### $id ($rt$([ -z "$DOCKER_VM" ] || [ "$rt" = incus ] || [ "$rt" = none ] || echo ", in the docker VM"))"
+    run_suite "$id" "$rt" "$script" "$st" "$game"; rc=$?
+    if [ "$rc" = 124 ]; then printf '%s\tTIMEOUT\n' "$rt" >"$REG/runs/$id@$rt.status"; else printf '%s\tRAN\n' "$rt" >"$REG/runs/$id@$rt.status"; fi
+    grep -E '^(FAIL|RESULT)' "$REG/runs/$id@$rt.out"
+    if [ "$game" != - ]; then KEEPFOR=${KEEPFOR/ $game / }; cleanup "$game" "$rt" "$st"; fi
+    cleanup "$id" "$rt" "$st"
+  done
 done 3<<<"$SUITES"
 kept=$KEEPFOR; KEEPFOR=" "; for g in $kept; do cleanup "$g" incus "$REG/state/$g"; done   # a kept game whose checker was skipped
 
+[ -z "$DOCKER_VM" ] || [ ! -f "$MARK" ] || sweep all   # the docker VM and its bridge go with the run
 left=$(leftovers)
 have_incus && [ -f "$MARK" ] && [ -z "$left" ] && finish_project
 commit=$(git -C "$ROOT" rev-parse --short=12 HEAD 2>/dev/null || echo unknown)
 [ -z "$(git -C "$ROOT" status --porcelain -- poc scripts Makefile docs/FEATURES.yml 2>/dev/null)" ] || commit="$commit+dirty"
+[ -z "$DOCKER_VM" ] || DUAL="docker-vm (docker and kind suites in an Incus VM, docker|incus suites on both)"
 envline="runtime for docker|incus suites: $DUAL; docker $(have_docker && echo yes || echo no), incus $(have_incus && echo yes || echo no), kind $(have_kind && echo yes || echo no); left behind: ${left:-nothing}"
 envline=${envline//$'\n'/, }
 write=(--write "$ROOT/docs/POC-STATUS.md"); [ -z "${REGRESSION_NO_WRITE:-}" ] || write=()

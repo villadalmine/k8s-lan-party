@@ -11,7 +11,7 @@ meta: ../meta.yml
 depende_de: [docs/DESIGN.md]
 lo_usan: [README.md]
 docs: [docs/DESIGN.md, docs/GOLDEN-RULES.md, docs/POC-STATUS.md, docs/HOST-YOUR-OWN.md, docs/JOIN.md, docs/TROUBLESHOOTING.md]
-scripts: [poc/poc-join.sh, poc/poc-host.sh, poc/poc-weakness.sh, poc/poc-ca.sh, poc/poc-revoke.sh, poc/poc-placement.sh, poc/poc-cilium.sh, poc/poc-lighthouse.sh, poc/kind-cilium.sh, poc/vm/poc-vm.sh, poc/regression.sh, poc/vm/run-all.sh, poc/up.sh, poc/down.sh, poc/issue.sh, poc/revoke.sh, poc/mesh, poc/edge-mesh, poc/lighthouse-vps.sh, poc/pool.py, poc/admission.py, poc/poc-admission.sh, poc/poc-admission-auto.sh, poc/participants.py, poc/poc-participants.sh, poc/poc-participants-e2e.sh, poc/poc-nat.sh, poc/poc-golden.sh, poc/golden.py, poc/game-env.sh, poc/poc-pool.sh, poc/participant.py, poc/participant-policy.yaml, poc/poc-page.sh, poc/page/page.py, poc/page/puller.py, poc/page/seal.py, poc/page/visit.py, poc/page/page-server.sh]
+scripts: [poc/poc-join.sh, poc/poc-host.sh, poc/poc-weakness.sh, poc/poc-ca.sh, poc/poc-revoke.sh, poc/poc-placement.sh, poc/poc-cilium.sh, poc/poc-lighthouse.sh, poc/kind-cilium.sh, poc/vm/poc-vm.sh, poc/regression.sh, poc/vm/docker-vm.sh, poc/vm/run-all.sh, poc/up.sh, poc/down.sh, poc/issue.sh, poc/revoke.sh, poc/mesh, poc/edge-mesh, poc/lighthouse-vps.sh, poc/pool.py, poc/admission.py, poc/poc-admission.sh, poc/poc-admission-auto.sh, poc/participants.py, poc/poc-participants.sh, poc/poc-participants-e2e.sh, poc/poc-nat.sh, poc/poc-golden.sh, poc/golden.py, poc/game-env.sh, poc/poc-pool.sh, poc/participant.py, poc/participant-policy.yaml, poc/poc-page.sh, poc/page/page.py, poc/page/puller.py, poc/page/seal.py, poc/page/visit.py, poc/page/page-server.sh]
 tags: [poc, determinista, nebula, k3s, cilium, kyverno, poc/vm/poc-bgp.sh, poc/gateway.sh]
 tags: [poc, determinista, nebula, k3s, cilium, kyverno, bgp, gateway]
 
@@ -23,7 +23,8 @@ A proof of concept, not a product: it shows on one machine (Docker for the basic
 Versions are pinned in `stack.env`; every step prints `PASS` or `FAIL`, and the output is identical across runs (numbers go to the state
 directory). Where each suite passed and how often is in [docs/POC-STATUS.md](../docs/POC-STATUS.md). Which feature each step proves is in
 [docs/FEATURES.yml](../docs/FEATURES.yml); `make regression` (`regression.sh`) runs every suite in its order and writes the feature table; it is the way to run
-everything. `vm/run-all.sh` stays as the short Incus loop of step 1 (six suites, no table).
+everything (`REGRESSION_RUNTIME=docker-vm` on a host without Docker: the Docker and kind suites in a VM, `vm/docker-vm.sh`).
+`vm/run-all.sh` stays as the short Incus loop of step 1 (six suites, no table).
 
 | Command | Script | Checks | What it proves |
 | :--- | :--- | :--- | :--- |

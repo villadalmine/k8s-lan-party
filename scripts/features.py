@@ -112,8 +112,8 @@ def validate(cat: dict, make: dict[str, str] | None = None, files: list[str] | N
                 continue
             cited.add(sid)
             rts = suites[sid].get("runtime") or []
-            if len(rts) > 1 and proof.get("runtime") not in rts:
-                problems.append(f"feature {fid}: {sid} runs on {', '.join(rts)}: each proof names its runtime")
+            if (len(rts) > 1 or proof.get("runtime")) and proof.get("runtime") not in rts:
+                problems.append(f"feature {fid}: {sid} runs on {', '.join(rts)}: each proof names one of them as its runtime")
             on.setdefault(sid, set()).add(proof.get("runtime"))
             if not proof.get("steps"):
                 problems.append(f"feature {fid}: {sid} names no step")
@@ -140,28 +140,36 @@ def validate(cat: dict, make: dict[str, str] | None = None, files: list[str] | N
 
 # --- one run of `make regression` -> the table ------------------------------------------------------------------
 
-def read_run(runs: Path, sid: str) -> tuple[str, str, dict[str, str], str]:
-    """(runtime, status, step -> PASS|FAIL|SKIP|DEP, RESULT line) of one suite; status is RAN, TIMEOUT, SKIP(<why>) or NOT RUN."""
-    st = runs / f"{sid}.status"
-    if not st.is_file():
-        return "-", "NOT RUN", {}, ""
-    runtime, _, status = st.read_text(encoding="utf-8").strip().partition("\t")
-    steps, result = {}, ""
-    out = runs / f"{sid}.out"
-    for line in out.read_text(encoding="utf-8", errors="replace").splitlines() if out.is_file() else []:
-        m = STEP_OUT.match(line)
-        if m:
-            steps.setdefault(m.group(2), m.group(1))
-        elif line.startswith("RESULT "):
-            result = line.strip()
-    return runtime, status, steps, result
+def read_runs(runs: Path, sid: str) -> dict[str, tuple[str, dict[str, str], str]]:
+    """runtime -> (status, step -> PASS|FAIL|SKIP|DEP, RESULT line) of one suite, from <suite>@<runtime>.status and .out (a suite runs on
+    one runtime, or on each of its runtimes with REGRESSION_RUNTIME=docker-vm); status is RAN, TIMEOUT or SKIP(<why>). Empty: not run."""
+    out_of = {}
+    for st in sorted(runs.glob(f"{sid}@*.status")):
+        runtime, _, status = st.read_text(encoding="utf-8").strip().partition("\t")
+        steps, result = {}, ""
+        out = st.with_suffix(".out")
+        for line in out.read_text(encoding="utf-8", errors="replace").splitlines() if out.is_file() else []:
+            m = STEP_OUT.match(line)
+            if m:
+                steps.setdefault(m.group(2), m.group(1))
+            elif line.startswith("RESULT "):
+                result = line.strip()
+        out_of[runtime] = (status, steps, result)
+    return out_of
 
 
-def proof_result(status: str, steps: dict[str, str], wanted: list[str], ran_on: str = "", want_on: str | None = None) -> str:
+def proof_status(ran: dict, want_on: str | None) -> tuple[str, dict[str, str]]:
+    """The run that answers a proof: its runtime's, or the only one; NOT RUN(<runtime>) when the suite ran on another runtime only."""
+    if want_on in ran:
+        return ran[want_on][:2]
+    if want_on and any(v[0] in ("RAN", "TIMEOUT") for v in ran.values()):
+        return f"NOT RUN({want_on})", {}   # this runtime's code paths did not run
+    return (next(iter(ran.values()))[:2]) if ran else ("NOT RUN", {})
+
+
+def proof_result(status: str, steps: dict[str, str], wanted: list[str]) -> str:
     if status not in ("RAN", "TIMEOUT"):
         return status
-    if want_on and want_on != ran_on:
-        return f"NOT RUN({want_on})"   # the suite ran, on the other runtime: this runtime's code paths did not
     got = [steps.get(s, "FAIL") for s in wanted]   # a step the run never printed did not pass
     if "FAIL" in got:
         return "FAIL"
@@ -178,33 +186,33 @@ def feature_result(results: list[str]) -> str:
 
 def failed_suites(cat: dict, runs: Path) -> list[str]:
     """Suites that ran (teardown aside) without a RESULT PASS line: failed, timed out, or died before printing it."""
-    return [s["id"] for s in cat["suites"] if s.get("role") != "teardown"
-            and read_run(runs, s["id"])[1] in ("RAN", "TIMEOUT") and read_run(runs, s["id"])[3] != "RESULT PASS"]
+    return [f"{s['id']}@{rt}" for s in cat["suites"] if s.get("role") != "teardown"
+            for rt, (status, _, result) in read_runs(runs, s["id"]).items() if status in ("RAN", "TIMEOUT") and result != "RESULT PASS"]
 
 
 def table(cat: dict, runs: Path, commit: str, date: str, env: str = "") -> str:
     suites = {s["id"]: s for s in cat["suites"]}
-    runs_of = {sid: read_run(runs, sid) for sid in suites}
+    runs_of = {sid: read_runs(runs, sid) for sid in suites}
     lines = [f"Commit `{commit}`, {date}{', ' + env if env else ''}.", "",
              "| Suite | Runtime | Result | Steps |", "| :--- | :--- | :--- | :--- |"]
-    for sid, (runtime, status, steps, result) in runs_of.items():
-        if status == "RAN" and suites[sid].get("role") == "teardown":
-            lines.append(f"| `{sid}` | {runtime} | done (teardown) | - |")
-        elif status in ("RAN", "TIMEOUT"):
-            fails = [k for k, v in steps.items() if v == "FAIL"]
-            res = (result[len("RESULT "):] if result else "no RESULT line") + (" (timeout)" if status == "TIMEOUT" else "")
-            counts = ", ".join(f"{sum(v == k for v in steps.values())} {k}" for k in ("PASS", "FAIL", "SKIP", "DEP")
-                               if any(v == k for v in steps.values())) or "none"
-            lines.append(f"| `{sid}` | {runtime} | {res} | {counts}{' (' + ', '.join(fails) + ')' if fails else ''} |")
-        else:
-            lines.append(f"| `{sid}` | {runtime} | {status} | - |")
+    for sid, ran in runs_of.items():
+        for runtime, (status, steps, result) in (ran or {"-": ("NOT RUN", {}, "")}).items():
+            if status == "RAN" and suites[sid].get("role") == "teardown":
+                lines.append(f"| `{sid}` | {runtime} | done (teardown) | - |")
+            elif status in ("RAN", "TIMEOUT"):
+                fails = [k for k, v in steps.items() if v == "FAIL"]
+                res = (result[len("RESULT "):] if result else "no RESULT line") + (" (timeout)" if status == "TIMEOUT" else "")
+                counts = ", ".join(f"{sum(v == k for v in steps.values())} {k}" for k in ("PASS", "FAIL", "SKIP", "DEP")
+                                   if any(v == k for v in steps.values())) or "none"
+                lines.append(f"| `{sid}` | {runtime} | {res} | {counts}{' (' + ', '.join(fails) + ')' if fails else ''} |")
+            else:
+                lines.append(f"| `{sid}` | {runtime} | {status} | - |")
     lines += ["", "| Feature | Result | Proven by |", "| :--- | :--- | :--- |"]
     for f in cat["features"]:
         parts, results = [], []
         for proof in f["proven_by"]:
-            ran_on, status, steps, _ = runs_of[proof["suite"]]
-            r = proof_result(status, steps, expand(proof["steps"], script_steps(suites[proof["suite"]]["script"])),
-                             ran_on, proof.get("runtime"))
+            status, steps = proof_status(runs_of[proof["suite"]], proof.get("runtime"))
+            r = proof_result(status, steps, expand(proof["steps"], script_steps(suites[proof["suite"]]["script"])))
             results.append(r)
             on = f" ({proof['runtime']})" if proof.get("runtime") else ""
             parts.append(f"`{proof['suite']}`{on} {', '.join(map(str, proof['steps']))}: {r}")

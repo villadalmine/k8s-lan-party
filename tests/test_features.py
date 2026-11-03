@@ -44,7 +44,7 @@ class Catalog(unittest.TestCase):
         one = {**join, "proven_by": [p for p in join["proven_by"] if p["runtime"] == "incus"]}
         self.assertIn("feature study-lab: poc-join is proved on incus only, not on docker", features.validate({**CAT, "features": [one]}))
         bare = {**join, "proven_by": [{"suite": "poc-join", "steps": ["J09"]}]}
-        self.assertTrue(any("each proof names its runtime" in p for p in features.validate({**CAT, "features": [bare]})))
+        self.assertTrue(any("each proof names one of them as its runtime" in p for p in features.validate({**CAT, "features": [bare]})))
 
     def test_a_step_the_suite_does_not_define_fails(self):
         cat = {**CAT, "features": [{**CAT["features"][0], "proven_by": [{"suite": "poc-join", "steps": ["J01-J99"]}]}]}
@@ -65,9 +65,9 @@ class Catalog(unittest.TestCase):
 def fake_runs(d: Path) -> None:
     """poc-join ran on incus and failed J11; poc-cilium skipped (no Docker); the rest not run."""
     join = features.script_steps("poc/poc-join.sh")
-    (d / "poc-join.status").write_text("incus\tRAN\n")
-    (d / "poc-join.out").write_text("".join(f"{'FAIL' if s == 'J11' else 'PASS'} {s:<6} x\n" for s in join) + "----\nRESULT FAIL (1)\n")
-    (d / "poc-cilium.status").write_text("docker\tSKIP(docker)\n")
+    (d / "poc-join@incus.status").write_text("incus\tRAN\n")
+    (d / "poc-join@incus.out").write_text("".join(f"{'FAIL' if s == 'J11' else 'PASS'} {s:<6} x\n" for s in join) + "----\nRESULT FAIL (1)\n")
+    (d / "poc-cilium@docker.status").write_text("docker\tSKIP(docker)\n")
 
 
 class Table(unittest.TestCase):
@@ -88,10 +88,26 @@ class Table(unittest.TestCase):
     def test_a_suite_that_dies_before_its_result_line_fails_the_run(self):
         with tempfile.TemporaryDirectory() as t:
             fake_runs(Path(t))
-            (Path(t) / "poc-ca.status").write_text("incus\tRAN\n")
-            (Path(t) / "poc-ca.out").write_text("PASS B01    x\n")
-            (Path(t) / "poc-down.status").write_text("incus\tRAN\n")
-            self.assertEqual(features.failed_suites(CAT, Path(t)), ["poc-join", "poc-ca"])
+            (Path(t) / "poc-ca@incus.status").write_text("incus\tRAN\n")
+            (Path(t) / "poc-ca@incus.out").write_text("PASS B01    x\n")
+            (Path(t) / "poc-down@incus.status").write_text("incus\tRAN\n")
+            self.assertEqual(features.failed_suites(CAT, Path(t)), ["poc-join@incus", "poc-ca@incus"])
+
+    def test_docker_vm_runs_a_suite_on_both_runtimes(self):
+        """REGRESSION_RUNTIME=docker-vm: poc-join on incus and on docker (in the VM); both proofs answered, no NOT RUN(docker)."""
+        with tempfile.TemporaryDirectory() as t:
+            fake_runs(Path(t))
+            out = (Path(t) / "poc-join@incus.out").read_text().replace("FAIL J11", "PASS J11").replace("RESULT FAIL (1)", "RESULT PASS")
+            for rt in ("incus", "docker"):
+                (Path(t) / f"poc-join@{rt}.status").write_text(f"{rt}\tRAN\n")
+                (Path(t) / f"poc-join@{rt}.out").write_text(out)
+            one = features.table(CAT, Path(t), "abc", "2026-11-03")
+        self.assertIn("| `poc-join` | docker | PASS | 17 PASS |\n| `poc-join` | incus | PASS | 17 PASS |", one)
+        self.assertIn("| `study-lab` | PASS | `poc-join` (docker) J09-J12: PASS; `poc-join` (incus) J09-J12: PASS |", one)
+
+    def test_a_runtime_the_suite_does_not_have_fails(self):
+        bad = {**CAT["features"][0], "proven_by": [{"suite": "poc-vm", "runtime": "docker", "steps": ["V01"]}]}
+        self.assertTrue(any("poc-vm runs on incus" in p for p in features.validate({**CAT, "features": [bad]})))
 
     def test_a_step_the_run_never_printed_is_a_failure(self):
         self.assertEqual(features.proof_result("TIMEOUT", {"J01": "PASS"}, ["J01", "J02"]), "FAIL")
