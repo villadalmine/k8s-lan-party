@@ -148,9 +148,9 @@ narrows what a write by that account may claim, keyed on the node its pod-bound 
 
 | Object | Without the guard, the owner of a joined node could | Guard (ValidatingAdmissionPolicy) | Negative test |
 | :--- | :--- | :--- | :--- |
-| `CiliumNode` | replace another node's WireGuard key or addresses; give his own node another node's pod range | only its own node's object; `spec.ipam.podCIDRs` never changes (the operator hands them out) | `poc-vm` V06c, V09c |
-| `CiliumEndpoint` | publish "this pod IP lives on my node" for another node's pod, or take over or delete another node's endpoint, so the other nodes tunnel that pod's traffic to him | every `CiliumNode` is a param: the endpoint (new and old) must name an address of the agent's own `CiliumNode` and pod IPs inside its pod CIDRs, and none of any other node's | `poc-vm` V09b |
-| `CiliumIdentity` | rewrite an existing identity's labels (the ID of a private workload would mean his labels), or create one in the reserved range or with a `reserved:` label | security labels of an existing identity never change; a new one only in 256-65535 and without `reserved:` labels; no delete | `poc-vm` V09c |
+| `CiliumNode` | replace another node's WireGuard key or addresses; give his own node another node's pod range; claim another node's address (or one in its pod range) in his own object, which every node puts in its WireGuard allowed IPs and ipcache | only its own node's object; `spec.ipam.podCIDRs` never changes (the operator hands them out); its own `spec.addresses`, `health` and `ingress` may not equal another node's address or fall in another node's pod CIDRs (every `CiliumNode` is a param) | `poc-vm` V06c, V09c |
+| `CiliumEndpoint` | publish "this pod IP lives on my node" for another node's pod, or take over or delete another node's endpoint, so the other nodes tunnel that pod's traffic to him | every `CiliumNode` is a param: the endpoint (new and old) must name an address of the agent's own `CiliumNode` with pod IPs inside its pod CIDRs, and no pod IP in another node's pod CIDRs (other nodes are judged by their operator-owned CIDRs only, so a claimed address cannot veto them) | `poc-vm` V09b |
+| `CiliumIdentity` | rewrite an existing identity's labels (the ID of a private workload would mean his labels), directly or by creating `0<id>` (agents key identities on `ParseUint(name)`); create one in the reserved range or with a `reserved:` label | security labels of an existing identity never change; a new one only in 256-65535, as the canonical decimal, without `reserved:` labels (assumes `cluster.id` 0: with ClusterMesh every allocation would be refused); no delete | `poc-vm` V09c |
 
 Every test is a server-side dry run made with the agent token read from a joined node's disk: it goes through RBAC and admission exactly as the
 real write would, and nothing is stored. Each one also checks that the node's own writes still pass.
@@ -163,7 +163,11 @@ per-node proof on the identity, or native routing with per-node identity checks)
 labels he chooses, and put any identity in the endpoints of his own pods. That grants nothing (1) does not already grant: policy selects by
 labels, so a second ID for the same labels gets exactly what the first gets. (3) **Mutual authentication does not close it.** Every Cilium agent
 asks its SPIRE agent for the certificate of any identity (the registration entries use the selector `cilium:mutual-auth`, parented to the
-operator, not tied to a node), so the peer node proves it holds a certificate from the cluster's SPIRE, not which workload it runs. The full fix
+operator, not tied to a node), so the peer node proves it holds a certificate from the cluster's SPIRE, not which workload it runs. (4) **Endpoint names are not checked.** He can create an endpoint under the namespace and name of another node's pod (with his own address and
+an IP of his own range) before that pod's agent does; the honest agent then cannot take it over, and the operator keeps it while the pod runs, so
+the other nodes never learn that pod's real IP from its endpoint (a denial of service on that pod, not a redirect: the squatted endpoint
+carries his own address and range; recorded by `poc-vm` V09b). Closing it would need
+the Pod as an admission param. The full fix
 for identities, operator-managed identities (the agents write none), was tried: in Cilium 1.20.3 it leaves every pod with a named port without
 an identity (coredns: the agent adds a `named-ports` label the operator does not), fixed upstream after 1.20.4 (cilium/cilium e27ce9ee66); it is
 the next step when that ships. **So:** identity-based policy and mutual authentication are a boundary between honest nodes, not against the

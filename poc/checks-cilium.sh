@@ -298,8 +298,11 @@ endpoint_guard_holds() { # from n2, with its agent token: an endpoint naming ano
   out=$(echo '{"status":{"networking":{"node":"'"$own_addr"'"}}}' | agent_write n2 patch cep web --type merge --dry-run=server --patch-file /dev/stdin)
   echo "n2 points web's endpoint at itself: $out"; denied_29 "$out" || return 1
   out=$(: | agent_write n2 delete cep web --dry-run=server); echo "n2 deletes web's endpoint: $out"; denied_29 "$out" || return 1
-  out=$(cep_manifest own-range "$own_addr" "$own_ip" "$id" | agent_write n2 create --dry-run=server -f -)
-  echo "n2 creates an endpoint on its own address and range: $out"; grep -q 'created (server dry run)' <<<"$out" || return 1
+  # residual (4), recorded not judged: the name is not checked, so an endpoint under the name of another node's future pod passes (DESIGN.md 3.3)
+  out=$(cep_manifest web-to-come "$own_addr" "$own_ip" "$id" | agent_write n2 create --dry-run=server -f -)
+  echo "n2 creates default/web-to-come on its own address and range (accepted, recorded: residual 4): $out"; grep -q 'created (server dry run)' <<<"$out" || return 1
+  out=$(cep_manifest cp-own "$(cn_addr "$(nn cp)")" "$(cidr_ip "$(cn_cidr "$(nn cp)")")" "$id" | agent_write cp create --dry-run=server -f -)
+  echo "cp's agent creates an endpoint on its own address and range: $out"; grep -q 'created (server dry run)' <<<"$out" || return 1
   out=$(echo '{"metadata":{"labels":{"edge-mesh-probe":"own"}}}' | agent_write n2 patch cep cli --type merge --dry-run=server --patch-file /dev/stdin)
   echo "n2 patches its own cli endpoint: $out"; grep -q 'cli patched' <<<"$out" || return 1
   [ -z "$(k get cep cli -o jsonpath='{.metadata.labels.edge-mesh-probe}')" ]   # a dry run: nothing was stored
@@ -316,11 +319,16 @@ identity_guard_holds() { # from n2, with its agent token: web's identity cannot 
   out=$(: | agent_write n2 delete ciliumidentity "$id" --dry-run=server); echo "n2 deletes web's identity: $out"; forbidden "$out" || return 1
   out=$(printf 'apiVersion: cilium.io/v2\nkind: CiliumIdentity\nmetadata: {name: "100"}\nsecurity-labels: {"k8s:app": "web"}\n' | agent_write n2 create --dry-run=server -f -)
   echo "n2 creates identity 100 (reserved range): $out"; denied_29 "$out" || return 1
+  # the agents key identities on ParseUint(name): "0<id>" would be a second object that remaps web's ID to other labels
+  out=$(printf 'apiVersion: cilium.io/v2\nkind: CiliumIdentity\nmetadata: {name: "0%s"}\nsecurity-labels: {"k8s:app": "attacker"}\n' "$id" | agent_write n2 create --dry-run=server -f -)
+  echo "n2 creates identity 0$id (web's ID with a leading zero): $out"; denied_29 "$out" || return 1
   out=$(printf 'apiVersion: cilium.io/v2\nkind: CiliumIdentity\nmetadata: {name: "65001"}\nsecurity-labels: {"reserved:host": ""}\n' | agent_write n2 create --dry-run=server -f -)
   echo "n2 creates an identity with reserved:host: $out"; denied_29 "$out" || return 1
   obj=$(k get ciliumnode "$(nn n2)" -o json) || return 1   # (the role may update a CiliumNode, not patch it)
   out=$(sed "s#\"$(cn_cidr "$(nn n2)")\"#\"$(cn_cidr "$(nn cp)")\"#" <<<"$obj" | agent_write n2 replace --dry-run=server -f -)
   echo "n2 gives its own CiliumNode cp's pod range: $out"; denied_29 "$out" || return 1
+  out=$(sed '0,/"addresses": \[/s//"addresses": [{"ip": "'"$(cn_addr "$(nn cp)")"'", "type": "InternalIP"},/' <<<"$obj" | agent_write n2 replace --dry-run=server -f -)
+  echo "n2 adds cp's address to its own CiliumNode: $out"; denied_29 "$out" || return 1
   local free=65000; while k get ciliumidentity "$free" >/dev/null 2>&1; do free=$((free - 1)); done   # identity IDs are allocated at random
   out=$(printf 'apiVersion: cilium.io/v2\nkind: CiliumIdentity\nmetadata: {name: "%s"}\nsecurity-labels: {"k8s:app": "web"}\n' "$free" | agent_write n2 create --dry-run=server -f -)
   echo "n2 creates a new identity $free in the global range (allowed, recorded): $out"; grep -q 'created (server dry run)' <<<"$out"

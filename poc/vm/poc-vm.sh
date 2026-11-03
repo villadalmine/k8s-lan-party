@@ -29,7 +29,7 @@ step V07 "test pods Running on different nodes (web on n1, cli on n2)" wait_for 
 step V08 "pod on n2 reaches pod on n1 across nodes" wait_for 60 cross_node
 step V09 "DNS inside a pod resolves cluster services" wait_for 120 dns_ok
 step V09b "NEGATIVE: the Cilium agent token on a remote node cannot create, take over or delete an endpoint of another node (its own it can)" endpoint_guard_holds
-step V09c "NEGATIVE: the agent token on a remote node cannot relabel or delete an identity, create a reserved one, or take a pod range" identity_guard_holds
+step V09c "NEGATIVE: the agent token on a remote node cannot relabel, delete or shadow an identity, create a reserved one, or take a pod range or an address" identity_guard_holds
 step V10 "on the wire: the clear text exists inside the node (cilium_wg0, VXLAN payload) and never on the Nebula interface" on_the_wire
 step V11 "MTU set once: Nebula $NEBULA_MTU on every node, the pod MTU ($POD_MTU) derived from it on every pod" mtu_chain
 step V12 "MTU: a full-size DF packet crosses, one byte more is refused" df_ping
