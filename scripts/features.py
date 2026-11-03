@@ -4,7 +4,8 @@
     scripts/features.py validate            every Makefile suite is in the catalog, every feature names suite steps that exist
     scripts/features.py suites              the suites in the order `make regression` runs them: id, runtimes, script, on_game_of
     scripts/features.py table --runs DIR --commit SHA --date YYYY-MM-DD [--env TEXT] [--write docs/POC-STATUS.md]
-                                            the feature x result table of one `make regression` run (poc/regression.sh)
+                                            the feature x result table of one `make regression` run (poc/regression.sh);
+                                            exit 1 when a suite that ran has no RESULT PASS line
 
 No network, no clock: the same catalog, scripts and run outputs give the same table, byte for byte.
 """
@@ -103,12 +104,17 @@ def validate(cat: dict, make: dict[str, str] | None = None, files: list[str] | N
         for key in ("description", "proven_by", "paths", "docs"):
             if not f.get(key):
                 problems.append(f"feature {fid}: '{key}' is empty")
+        on: dict[str, set] = {}   # suite -> the runtimes this feature's proofs name
         for proof in f.get("proven_by") or []:
             sid = proof.get("suite")
             if sid not in suites:
                 problems.append(f"feature {fid}: suite {sid} is not in the catalog")
                 continue
             cited.add(sid)
+            rts = suites[sid].get("runtime") or []
+            if len(rts) > 1 and proof.get("runtime") not in rts:
+                problems.append(f"feature {fid}: {sid} runs on {', '.join(rts)}: each proof names its runtime")
+            on.setdefault(sid, set()).add(proof.get("runtime"))
             if not proof.get("steps"):
                 problems.append(f"feature {fid}: {sid} names no step")
                 continue
@@ -116,6 +122,10 @@ def validate(cat: dict, make: dict[str, str] | None = None, files: list[str] | N
                 expand(proof["steps"], script_steps(suites[sid]["script"]))
             except ValueError as exc:
                 problems.append(f"feature {fid}: {sid} {exc}")
+        for sid, got in on.items():
+            missing = set(suites[sid]["runtime"]) - got if len(suites[sid]["runtime"]) > 1 else set()
+            if missing:
+                problems.append(f"feature {fid}: {sid} is proved on {', '.join(sorted(map(str, got)))} only, not on {', '.join(sorted(missing))}")
         for glob in f.get("paths") or []:
             if not any(fnmatch.fnmatch(p, glob) for p in files):
                 problems.append(f"feature {fid}: path {glob} matches no tracked file")
@@ -147,9 +157,11 @@ def read_run(runs: Path, sid: str) -> tuple[str, str, dict[str, str], str]:
     return runtime, status, steps, result
 
 
-def proof_result(status: str, steps: dict[str, str], wanted: list[str]) -> str:
+def proof_result(status: str, steps: dict[str, str], wanted: list[str], ran_on: str = "", want_on: str | None = None) -> str:
     if status not in ("RAN", "TIMEOUT"):
         return status
+    if want_on and want_on != ran_on:
+        return f"NOT RUN({want_on})"   # the suite ran, on the other runtime: this runtime's code paths did not
     got = [steps.get(s, "FAIL") for s in wanted]   # a step the run never printed did not pass
     if "FAIL" in got:
         return "FAIL"
@@ -162,6 +174,12 @@ def feature_result(results: list[str]) -> str:
     if all(r == "PASS" for r in results):
         return "PASS"
     return "PARTIAL" if "PASS" in results else results[0]
+
+
+def failed_suites(cat: dict, runs: Path) -> list[str]:
+    """Suites that ran (teardown aside) without a RESULT PASS line: failed, timed out, or died before printing it."""
+    return [s["id"] for s in cat["suites"] if s.get("role") != "teardown"
+            and read_run(runs, s["id"])[1] in ("RAN", "TIMEOUT") and read_run(runs, s["id"])[3] != "RESULT PASS"]
 
 
 def table(cat: dict, runs: Path, commit: str, date: str, env: str = "") -> str:
@@ -184,10 +202,12 @@ def table(cat: dict, runs: Path, commit: str, date: str, env: str = "") -> str:
     for f in cat["features"]:
         parts, results = [], []
         for proof in f["proven_by"]:
-            _, status, steps, _ = runs_of[proof["suite"]]
-            r = proof_result(status, steps, expand(proof["steps"], script_steps(suites[proof["suite"]]["script"])))
+            ran_on, status, steps, _ = runs_of[proof["suite"]]
+            r = proof_result(status, steps, expand(proof["steps"], script_steps(suites[proof["suite"]]["script"])),
+                             ran_on, proof.get("runtime"))
             results.append(r)
-            parts.append(f"`{proof['suite']}` {', '.join(map(str, proof['steps']))}: {r}")
+            on = f" ({proof['runtime']})" if proof.get("runtime") else ""
+            parts.append(f"`{proof['suite']}`{on} {', '.join(map(str, proof['steps']))}: {r}")
         lines.append(f"| `{f['id']}` | {feature_result(results)} | {'; '.join(parts)} |")
     return "\n".join(lines) + "\n"
 
@@ -223,7 +243,10 @@ def main() -> int:
     if a.write:
         write_between(a.write, text)
     sys.stdout.write(text)
-    return 0
+    failed = failed_suites(cat, a.runs)
+    if failed:
+        print(f"no RESULT PASS: {', '.join(failed)}", file=sys.stderr)
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":

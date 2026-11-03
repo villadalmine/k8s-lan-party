@@ -74,14 +74,16 @@ A PR that changes the cluster (the scripts and manifests under `poc/` that build
 ```bash
 make regression                                  # every suite in the catalog's order, one at a time, a failure stops nothing
 make regression ONLY="poc-join poc-revoke"       # a subset while you work; the rest are listed as NOT RUN
-poc/regression.sh down                           # remove what an interrupted run left (only its own Incus project and bridges)
+poc/regression.sh down                           # remove what an interrupted run left: only what its marker names
 ```
 
 Each suite gets its own state directory; the Incus ones run in their own project (`INCUS_PROJECT`, default `emesh-regression`, empty at
 the start) on an underlay checked free with `ip -4 -o addr` before anything runs (`UNDERLAY_NET`, default `10.83.0`; `poc-nat` uses the
-three /24 that start 20 above it). On a host without Docker the Docker suites are `SKIP(docker)`, never `FAIL`. The run writes one table,
+three /24 that start 20 above it). On a host without Docker the Docker suites are `SKIP(docker)`, never `FAIL`; on a Docker host an existing
+network `emesh`, container `lh`/`cp`/`n1`/`n2` or kind cluster `emesh` aborts the run (exit 2). A suite that runs on Docker and Incus proves
+its features on both: a run on one of them shows those features `PARTIAL`. The run writes one table,
 suite and feature x result with the commit and the date, into [`docs/POC-STATUS.md`](docs/POC-STATUS.md); the same commit on the same host
-gives the same table. Paste it (or its failing rows) under *Evidence*.
+and UTC day gives the same table (exit 1 when a suite that ran has no `RESULT PASS`). Paste it (or its failing rows) under *Evidence*.
 
 ## Pull requests
 

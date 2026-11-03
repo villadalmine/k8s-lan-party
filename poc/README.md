@@ -22,7 +22,8 @@ tags: [poc, determinista, nebula, k3s, cilium, kyverno, bgp, gateway]
 A proof of concept, not a product: it shows on one machine (Docker for the basic flow, Incus VMs for the full matrix) that the design works.
 Versions are pinned in `stack.env`; every step prints `PASS` or `FAIL`, and the output is identical across runs (numbers go to the state
 directory). Where each suite passed and how often is in [docs/POC-STATUS.md](../docs/POC-STATUS.md). Which feature each step proves is in
-[docs/FEATURES.yml](../docs/FEATURES.yml); `make regression` (`regression.sh`) runs every suite in its order and writes the feature table.
+[docs/FEATURES.yml](../docs/FEATURES.yml); `make regression` (`regression.sh`) runs every suite in its order and writes the feature table; it is the way to run
+everything. `vm/run-all.sh` stays as the short Incus loop of step 1 (six suites, no table).
 
 | Command | Script | Checks | What it proves |
 | :--- | :--- | :--- | :--- |

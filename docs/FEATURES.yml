@@ -8,6 +8,8 @@
 #   on_game_of: the suite builds nothing and checks the game another suite leaves up (make regression runs that one with KEEP=1).
 #   role: teardown: a target that proves nothing by itself (it removes); make regression runs it last.
 # features: steps are ids from the suite's source (`step <id>`, `check <rule> <id>`); `A-B` is every step from A to B in source order.
+#   runtime: on a suite that runs on docker and incus, each proof names one, and both are listed: a run on one runtime leaves the other's
+#   code paths (poc/up.sh or poc/vm/up.sh, the branches of lib.sh) unproved, so the feature shows PARTIAL until both ran.
 #   paths: globs of tracked files that change the feature; components: the pieces it relies on (the feature graph's last column).
 meta:
   tipo: catalogo
@@ -52,7 +54,8 @@ features:
   - id: join
     description: one bundle and one command join a machine to the game over Nebula; the node is Ready on its Nebula IP; clear failures
     proven_by:
-      - {suite: poc-join, steps: [J01-J07, J15-J16]}
+      - {suite: poc-join, runtime: docker, steps: [J01-J07, J15-J16]}
+      - {suite: poc-join, runtime: incus, steps: [J01-J07, J15-J16]}
       - {suite: poc-vm, steps: [V01, V04]}
     paths: [poc/edge-mesh, poc/up.sh, poc/vm/up.sh, poc/vm/lib-vm.sh, poc/lib.sh, poc/issue.sh, poc/stack.env]
     components: [Nebula, k3s, edge-mesh]
@@ -62,7 +65,8 @@ features:
   - id: study-lab
     description: a real study lab (CKA 1.1) breaks, verifies and is fixed on the joined outside nodes, never on the control plane
     proven_by:
-      - {suite: poc-join, steps: [J09-J12]}
+      - {suite: poc-join, runtime: docker, steps: [J09-J12]}
+      - {suite: poc-join, runtime: incus, steps: [J09-J12]}
     paths: [poc/labs/*, poc/poc-join.sh]
     components: [k3s, study lab]
     docs: [poc/README.md, README.md]
@@ -70,7 +74,8 @@ features:
   - id: host-your-own
     description: mesh host init, invite with a TTL, play, players and kick; the API answers on the Nebula IP only
     proven_by:
-      - {suite: poc-host, steps: [H01-H09c]}
+      - {suite: poc-host, runtime: docker, steps: [H01-H09c]}
+      - {suite: poc-host, runtime: incus, steps: [H01-H09c]}
     paths: [poc/mesh, poc/game-env.sh, poc/kc, poc/lib.sh, poc/issue.sh]
     components: [Nebula, k3s, mesh]
     docs: [docs/HOST-YOUR-OWN.md, docs/TRY-IT.md]
@@ -78,7 +83,8 @@ features:
   - id: api-members-only
     description: the Kubernetes API listens on the control plane's Nebula IP only; outside the mesh, and from the lighthouse, it does not answer
     proven_by:
-      - {suite: poc-host, steps: [H02, H02b]}
+      - {suite: poc-host, runtime: docker, steps: [H02, H02b]}
+      - {suite: poc-host, runtime: incus, steps: [H02, H02b]}
       - {suite: poc-golden, steps: [G6.1-G6.2]}
     paths: [poc/up.sh, poc/vm/lib-vm.sh, poc/issue.sh]
     components: [k3s, Nebula]
@@ -88,7 +94,8 @@ features:
   - id: nebula-firewall
     description: the narrowed Nebula firewall lets ICMP, 6443 and the documented ports through and refuses any other port between hosts
     proven_by:
-      - {suite: poc-join, steps: [J13]}
+      - {suite: poc-join, runtime: docker, steps: [J13]}
+      - {suite: poc-join, runtime: incus, steps: [J13]}
       - {suite: poc-cilium, steps: [C13-C14]}
       - {suite: poc-vm, steps: [V14-V15]}
     paths: [poc/issue.sh, poc/checks-cilium.sh]
@@ -98,7 +105,8 @@ features:
   - id: mtu-once
     description: the MTU is set once (Nebula); the pod MTU is derived from it and a full-size packet crosses (issue #8)
     proven_by:
-      - {suite: poc-join, steps: [J08]}
+      - {suite: poc-join, runtime: docker, steps: [J08]}
+      - {suite: poc-join, runtime: incus, steps: [J08]}
       - {suite: poc-cilium, steps: [C10-C11]}
       - {suite: poc-kind, steps: [K10-K11]}
       - {suite: poc-vm, steps: [V11-V12]}
@@ -109,7 +117,8 @@ features:
   - id: join-token-burn
     description: every player has its own join token; it lives 8 minutes at most and is burned once the node registered
     proven_by:
-      - {suite: poc-join, steps: [J14]}
+      - {suite: poc-join, runtime: docker, steps: [J14]}
+      - {suite: poc-join, runtime: incus, steps: [J14]}
       - {suite: poc-admission, steps: [A09, A11-A13]}
       - {suite: poc-admission-auto, steps: [AA15, AA23-AA24]}
       - {suite: poc-golden, steps: [G4.1-G4.3]}
@@ -171,8 +180,10 @@ features:
   - id: revoke
     description: one command revokes a player (blocklist on every host, the external lighthouse included, the Node deleted); idempotent, measured
     proven_by:
-      - {suite: poc-revoke, steps: [R01-R10]}
-      - {suite: poc-join, steps: [J17]}
+      - {suite: poc-revoke, runtime: docker, steps: [R01-R10]}
+      - {suite: poc-revoke, runtime: incus, steps: [R01-R10]}
+      - {suite: poc-join, runtime: docker, steps: [J17]}
+      - {suite: poc-join, runtime: incus, steps: [J17]}
       - {suite: poc-lighthouse, steps: [P16-P17]}
       - {suite: poc-nat, steps: [N25-N26]}
       - {suite: poc-golden, steps: [G5.1-G5.5]}
@@ -183,7 +194,8 @@ features:
   - id: two-level-ca
     description: a persistent CA and a pool CA constrained to group public; pulling the pool CA cuts only the pool
     proven_by:
-      - {suite: poc-ca, steps: [B01-B13]}
+      - {suite: poc-ca, runtime: docker, steps: [B01-B13]}
+      - {suite: poc-ca, runtime: incus, steps: [B01-B13]}
       - {suite: poc-golden, steps: [G8.2, G9.1]}
     paths: [poc/issue.sh, poc/lib.sh]
     components: [Nebula, CA]
@@ -192,7 +204,8 @@ features:
   - id: placement
     description: golden rule 1 - trust-based placement with Kyverno; a private pod on someone else's node is rejected; shareable pods opt in
     proven_by:
-      - {suite: poc-placement, steps: [L01-L45]}
+      - {suite: poc-placement, runtime: docker, steps: [L01-L45]}
+      - {suite: poc-placement, runtime: incus, steps: [L01-L45]}
       - {suite: poc-golden, steps: [G2.1-G2.7]}
     paths: [poc/placement/*, poc/install-placement.sh, poc/vm/poc-placement.sh]
     components: [Kyverno, k3s]
@@ -202,7 +215,8 @@ features:
   - id: trust-freeze
     description: a node cannot raise or change its own trust label or drop its taint; only the host can
     proven_by:
-      - {suite: poc-placement, steps: [L50-L53]}
+      - {suite: poc-placement, runtime: docker, steps: [L50-L53]}
+      - {suite: poc-placement, runtime: incus, steps: [L50-L53]}
       - {suite: poc-bgp, steps: [G09-G09b]}
       - {suite: poc-golden, steps: [G7.2]}
     paths: [poc/node-trust-freeze.yaml, poc/placement/node-trust-vap.yaml]
@@ -277,7 +291,8 @@ features:
   - id: down-clean
     description: down leaves nothing behind - no machine, container, network, state, page or lighthouse
     proven_by:
-      - {suite: poc-host, steps: [H10-H11]}
+      - {suite: poc-host, runtime: docker, steps: [H10-H11]}
+      - {suite: poc-host, runtime: incus, steps: [H10-H11]}
       - {suite: poc-lighthouse, steps: [P18]}
       - {suite: poc-page, steps: [G26b-G27]}
     paths: [poc/down.sh, poc/vm/down.sh, poc/page/page-server.sh, poc/lighthouse-vps.sh]
@@ -296,7 +311,8 @@ features:
   - id: weakness
     description: what one control plane costs - flapping, eviction delay, a lossy link, the control plane down - measured
     proven_by:
-      - {suite: poc-weakness, steps: [W00-W06]}
+      - {suite: poc-weakness, runtime: docker, steps: [W00-W06]}
+      - {suite: poc-weakness, runtime: incus, steps: [W00-W06]}
     paths: [poc/poc-weakness.sh]
     components: [k3s, Nebula]
     docs: [docs/DESIGN.md]
