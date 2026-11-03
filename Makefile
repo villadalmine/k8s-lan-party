@@ -6,8 +6,9 @@ PYTHON   ?= python3
 BASE     ?= origin/main
 PR_BODY  ?=
 PR_TITLE ?=
+ONLY     ?=
 
-.PHONY: poc-lighthouse poc-cilium help labels-check test verify-ci pr-check install-hooks uninstall-hooks poc-join poc-host poc-weakness poc-down poc-ca poc-placement poc-kind poc-vm poc-revoke poc-admission poc-admission-auto poc-participants poc-participants-e2e poc-nat poc-bgp poc-golden poc-pool poc-page
+.PHONY: regression features-check poc-lighthouse poc-cilium help labels-check test verify-ci pr-check install-hooks uninstall-hooks poc-join poc-host poc-weakness poc-down poc-ca poc-placement poc-kind poc-vm poc-revoke poc-admission poc-admission-auto poc-participants poc-participants-e2e poc-nat poc-bgp poc-golden poc-pool poc-page
 
 help:
 	@grep -E '^[a-z-]+:.*##' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-14s %s\n", $$1, $$2}'
@@ -24,6 +25,9 @@ verify-ci: ## what the CI job `verify` runs
 	$(PYTHON) scripts/check_labels.py
 	$(PYTHON) -m unittest discover -s tests
 	$(PYTHON) -m unittest discover -s poc
+
+features-check: ## docs/FEATURES.yml against the Makefile and the suites: every suite listed, every feature proven by steps that exist
+	$(PYTHON) scripts/features.py validate
 
 pr-check: ## the checks CI runs on a PR, locally, one line each (BASE= PR_BODY=draft.md PR_TITLE=)
 	@$(PYTHON) scripts/pr_check.py --base $(BASE) $(if $(PR_BODY),--body-file $(PR_BODY)) $(if $(PR_TITLE),--title "$(PR_TITLE)")
@@ -95,3 +99,7 @@ poc-nat: ## issue #15: symmetric NAT on both sides falls back to a Nebula relay 
 
 poc-page: ## the public page (phase B2, docs/PUBLIC-PAGE.md): a visitor on another machine asks, waits, collects a sealed bundle, joins, is expelled; panic closes it; needs Incus (PUB_SSH/VIS_SSH: real machines)
 	poc/poc-page.sh
+
+# Issue #62: every suite of docs/FEATURES.yml, in its order, one at a time; the feature table goes to docs/POC-STATUS.md (poc/regression.sh).
+regression: ## every suite in a fixed order, each with its own state (Incus: own project, UNDERLAY_NET=10.83.0); writes the feature table in docs/POC-STATUS.md; ONLY="poc-x poc-y" for a subset
+	ONLY="$(ONLY)" poc/regression.sh

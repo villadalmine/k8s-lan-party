@@ -37,6 +37,8 @@
 ```
 make pr-check   # CI's PR checks, locally (CONTRIBUTING -> Check before you push)
 ```
+<!-- A change to the cluster under poc/: paste the table of `make regression` (docs/POC-STATUS.md), or the RESULT line of every suite that
+     docs/FEATURES.yml lists for the features you touched (CONTRIBUTING -> A PR that touches the cluster proves the whole stack). -->
 
 ### Where it ran
 
