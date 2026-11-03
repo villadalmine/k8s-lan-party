@@ -15,7 +15,11 @@ exam versions). The PR format is the same whoever wrote the change, a person or 
 - the Authorship section has no `| Author | Human: ... |` or `| Author | AI: ... |` row, that row
   disagrees with Provenance, it has no `### Findings ledger`, or a ledger row is malformed (9 columns,
   a "Found by", and a status: fixed | open | rejected - <reason>);
-- Evidence has no `### Where it ran` linking the CI run on the PR's head commit;
+- Evidence has no `### Where it ran` subsection, or that subsection does not link a green run of
+  verify.yml on the PR's head commit. Only on a push (`opened`, `synchronize`, `reopened`) is the link
+  advisory: the run to cite does not exist yet, and the proof for that head is the `verify` run
+  verify.yml starts for the same event (a required check, never skipped). Every other action, also an
+  empty or unknown one, is strict (fail closed);
 - a non-merge commit of the PR has no `Signed-off-by:` trailer (Developer Certificate of Origin, the
   `DCO` file) whose email is the commit author's or the PR author's GitHub noreply address. EVERY
   commit of base..HEAD is checked, whatever the PR's number or dates; merged history never is. The
@@ -24,16 +28,17 @@ exam versions). The PR format is the same whoever wrote the change, a person or 
   maintainer, never by this check).
 
 No model. No network either, except `--verify-runs` (CI only): that mode asks the GitHub API, with
-`gh api`, whether the run cited under "Where it ran" is a green run of verify.yml on the PR's head.
+`gh api`, whether the run cited under "Where it ran" is a green run of verify.yml on the PR's head
+(it waits for that run's `verify` job if it is still running).
 
     # by hand
     scripts/check_pr.py --title "docs: x" --body-file body.md --files a b c
 
-    # CI (.github/workflows/verify.yml, job pr-format), step 1: the description
-    scripts/check_pr.py --event "$GITHUB_EVENT_PATH" --labels-file labels.txt --base origin/<base> \
-        --runs-file cited-runs.txt
-    # step 2: the cited run, against the API
-    scripts/check_pr.py --verify-runs cited-runs.txt --repo <owner/name> --head <sha>
+    # CI (.github/workflows/pr-format.yml, job pr-format), step 1: the description
+    scripts/check_pr.py --event "$GITHUB_EVENT_PATH" --pr-file pr.json --labels-file labels.txt \
+        --base origin/<base> --runs-file cited-runs.txt
+    # step 2: the cited run, against the API (advisory on opened/synchronize/reopened, strict otherwise)
+    scripts/check_pr.py --verify-runs cited-runs.txt --repo <owner/name> --head <sha> --action <action>
 """
 from __future__ import annotations
 
@@ -42,6 +47,7 @@ import json
 import re
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -237,7 +243,25 @@ def cited_runs(body: str) -> list[tuple[str, str]]:
     return RUN_LINK.findall(match.group(1)) if match else []
 
 
-def check(title: str, body: str) -> list[str]:
+# Who must cite the run, and when (issue #60). The run that proves a new head only exists after the
+# push, so a push run cannot cite it: on these actions the `verify` run verify.yml starts for the same
+# event (required by the ruleset, never skipped) is the proof. They must be exactly verify.yml's
+# pull_request types (tests/test_check_pr.py checks it). Everything else is strict: fail closed.
+ADVISORY_ACTIONS = ("opened", "synchronize", "reopened")
+
+
+def citation_required(action: str | None) -> bool:
+    """True unless the action is a push (ADVISORY_ACTIONS); empty, unknown and None are strict."""
+    return action not in ADVISORY_ACTIONS
+
+
+def has_where_it_ran(body: str) -> bool:
+    evidence = sections(body).get("Evidence", "")
+    return re.search(r"^###\s+Where it ran", evidence, re.M) is not None
+
+
+def check(title: str, body: str, strict: bool = True) -> list[str]:
+    """The description's problems. `strict` (an `edited` event, or by hand) also wants the run link."""
     problems: list[str] = []
     if not TITLE.match(title.strip()):
         problems.append(f"title is not a Conventional Commit ({'|'.join(TYPES)}(scope)?: summary): {title!r}")
@@ -249,7 +273,10 @@ def check(title: str, body: str) -> list[str]:
             problems.append(f"empty section: ## {name}")
     if found.get("Scope"):
         problems += declared_scope(found["Scope"])[1]
-    if "Evidence" in found and not cited_runs(body):
+    if "Evidence" in found and not has_where_it_ran(body):
+        problems.append("Evidence: add a '### Where it ran' subsection (the template has it); after "
+                        "verify passes, paste the line from the 'where-it-ran' comment there")
+    elif "Evidence" in found and strict and not cited_runs(body):
         problems.append("Evidence: add a '### Where it ran' subsection linking the CI run on this "
                         "PR's head commit (github.com/<owner>/<repo>/actions/runs/<id>); the "
                         "'where-it-ran' comment CI posts has the line ready to paste")
@@ -271,8 +298,8 @@ def judge_run(run: dict, jobs: dict, head_sha: str) -> str | None:
 
     A job named `verify` is not enough: any workflow (one the PR itself adds) can name its jobs that
     way, so the run must come from verify.yml and from a pull_request event. The jobs, not the run's
-    conclusion: the run that proves the code also contains pr-format, which is red until the link is
-    pasted."""
+    conclusion: the run may hold other jobs (where-it-ran, which may not post on a fork) that say
+    nothing about the code."""
     if run.get("head_sha") != head_sha:
         return f"is on head {str(run.get('head_sha'))[:7]}, not the PR head {head_sha[:7]}"
     if run.get("path") != VERIFY_WORKFLOW:
@@ -285,6 +312,14 @@ def judge_run(run: dict, jobs: dict, head_sha: str) -> str | None:
     return None
 
 
+def pending(run: dict, jobs: dict, head_sha: str) -> bool:
+    """The cited run is the right one (this head, verify.yml, pull_request) but `verify` is not done."""
+    if (run.get("head_sha"), run.get("path"), run.get("event")) != (head_sha, VERIFY_WORKFLOW, "pull_request"):
+        return False
+    states = {j.get("name"): j.get("status") for j in jobs.get("jobs") or [] if j.get("name") in PROOF_JOBS}
+    return any(states.get(n) != "completed" for n in PROOF_JOBS)  # not created yet (queued) counts too
+
+
 def gh_api(path: str) -> dict:
     """`gh api <path>` as JSON; its error goes to the log instead of being swallowed."""
     result = subprocess.run(["gh", "api", path], capture_output=True, text=True)
@@ -293,16 +328,31 @@ def gh_api(path: str) -> dict:
     return json.loads(result.stdout)
 
 
-def verify_runs(cited: list[tuple[str, str]], repo: str, head_sha: str, fetch=gh_api) -> bool:
-    """True if at least one cited run proves this head; prints why each one does or does not."""
+# How long to wait for a cited run of this head that is queued or running: verify's own timeout
+# (10 min) plus a margin for the queue. pr-format.yml's timeout-minutes is above it.
+WAIT_SECONDS = 1800
+POLL_SECONDS = 45     # one /jobs call per poll: at most 40 calls per run (GITHUB_TOKEN budget)
+
+
+def verify_runs(cited: list[tuple[str, str]], repo: str, head_sha: str, fetch=gh_api,
+                wait: float = WAIT_SECONDS, sleep=time.sleep, clock=time.monotonic) -> bool:
+    """True if at least one cited run proves this head; prints why each one does or does not.
+
+    A body edited while the verify run of this head is still running is not an error: wait for it."""
     ok = False
+    deadline = clock() + wait
     for cited_repo, run in cited:
         if cited_repo.lower() != repo.lower():  # GitHub owner/repo names ignore case
             print(f"run {run} belongs to {cited_repo}, not {repo}")
             continue
         try:
-            reason = judge_run(fetch(f"repos/{repo}/actions/runs/{run}"),
-                               fetch(f"repos/{repo}/actions/runs/{run}/jobs"), head_sha)
+            data = fetch(f"repos/{repo}/actions/runs/{run}")
+            jobs = fetch(f"repos/{repo}/actions/runs/{run}/jobs")
+            while pending(data, jobs, head_sha) and clock() < deadline:
+                print(f"run {run}: verify still running on {head_sha[:7]}, waiting")
+                sleep(POLL_SECONDS)
+                jobs = fetch(f"repos/{repo}/actions/runs/{run}/jobs")
+            reason = judge_run(data, jobs, head_sha)
         except (RuntimeError, ValueError) as exc:
             reason = f"could not be read: {exc}"
         print(f"run {run}: " + (reason or f"{VERIFY_WORKFLOW}, verify green on {head_sha[:7]}"))
@@ -351,21 +401,40 @@ def main() -> int:
                              "(from --runs-file) with `gh api`; needs --repo and --head")
     parser.add_argument("--repo", help="owner/name of this repository (with --verify-runs)")
     parser.add_argument("--head", help="the PR's head commit SHA (with --verify-runs)")
+    parser.add_argument("--action",
+                        help="the pull_request event's action (default: the --event payload's). On "
+                             "'edited' the cited run must prove the head; on the others it is advisory")
+    parser.add_argument("--pr-file",
+                        help="the PR as `gh api repos/<r>/pulls/<n>` returns it, read live in CI: its "
+                             "title and body replace the event payload's (a re-run replays old ones)")
     args = parser.parse_args()
 
     if args.verify_runs:
         cited = [tuple(line.split()) for line in Path(args.verify_runs).read_text(encoding="utf-8").splitlines()
                  if len(line.split()) == 2]
-        if verify_runs(cited, args.repo, args.head):
+        strict = citation_required(args.action)
+        if verify_runs(cited, args.repo, args.head, wait=WAIT_SECONDS if strict else 0):
+            return 0
+        if not strict:
+            print(f"::warning::'Where it ran' does not link a green run of {VERIFY_WORKFLOW} on {args.head[:7]} "
+                  f"yet. On '{args.action}' the verify run of the same push is the proof; after it passes, paste "
+                  "the line from the where-it-ran comment (the edit re-checks it).")
             return 0
         print(f"::error::'Where it ran' must link a green run of {VERIFY_WORKFLOW} in {args.repo} on the "
-              f"head commit {args.head}. Copy the line from the where-it-ran comment and edit the description.")
+              f"head commit {args.head}. Copy the line from the where-it-ran comment and edit the description "
+              "(if verify was still queued, edit again once it finishes).")
         return 1
 
     labels: set = set()
     author = None
+    action = args.action
     if args.event:
-        pr = json.loads(Path(args.event).read_text(encoding="utf-8"))["pull_request"]
+        event = json.loads(Path(args.event).read_text(encoding="utf-8"))
+        pr = event["pull_request"]
+        action = action or event.get("action")
+        if args.pr_file and Path(args.pr_file).is_file() and Path(args.pr_file).stat().st_size:
+            live = json.loads(Path(args.pr_file).read_text(encoding="utf-8"))
+            pr = {**pr, "title": live.get("title", pr["title"]), "body": live.get("body", pr.get("body"))}
         title, body = pr["title"], pr.get("body") or ""
         author = (pr.get("user") or {}).get("login")
         labels = {label["name"] for label in pr.get("labels") or []}
@@ -377,7 +446,8 @@ def main() -> int:
     files = args.files if args.files is not None else (changed_files(args.base) if args.base else [])
     code_lines = code_lines_changed(args.base) if args.base and args.files is None else None
 
-    problems = check(title, body) + size(code_lines, labels)
+    strict = citation_required(action)
+    problems = check(title, body, strict) + size(code_lines, labels)
     if args.base:
         problems += dco(commits_of(args.base), author)
     if args.runs_file:
@@ -388,6 +458,9 @@ def main() -> int:
     if problems:
         print(f"\n{len(problems)} problem(s). Template: .github/pull_request_template.md")
         return 1
+    if not strict and not cited_runs(body):
+        print(f"::notice::'Where it ran' has no run link yet; on '{action}' that is fine: paste the line "
+              "from the where-it-ran comment once verify passes.")
     print(f"PR description OK ({len(files)} changed file(s)).")
     return 0
 

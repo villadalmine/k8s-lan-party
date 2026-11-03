@@ -22,7 +22,7 @@ REPO = Path(__file__).resolve().parent.parent
 # The key shapes CI refuses (verify.yml, step "Secrets").
 SECRET = (r"\b(sk-[A-Za-z0-9_-]{20,}|sk-or-v1-[A-Za-z0-9]{32,}|AIza[A-Za-z0-9_-]{30,}|"
           r"gh[pousr]_[A-Za-z0-9]{30,}|-----BEGIN [A-Z ]*PRIVATE KEY-----)")
-CI_ONLY = ("where-it-ran: the cited run (needs the pushed head)",)
+CI_ONLY = ("where-it-ran: the cited run, required when the description is edited (needs the pushed head)",)
 
 results: list[str] = []
 
@@ -97,7 +97,9 @@ def main() -> int:
 
     # 4. CI job `pr-format`: the description (needs a title and a body), and DCO on every commit.
     title = args.title or run(["git", "log", "-1", "--format=%s"])[1]
-    cmd = [sys.executable, "scripts/check_pr.py", "--base", args.base, "--title", title]
+    # Before the push the run to cite does not exist yet: the same rule as CI's push run (issue #60),
+    # the link to the run is not required here; the edit of the description on GitHub checks it.
+    cmd = [sys.executable, "scripts/check_pr.py", "--base", args.base, "--title", title, "--action", "synchronize"]
     if args.body_file:
         check("PR description and DCO (check_pr.py)", cmd + ["--body-file", args.body_file])
     else:

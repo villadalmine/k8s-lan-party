@@ -172,7 +172,22 @@ it**. `poc/.state/poc.log` has the detail of the last run of any PoC script (`/t
 - **Cause:** every Cilium agent runs under one service account that may update every `CiliumNode`; its token is on each node's disk. A node owner can
   use it to rewrite another node's key.
 - **Fix:** `poc/cilium-node-guard.yaml` (applied by `cilium.sh`) admits an agent's write only to the `CiliumNode` of the node its token was issued
-  on. Check it is there: `kubectl get validatingadmissionpolicybinding cilium-agent-own-ciliumnode`. `V06c` tests it.
+  on, and also guards addresses, endpoints and identities (DESIGN.md 3.3, the table). Check the four bindings are there:
+  `kubectl get validatingadmissionpolicybinding cilium-agent-own-ciliumnode cilium-agent-own-addresses cilium-agent-identities cilium-agent-own-endpoints`.
+  `V06c`, `V09b` and `V09c` test them.
+
+### After a Cilium upgrade, new pods get no network (or no identity) and the agent log says `denied request`
+- **Symptom:** pods stay `ContainerCreating` or run without connectivity; `kubectl -n kube-system logs ds/cilium | grep 'denied request'` shows
+  `ValidatingAdmissionPolicy 'cilium-agent-own-endpoints'` (or `cilium-agent-identities`, `cilium-agent-own-addresses`, `cilium-agent-own-ciliumnode`).
+- **Cause:** the guard fails closed. A Cilium version that writes endpoints, identities or its CiliumNode differently (another field, a name format,
+  another IPAM mode, ClusterMesh with a `cluster.id`, which shifts identity IDs out of 256-65535) has its writes refused. Also: a mesh subnet other
+  than `MESH_CIDR` (`LH_NEB` moved in `stack.env` without re-running `cilium.sh`, or the file applied by hand with `@MESH_CIDR@` still in it: every
+  CiliumNode write is then refused, `cilium.sh` now checks both). And a `CiliumNode` deleted under a running agent (by hand, or by the operator
+  after a Node flap): the agent recreates it with its restored CiliumInternalIP and health IP but no pod CIDR yet, the create is refused
+  (`other addresses ... inside its own pod CIDRs`) and the agent exits; tracked in #20.
+- **Fix:** run `make poc-vm` on the new version before upgrading a game (V09b/V09c and every data-path check catch it) and adapt the policy. To get a
+  game working again at once: `kubectl delete validatingadmissionpolicy,validatingadmissionpolicybinding cilium-agent-own-endpoints cilium-agent-identities cilium-agent-own-addresses`
+  (the protection is gone until the fixed file is applied again with `cilium.sh`).
 
 ### Envoy Gateway's chart fails: "Installing experimental CRDs on top of standard channel CRDs is prohibited"
 - **Cause:** k3s 1.37 installs the Gateway API CRDs (standard channel) and Gateway API's `safe-upgrades` admission policy; Envoy Gateway's main chart

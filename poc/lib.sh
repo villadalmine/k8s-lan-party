@@ -197,7 +197,16 @@ machine_running() { # machine_running <name>
   if [ "$RUNTIME" = incus ]; then [ -f "$STATE/alias/$1" ] || incus info "emesh-$1" >/dev/null 2>&1
   else [ -n "$(docker ps -q -f "name=^$1$")" ]; fi
 }
-any_machines() { if [ "$RUNTIME" = incus ]; then [ -n "$(incus list emesh- -c n -f csv)" ]; else [ -n "$(docker ps -aq -f 'name=^(lh|cp|n1|n2|alice)$')" ]; fi; }
+any_machines() { if [ "$RUNTIME" = incus ]; then [ -n "$(incus list emesh- -c n -f csv)" ]; else [ -n "$(docker ps -aq -f "name=^(${GAME_CONTAINERS// /|}|alice)\$")" ]; fi; }
+docker_clean() { # the Docker flow left nothing: no container on the game's network or with a game name, and no network. Succeeds ONLY when
+  # Docker answered every question and the answers are empty: a failed query (Docker down, a permission) is "not verified", never "clean" (Incus: n/a)
+  [ "$RUNTIME" != incus ] || return 0
+  local on_net names nets
+  on_net=$(docker ps -aq --filter "network=${DOCKER_NET:?}") || return 1
+  names=$(docker ps -a --format '{{.Names}}') || return 1
+  nets=$(docker network ls --format '{{.Name}}') || return 1
+  [ -z "$on_net" ] && ! printf '%s\n' "$names" | grep -Eqx "${GAME_CONTAINERS// /|}" && ! printf '%s\n' "$nets" | grep -qxF "$DOCKER_NET"
+}
 cpx() { if [ "$RUNTIME" = incus ]; then incus exec emesh-cp -- "$@"; else docker exec -i cp "$@"; fi; }
 k() { if [ "$RUNTIME" = incus ]; then incus exec emesh-cp -- k3s kubectl "$@"; else docker exec -i cp kubectl "$@"; fi; }
 helm_cp() { # helm inside cp's network namespace: the API is reachable only on the Nebula IP
@@ -292,4 +301,45 @@ trust_frozen_api() { # trust_frozen_api <joined-node> <its-level>: the API-only 
   # 3. positive control: the host can change a label under the prefix (so the refusals are the policy's), and puts it back
   k label node "$n" node-restriction.kubernetes.io/trust-probe=x >/dev/null && k label node "$n" node-restriction.kubernetes.io/trust-probe- >/dev/null || return 1
   k delete clusterrolebinding/edge-mesh-freeze-probe clusterrole/edge-mesh-freeze-probe >/dev/null
+}
+
+# --- issue #29: what a write by the Cilium agents' shared account may claim (poc/cilium-node-guard.yaml). Used by poc-vm (checks-cilium.sh, with a
+# real agent token read from a joined node's disk) and by poc-golden (API only: the host impersonates that account on a joined node).
+cn_addr() { k get ciliumnode "$1" -o jsonpath='{.spec.addresses[?(@.type=="InternalIP")].ip}'; }   # cn_addr <node>: its address in its CiliumNode
+cn_cidr() { k get ciliumnode "$1" -o jsonpath='{.spec.ipam.podCIDRs[0]}'; }                         # cn_cidr <node>: its first pod CIDR
+cidr_ip() { local b="${1%/*}"; echo "${b%.*}.250"; }   # cidr_ip <a.b.c.0/24>: an address inside it that no test pod holds
+cep_manifest() { # cep_manifest <name> <node-address> <pod-ip> <identity-id>: a CiliumEndpoint as an agent publishes one
+  cat <<YAML
+apiVersion: cilium.io/v2
+kind: CiliumEndpoint
+metadata: {name: $1, namespace: default}
+status:
+  id: 4242
+  identity: {id: $4, labels: ["k8s:app=web"]}
+  networking: {node: "$2", addressing: [{ipv4: "$3"}]}
+YAML
+}
+denied_29() { grep -q 'issue #29' <<<"$1" && ! grep -qE 'created|patched|deleted|replaced|configured' <<<"$1"; }   # refused by the guard
+as_cilium_on() { # as_cilium_on <node> <kubectl args...>: kubectl as the Cilium agents' account with a token bound to that node (impersonation)
+  local n="$1"; shift
+  k --as=system:serviceaccount:kube-system:cilium --as-user-extra="authentication.kubernetes.io/node-name=$n" "$@" 2>&1
+}
+cilium_token_scoped_api() { # cilium_token_scoped_api <joined-node> <other-node>: as the agent account on <joined-node>, server-side dry runs: an
+  # endpoint on the other node's address and range, an identity relabelled, the joined node's CiliumNode given the other's pod range: all refused;
+  # an endpoint on the joined node's own address and range passes (so the refusals are the guard's, not RBAC's)
+  local n="$1" o="$2" id obj out p
+  for p in cilium-agent-own-ciliumnode cilium-agent-identities cilium-agent-own-endpoints; do
+    k get validatingadmissionpolicybinding "$p" >/dev/null 2>&1 || { echo "the Cilium guard $p is not bound (poc/cilium-node-guard.yaml; cilium.sh applies it)"; return 1; }
+  done
+  id=$(k get ciliumidentities -o jsonpath='{.items[0].metadata.name}'); [ -n "$id" ] && [ -n "$(cn_cidr "$n")" ] && [ -n "$(cn_cidr "$o")" ] || return 1
+  out=$(cep_manifest forged "$(cn_addr "$o")" "$(cidr_ip "$(cn_cidr "$o")")" "$id" | as_cilium_on "$n" create --dry-run=server -f -)
+  echo "$n creates an endpoint on $o's address and range: $out"; denied_29 "$out" || return 1
+  obj=$(k get ciliumidentity "$id" -o json) || return 1
+  out=$(sed 's#"security-labels": {#"security-labels": {"k8s:edge-mesh-forged": "x",#' <<<"$obj" | as_cilium_on "$n" replace --dry-run=server -f -)
+  echo "$n relabels identity $id: $out"; denied_29 "$out" || return 1
+  obj=$(k get ciliumnode "$n" -o json) || return 1
+  out=$(sed "s#\"$(cn_cidr "$n")\"#\"$(cn_cidr "$o")\"#" <<<"$obj" | as_cilium_on "$n" replace --dry-run=server -f -)
+  echo "$n takes $o's pod range: $out"; denied_29 "$out" || return 1
+  out=$(cep_manifest own "$(cn_addr "$n")" "$(cidr_ip "$(cn_cidr "$n")")" "$id" | as_cilium_on "$n" create --dry-run=server -f -)
+  echo "$n creates an endpoint on its own address and range: $out"; grep -q 'created (server dry run)' <<<"$out"
 }

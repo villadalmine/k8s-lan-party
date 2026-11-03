@@ -241,6 +241,12 @@ g7_trust_frozen() { # reused from lib.sh (poc-placement L52b, poc-bgp G09b): the
   trust_frozen_api "$FRIENDS" friends
 }
 
+g3_cilium_token_scoped() { # issue #29: the Cilium agents' shared account, on a friends node, cannot claim another node's endpoint, relabel an
+  # identity or take another node's pod range (poc/cilium-node-guard.yaml); the API half of poc-vm V09b/V09c, by impersonation, nothing stored
+  need "$FRIENDS" || return 3
+  cilium_token_scoped_api "$FRIENDS" cp
+}
+
 g3_spire_agent_narrow() { # issue #35: the SPIRE agent (it runs on joined nodes) runs under our role whose only right is get nodes/pods, what its
   # workload attestor asks the local kubelet for; nodes/proxy (the API server's relay to any kubelet: pod lists, logs, exec), pods, nodes: refused
   k get ns cilium-spire >/dev/null 2>&1 || { echo "SPIRE is not installed: run MUTUAL=yes ./cilium.sh to add mutual authentication"; return 3; }
@@ -404,6 +410,7 @@ check 3 G3.1 "Cilium is the CNI: its agent is Ready on every node" g3_cilium_eve
 check 3 G3.2 "WireGuard is on in every agent, with a peer for every other node" g3_wireguard_peers
 check 3 G3.3 "a capture on the control plane: the canary is in clear only on cilium_wg0, never on nebula1 or the underlay" g3_capture
 check 3 G3.4 "mutual authentication: with SPIRE installed, a peer whose node has no SPIRE agent is DROPPED by the policy that lets its authenticated twin in (no answer, 'Authentication required' drops counted), and let in again when the agent is back" g3_mutual_deny
+check 3 G3.5 "the Cilium agent account on a friends node cannot publish an endpoint of another node, relabel an identity or take another node's pod range (its own endpoints pass)" g3_cilium_token_scoped
 check 3 G3.6 "the SPIRE agent on joined nodes may only get nodes/pods (its attestor's one call): nodes/proxy, pods, nodes and secrets are refused" g3_spire_agent_narrow
 check 4 G4.1 "every player has its own join token; no bundle carries the shared server token" g4_no_shared_token
 check 4 G4.2 "after mesh host burn no registered player's join token is left" g4_burned

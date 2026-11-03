@@ -52,11 +52,12 @@ someone else's machine can be seen by its owner.
 Live list: `gh issue list --repo villadalmine/k8s-lan-party --state open`; proofs and gaps: [POC-STATUS.md](docs/POC-STATUS.md). No dates are promised.
 
 - [#12](https://github.com/villadalmine/k8s-lan-party/issues/12) real cosign keyless signing from a fork: needs a second account that signs.
-- [#29](https://github.com/villadalmine/k8s-lan-party/issues/29) Cilium identities can be forged from a joined node: mutual auth does not protect against a node's owner.
+- [#29](https://github.com/villadalmine/k8s-lan-party/issues/29) a joined node can claim any Cilium identity for the traffic it sends (tunnel mode trusts it): mutual auth does not protect against a node's owner. Its token can no longer forge another node's endpoints or relabel identities (DESIGN.md 3.3).
+- [#58](https://github.com/villadalmine/k8s-lan-party/issues/58) a joined node can pre-claim a free mesh IP as its CiliumNode's InternalIP (DESIGN.md 3.3, residual 5).
 - [#57](https://github.com/villadalmine/k8s-lan-party/issues/57) between two joined nodes that are not the control plane, host traffic rides Cilium's WireGuard, so the narrowed Nebula firewall does not filter ports there (the kubelet included).
-- [#36](https://github.com/villadalmine/k8s-lan-party/issues/36) `down.sh` leaves a participant container in the Docker flow.
 - [#26](https://github.com/villadalmine/k8s-lan-party/issues/26) and [#16](https://github.com/villadalmine/k8s-lan-party/issues/16) the public request page and the open demo are not open yet.
 - [#9](https://github.com/villadalmine/k8s-lan-party/issues/9) and [#11](https://github.com/villadalmine/k8s-lan-party/issues/11) per-player namespaces and the 1 h pool with limits: in review (PR #30), not merged at the time of writing.
+- [#36](https://github.com/villadalmine/k8s-lan-party/issues/36) (`down.sh` left a participant container in the Docker flow), fixed in #56: `down.sh` removes every container on the game's network and step H11 of `make poc-host` checks that none is left.
 - Gateway and BGP on own nodes ([#13](https://github.com/villadalmine/k8s-lan-party/issues/13), closed): built and tested against a test router with `make poc-bgp`; applying BGP to a real router is each host's decision.
 - Umbrellas for low findings: [#20](https://github.com/villadalmine/k8s-lan-party/issues/20) (PoC and scripts), [#3](https://github.com/villadalmine/k8s-lan-party/issues/3) (docs).
 - `make poc-golden` lists checks marked `DEP #N`, never counted as passes: rules 3 and 7 are being turned into real checks; rule 2 waits for #9 (PR #30).
