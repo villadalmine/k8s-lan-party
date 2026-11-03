@@ -12,7 +12,7 @@ estado: opcion A, fase B1 (pool automatico) y el lado cluster del pool (namespac
 depende_de: [docs/DESIGN.md, poc/pool.yaml, poc/pool.py, poc/admission.py, poc/mesh, poc/participant.py, poc/participant-policy.yaml]
 lo_usan: [README.md, docs/DEMO.md, docs/POC-STATUS.md, docs/HOST-YOUR-OWN.md]
 docs: [docs/DEMO.md, docs/HOST-YOUR-OWN.md, docs/DESIGN.md, docs/PUBLIC-PAGE.md]
-scripts: [poc/admission.py, poc/pool.py, poc/pool.yaml, poc/mesh, poc/issue.sh, poc/revoke.sh, poc/poc-admission.sh, poc/poc-admission-auto.sh, poc/poc-pool.sh, poc/participant.py, poc/participant-policy.yaml, poc/edge-mesh, poc/test_admission.py, poc/test_admission_auto.py, poc/test_pool.py, poc/test_participant.py, poc/test_edge_mesh.py, poc/poc-page.sh, poc/test_page.py, poc/page/page.py, poc/page/puller.py, poc/page/seal.py, poc/page/visit.py, poc/page/page-server.sh]
+scripts: [poc/admission.py, poc/pool.py, poc/pool.yaml, poc/mesh, poc/issue.sh, poc/revoke.sh, poc/poc-admission.sh, poc/poc-admission-auto.sh, poc/poc-pool.sh, poc/participant.py, poc/participant-policy.yaml, poc/edge-mesh, poc/test_admission.py, poc/test_admission_auto.py, poc/test_pool.py, poc/test_participant.py, poc/test_edge_mesh.py, poc/poc-page.sh, poc/test_page.py, poc/page/page.py, poc/page/puller.py, poc/page/seal.py, poc/page/visit.py, poc/page/page-server.sh, poc/test_page_token.py]
 runbooks: [docs/DEMO.md]
 tags: [admision, pool, lista-de-espera, anti-bot, demo, automatico, panic, eventos, metricas, pagina-publica, modelo-de-amenazas]
 ---

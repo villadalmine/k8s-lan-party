@@ -9,8 +9,9 @@
 #        https://<ip> with --tls internal. --with-caddy: also install Caddy (pinned, sha512 checked) when the server has none.
 #   page-server.sh puller-token --ssh "<ssh command>" [--token-file FILE]
 #        make the puller's token HERE (default <state>/page/puller.token, 0600) and send only its SHA-256 to the server
-#   page-server.sh verify --ssh "<ssh command>" --site <address> [--token-file FILE]   services, loopback-only listener, the API through Caddy, no key
-#        on disk, and the puller's token accepted (200) on /api/v1/puller/intake
+#   page-server.sh verify --ssh "<ssh command>" --site <address> [--token-file FILE] [--cacert FILE | --tls internal]   services, loopback-only
+#        listener, the API through Caddy, no key on disk; and, FROM HERE, the puller's token accepted (200) on /api/v1/puller/intake over HTTPS, the way the
+#        real puller calls (the token is never sent to the server's shell). --cacert: the page's CA; --tls internal: take Caddy's internal root from the server
 #   page-server.sh close|open --ssh "<ssh command>"                    the operator's switch on the server (the host's panic closes it too)
 #   page-server.sh cacert --ssh "<ssh command>"                        print Caddy's internal root (only with --tls internal: the lab)
 #   page-server.sh remove --ssh "<ssh command>" [--with-caddy]         stop it and delete the page, its unit, its state and its Caddy site; --with-caddy also
@@ -19,14 +20,14 @@
 # The server's firewall is yours: open TCP 443 (and 80 for ACME). Nothing of the mesh lives on the server but the lighthouse (lighthouse-vps.sh).
 set -eu
 . "$(dirname "$0")/../lib.sh"
-usage() { sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
+usage() { sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
 [ $# -ge 1 ] || usage
 cmd="$1"; shift
-RSH=""; SITE=""; TLS=""; WITH_CADDY=0; TOKEN_FILE="$STATE/page/puller.token"
+RSH=""; SITE=""; TLS=""; CACERT=""; WITH_CADDY=0; TOKEN_FILE="$STATE/page/puller.token"
 while [ $# -gt 0 ]; do
   case "$1" in
     --ssh) RSH="$2"; shift 2 ;; --site) SITE="$2"; shift 2 ;; --tls) TLS="$2"; shift 2 ;; --with-caddy) WITH_CADDY=1; shift ;;
-    --token-file) TOKEN_FILE="$2"; shift 2 ;; *) usage ;;
+    --token-file) TOKEN_FILE="$2"; shift 2 ;; --cacert) CACERT="$2"; shift 2 ;; *) usage ;;
   esac
 done
 [ -n "$RSH" ] || { echo "$cmd needs --ssh \"<ssh command>\""; exit 2; }
@@ -133,16 +134,20 @@ EOF
 # verifies (an interior blank is refused by token_ok, never removed). The file is normalized (one line, no CR) on write AND read, so the hash on the server is the hash of what the puller sends, whatever wrote the file (Git Bash writes CRLF; issue #47).
 token_value() { python3 -c 'import sys; sys.stdout.write(open(sys.argv[1]).read().strip())' "$TOKEN_FILE"; }   # exactly puller.py's read_text().strip()
 token_ok() { case "$1" in "" | *[!A-Za-z0-9._~-]*) return 1 ;; esac; }   # what token_urlsafe writes; also keeps the value safe inside a script
+atomic_write() { # atomic_write <file> <content>: a temp file in the same directory, then rename: a puller reading at the same time never sees an empty file
+  local t; t=$(umask 077; mktemp "$(dirname "$1")/.puller-token.XXXXXX") || return 1
+  printf '%s\n' "$2" >"$t" && chmod 600 "$t" && mv -f "$t" "$1" || { rm -f "$t"; return 1; }
+}
 puller_token() {
   if [ ! -s "$TOKEN_FILE" ]; then
-    mkdir -p "$(dirname "$TOKEN_FILE")"; (umask 077; python3 -c 'import secrets; print(secrets.token_urlsafe(32))' >"$TOKEN_FILE")
+    mkdir -p "$(dirname "$TOKEN_FILE")"; atomic_write "$TOKEN_FILE" "$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
     echo "changed: puller token made in $TOKEN_FILE (it stays here)"
   fi
   chmod 600 "$TOKEN_FILE"
   local v; v=$(token_value)
-  token_ok "$v" || { echo "the token file $TOKEN_FILE holds no token, or one with characters outside A-Za-z0-9._~-"; exit 1; }
+  token_ok "$v" || { echo "the token file $TOKEN_FILE is malformed: it holds no token, or one with characters outside A-Za-z0-9._~- (an interior blank is never removed)"; exit 1; }
   if [ "$(cat "$TOKEN_FILE"; echo x)" != "$v"$'\n'x ]; then   # a CR, a blank or a missing newline: rewrite it as one line
-    (umask 077; printf '%s\n' "$v" >"$TOKEN_FILE"); echo "changed: $TOKEN_FILE normalized (CR and blanks stripped, one newline)"
+    atomic_write "$TOKEN_FILE" "$v"; echo "changed: $TOKEN_FILE normalized (CR and blanks stripped, one newline)"
   fi
   local h; h=$(printf '%s' "$v" | sha256sum | cut -d' ' -f1)
   r <<EOF
@@ -158,8 +163,29 @@ EOF
 verify() {
   [ -n "$SITE" ] || { echo "verify needs --site"; exit 2; }; site_ok
   local url="$SITE"; case "$url" in https://*) ;; *) url="https://$url" ;; esac
-  # the puller's token, normalized as the puller reads it: verify sends it (header read from stdin, never in argv) and needs a 200
-  local tok=""; [ -s "$TOKEN_FILE" ] && tok=$(token_value); token_ok "$tok" || tok=""
+  local rc=0
+  verify_remote "$url" || rc=$?
+  verify_token "$url" || rc=$?
+  return "$rc"
+}
+
+verify_token() { # the acceptance test runs HERE, the way the real puller calls (HTTPS to the page): the token never goes to the server's shell
+  local url="$1" tok="" ca=() t=""
+  if [ ! -s "$TOKEN_FILE" ]; then echo "FAIL: no puller token file at $TOKEN_FILE (run puller-token, or pass --token-file): the puller's acceptance is not proven"; return 1; fi
+  tok=$(token_value)
+  token_ok "$tok" || { echo "FAIL: the token file $TOKEN_FILE is malformed (empty, or characters outside A-Za-z0-9._~-): the puller would not send what the server holds"; return 1; }
+  if [ -n "$CACERT" ]; then ca=(--cacert "$CACERT")
+  elif [ "$TLS" = internal ]; then
+    t=$(mktemp); echo 'cat /var/lib/caddy/caddy/pki/authorities/local/root.crt' | r >"$t"; ca=(--cacert "$t")
+  fi
+  local s; s=$(printf 'Authorization: Bearer %s\n' "$tok" | curl -s ${ca[@]+"${ca[@]}"} -m 20 -H @- -o /dev/null -w '%{http_code}' "$url/api/v1/puller/intake") || s="no answer"
+  [ -z "$t" ] || rm -f "$t"
+  if [ "$s" = 200 ]; then echo "ok:   the puller's token is accepted (200), tested from here"; return 0; fi
+  echo "FAIL: the puller's token is refused or the page did not answer ($s): the hash on the server is not the token's (run puller-token), or --cacert / --tls is wrong"; return 1
+}
+
+verify_remote() {
+  local url="$1"
   r <<EOF
 fail=0; ok() { echo "ok:   \$*"; }; no() { echo "FAIL: \$*"; fail=1; }
 systemctl is-active -q k8s-lan-party-page && ok "page service active" || no "page service is not active"
@@ -175,11 +201,6 @@ d=/var/lib/private/k8s-lan-party-page
 [ "\$(stat -c %a \$d 2>/dev/null)" = 700 ] && ok "state directory 0700" || no "state directory mode: \$(stat -c %a \$d 2>/dev/null)"
 if grep -rlE 'PRIVATE KEY|K10[0-9a-f]{20}' \$d /opt/k8s-lan-party-page /etc/k8s-lan-party-page >/dev/null 2>&1; then no "a private key or a join token on disk"; else ok "no private key and no join token in the page's files"; fi
 [ -s /etc/k8s-lan-party-page/puller.sha256 ] && ok "the puller's hash is set" || no "no puller hash (run puller-token)"
-if [ -z "$tok" ]; then no "no puller token in $TOKEN_FILE: cannot prove the puller is accepted (run puller-token, or pass --token-file)"
-else
-  s=\$(printf 'Authorization: Bearer %s\n' '$tok' | curl -sk --connect-to ::127.0.0.1: -H @- -o /dev/null -w '%{http_code}' "$url/api/v1/puller/intake")
-  [ "\$s" = 200 ] && ok "the puller's token is accepted (200)" || no "the puller's token is refused or the route failed: \$s (the hash on the server is not the token's: run puller-token)"
-fi
 exit \$fail
 EOF
 }
