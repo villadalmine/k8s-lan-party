@@ -38,6 +38,8 @@ lh_hosts=""; [ "$name" = lh ] && am_lh=true || am_lh=false
 [ "$am_lh" = false ] && lh_hosts="\"$LH_NEB\""
 # FW=narrow (default): only what the design needs between hosts; FW=open: any/any (the first PoC runs).
 #  ICMP, the Kubernetes API (6443), the kubelet (10250, only from the control plane), Cilium WireGuard (51871),
+#  (with Cilium node encryption the per-port rules bite only toward the control plane: host traffic between other nodes rides WireGuard
+#  51871, which every member may send; issue #57, DESIGN.md 3.3)
 #  and the flannel VXLAN port (8472) only when flannel is the CNI. 4240 (Cilium health) is not needed: node
 #  encryption carries it inside WireGuard.
 if [ "${FW:-narrow}" = open ]; then INBOUND='[{port: any, proto: any, host: any}]'

@@ -1,0 +1,43 @@
+# The SPIRE agent's own namespace, service account and role (issue #35), instead of the chart's. The agent runs on every node a workload may land
+# on, joined nodes included (spire-args.sh), so its token sits on strangers' disks. The chart's ClusterRole is `get` on pods, nodes and nodes/proxy,
+# cluster-wide: `nodes/proxy` lets the API server relay a request to ANY node's kubelet (pod lists, container logs, and through a websocket even
+# exec), so the owner of a joined node could have reached the maintainer's own nodes with it.
+# What the agent needs is one call: its Kubernetes workload attestor asks the LOCAL kubelet for /pods (to match a process to its pod). The kubelet
+# authorizes that path as `get nodes/pods` (fine-grained kubelet authorization, KubeletFineGrainedAuthz) before falling back to nodes/proxy, so
+# this role grants exactly that and nothing else. `nodes/pods` is not a path through the API server: the proxy still needs nodes/proxy.
+# spire-args.sh turns the chart's account and role off (agent.serviceAccount.create=false) and uses this namespace (install.existingNamespace=true);
+# cilium.sh and kind-cilium.sh apply this file before the helm install. poc-vm V103 is the negative test. The account keeps the chart's name,
+# spire-agent: the chart's SPIRE init script (files/spire/init.bash) registers the agents by the selector k8s_psat:agent_sa:spire-agent, whatever
+# agent.serviceAccount.name says, so an account under another name attests as a node but its Cilium agent never gets an identity.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cilium-spire
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: spire-agent
+  namespace: cilium-spire
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: spire-agent
+rules:
+- apiGroups: [""]
+  resources: [nodes/pods]
+  verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: spire-agent
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: spire-agent
+subjects:
+- kind: ServiceAccount
+  name: spire-agent
+  namespace: cilium-spire
