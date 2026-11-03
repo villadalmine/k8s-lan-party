@@ -109,18 +109,18 @@ class CheckPr(unittest.TestCase):
         for action in ("edited", "labeled", "unlabeled", "ready_for_review", "", "bogus", None):  # fail closed
             self.assertTrue(check_pr.citation_required(action), action)
 
-    def test_verify_never_skips_by_event(self):
-        """A skipped `verify` counts as passing and, as the newest of its name, hides a red one: no job
-        named verify has an `if:` on the event, and verify.yml runs only on the advisory actions."""
+    def test_verify_is_never_skipped(self):
+        """A skipped `verify` counts as passing and, as the newest of its name, hides a red one. So the only
+        job named verify, in verify.yml, has no `if:` and no `needs:`, and runs only on the advisory actions."""
         import yaml
         root = Path(check_pr.__file__).resolve().parent.parent / ".github" / "workflows"
         wfs = {f.name: yaml.safe_load(f.read_text(encoding="utf-8")) for f in root.glob("*.yml")}
-        for name, wf in wfs.items():
-            for job_id, job in (wf.get("jobs") or {}).items():
-                if job.get("name", job_id) == "verify":
-                    self.assertNotIn("event", str(job.get("if", "")), f"{name}: verify skipped by its if:")
-        on = {n: (wf.get("on") or wf.get(True))["pull_request"]["types"] for n, wf in wfs.items()
-              if n in ("verify.yml", "pr-format.yml")}  # YAML 1.1 reads a bare `on` as True
+        named = [(n, job) for n, wf in wfs.items() for i, job in (wf.get("jobs") or {}).items()
+                 if "verify" in (i, job.get("name"))]
+        self.assertEqual([n for n, _ in named], ["verify.yml"], "a job named verify outside verify.yml")
+        self.assertFalse({"if", "needs"} & set(named[0][1]), "verify can be skipped (if:/needs:)")
+        on = {n: (wfs[n].get("on") or wfs[n].get(True))["pull_request"]["types"]  # YAML 1.1: `on` is True
+              for n in ("verify.yml", "pr-format.yml")}
         self.assertEqual(sorted(on["verify.yml"]), sorted(check_pr.ADVISORY_ACTIONS))
         self.assertTrue({"edited", "labeled", "unlabeled"} <= set(on["pr-format.yml"]))
         self.assertNotIn("pr-format", wfs["verify.yml"]["jobs"])

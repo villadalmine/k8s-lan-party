@@ -37,7 +37,7 @@ No model. No network either, except `--verify-runs` (CI only): that mode asks th
     # CI (.github/workflows/pr-format.yml, job pr-format), step 1: the description
     scripts/check_pr.py --event "$GITHUB_EVENT_PATH" --pr-file pr.json --labels-file labels.txt \
         --base origin/<base> --runs-file cited-runs.txt
-    # step 2: the cited run, against the API (required on `edited`, advisory on the other actions)
+    # step 2: the cited run, against the API (advisory on opened/synchronize/reopened, strict otherwise)
     scripts/check_pr.py --verify-runs cited-runs.txt --repo <owner/name> --head <sha> --action <action>
 """
 from __future__ import annotations
@@ -317,7 +317,7 @@ def pending(run: dict, jobs: dict, head_sha: str) -> bool:
     if (run.get("head_sha"), run.get("path"), run.get("event")) != (head_sha, VERIFY_WORKFLOW, "pull_request"):
         return False
     states = {j.get("name"): j.get("status") for j in jobs.get("jobs") or [] if j.get("name") in PROOF_JOBS}
-    return run.get("status") != "completed" and any(states.get(n) != "completed" for n in PROOF_JOBS)
+    return any(states.get(n) != "completed" for n in PROOF_JOBS)  # not created yet (queued) counts too
 
 
 def gh_api(path: str) -> dict:
@@ -331,7 +331,7 @@ def gh_api(path: str) -> dict:
 # How long to wait for a cited run of this head that is queued or running: verify's own timeout
 # (10 min) plus a margin for the queue. pr-format.yml's timeout-minutes is above it.
 WAIT_SECONDS = 1800
-POLL_SECONDS = 15
+POLL_SECONDS = 45     # one /jobs call per poll: at most 40 calls per run (GITHUB_TOKEN budget)
 
 
 def verify_runs(cited: list[tuple[str, str]], repo: str, head_sha: str, fetch=gh_api,
@@ -346,13 +346,12 @@ def verify_runs(cited: list[tuple[str, str]], repo: str, head_sha: str, fetch=gh
             print(f"run {run} belongs to {cited_repo}, not {repo}")
             continue
         try:
-            while True:
-                data = fetch(f"repos/{repo}/actions/runs/{run}")
-                jobs = fetch(f"repos/{repo}/actions/runs/{run}/jobs")
-                if not pending(data, jobs, head_sha) or clock() >= deadline:
-                    break
+            data = fetch(f"repos/{repo}/actions/runs/{run}")
+            jobs = fetch(f"repos/{repo}/actions/runs/{run}/jobs")
+            while pending(data, jobs, head_sha) and clock() < deadline:
                 print(f"run {run}: verify still running on {head_sha[:7]}, waiting")
                 sleep(POLL_SECONDS)
+                jobs = fetch(f"repos/{repo}/actions/runs/{run}/jobs")
             reason = judge_run(data, jobs, head_sha)
         except (RuntimeError, ValueError) as exc:
             reason = f"could not be read: {exc}"
