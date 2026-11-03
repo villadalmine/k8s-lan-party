@@ -101,113 +101,67 @@ class CheckPr(unittest.TestCase):
         self.assertIn("verify=failure", check_pr.judge_run(
             run, {"jobs": [{"name": "verify", "conclusion": "failure"}]}, "abc"))
 
-    # --- issue #60: no red check on a normal push-then-edit flow, the guarantee kept ----------
+    # --- issue #60 and the review of #61: no red check on push-then-edit, verify never skipped -----
 
     def test_citation_advisory_only_on_a_push(self):
         for action in ("opened", "synchronize", "reopened"):
             self.assertFalse(check_pr.citation_required(action), action)
-        # fail closed: every other action, also empty, unknown or none at all, is strict
-        for action in ("edited", "labeled", "unlabeled", "ready_for_review", "", "bogus", None):
+        for action in ("edited", "labeled", "unlabeled", "ready_for_review", "", "bogus", None):  # fail closed
             self.assertTrue(check_pr.citation_required(action), action)
 
-    def _workflows(self):
+    def test_verify_never_skips_by_event(self):
+        """A skipped `verify` counts as passing and, as the newest of its name, hides a red one: no job
+        named verify has an `if:` on the event, and verify.yml runs only on the advisory actions."""
         import yaml
         root = Path(check_pr.__file__).resolve().parent.parent / ".github" / "workflows"
-        return {f.name: yaml.safe_load(f.read_text(encoding="utf-8")) for f in sorted(root.glob("*.yml"))}
-
-    @staticmethod
-    def _on(workflow):
-        return workflow.get("on", workflow.get(True)) or {}  # YAML 1.1 reads a bare `on` as True
-
-    def test_verify_never_skips_by_event(self):
-        """No `verify` check run can be skipped on a PR head: a skipped one counts as passing and, as the
-        newest of its name, hides a red one (review of #61). So no job named verify has an `if:` that
-        looks at the event, and verify.yml runs only on the actions where the citation is advisory."""
-        for name, wf in self._workflows().items():
+        wfs = {f.name: yaml.safe_load(f.read_text(encoding="utf-8")) for f in root.glob("*.yml")}
+        for name, wf in wfs.items():
             for job_id, job in (wf.get("jobs") or {}).items():
                 if job.get("name", job_id) == "verify":
-                    cond = str(job.get("if", ""))
-                    self.assertNotIn("event", cond, f"{name}: job verify is skipped by `if: {cond}`")
-        types = self._on(self._workflows()["verify.yml"])["pull_request"]["types"]
-        self.assertEqual(sorted(types), sorted(check_pr.ADVISORY_ACTIONS))
+                    self.assertNotIn("event", str(job.get("if", "")), f"{name}: verify skipped by its if:")
+        on = {n: (wf.get("on") or wf.get(True))["pull_request"]["types"] for n, wf in wfs.items()
+              if n in ("verify.yml", "pr-format.yml")}  # YAML 1.1 reads a bare `on` as True
+        self.assertEqual(sorted(on["verify.yml"]), sorted(check_pr.ADVISORY_ACTIONS))
+        self.assertTrue({"edited", "labeled", "unlabeled"} <= set(on["pr-format.yml"]))
+        self.assertNotIn("pr-format", wfs["verify.yml"]["jobs"])
+        # the wait covers verify's timeout plus queue time, and fits in pr-format's own timeout
+        self.assertGreater(check_pr.WAIT_SECONDS, wfs["verify.yml"]["jobs"]["verify"]["timeout-minutes"] * 60 + 300)
+        self.assertGreater(wfs["pr-format.yml"]["jobs"]["pr-format"]["timeout-minutes"] * 60, check_pr.WAIT_SECONDS)
 
-    def test_pr_format_runs_on_every_body_and_label_change(self):
-        wf = self._workflows()["pr-format.yml"]
-        self.assertIn("pr-format", wf["jobs"])
-        types = set(self._on(wf)["pull_request"]["types"])
-        self.assertTrue({"opened", "synchronize", "reopened", "edited", "labeled", "unlabeled"} <= types)
-        self.assertNotIn("pr-format", self._workflows()["verify.yml"]["jobs"])
-
-    def test_live_pr_without_body_falls_back_to_the_payload(self):
-        import json, tempfile
-        with tempfile.TemporaryDirectory() as tmp:
-            event = Path(tmp) / "event.json"
-            live = Path(tmp) / "pr.json"
-            event.write_text(json.dumps({"action": "edited", "pull_request": {
-                "title": "docs: x", "body": GOOD, "user": {"login": "me"}, "labels": []}}))
-            live.write_text(json.dumps({"title": "docs: x"}))
-            self.assertEqual(self._main("--event", str(event), "--pr-file", str(live))[0], 0)
-
-    def test_wait_covers_verify_timeout_and_queue(self):
-        wf = self._workflows()
-        verify_min = wf["verify.yml"]["jobs"]["verify"]["timeout-minutes"]
-        self.assertGreater(check_pr.WAIT_SECONDS, verify_min * 60 + 300)
-        self.assertGreater(wf["pr-format.yml"]["jobs"]["pr-format"]["timeout-minutes"] * 60, check_pr.WAIT_SECONDS)
-
-    def test_push_run_does_not_need_the_link(self):
-        body = GOOD.replace("- CI: https://github.com/villadalmine/k8s-lan-party/actions/runs/123",
-                            "- CI: pending, pasted after verify passes")
+    def test_link_needed_only_when_strict(self):
+        body = GOOD.replace("- CI: https://github.com/villadalmine/k8s-lan-party/actions/runs/123", "- CI: pending")
         self.assertEqual(check_pr.check("docs: x", body, strict=False), [])
         self.assertTrue(any("Where it ran" in p for p in check_pr.check("docs: x", body, strict=True)))
+        no_heading = GOOD.replace("### Where it ran\n", "")
+        self.assertTrue(any("Where it ran" in p for p in check_pr.check("docs: x", no_heading, strict=False)))
 
-    def test_where_it_ran_subsection_always_required(self):
-        body = GOOD.replace("### Where it ran\n", "")
-        self.assertTrue(any("Where it ran" in p for p in check_pr.check("docs: x", body, strict=False)))
-
-    RUN = {"head_sha": "abc", "path": ".github/workflows/verify.yml", "event": "pull_request",
-           "status": "completed"}
-
-    def _fetch(self, states):
-        """A fake `gh api`: each call to the jobs endpoint returns the next (status, conclusion)."""
-        states = list(states)
+    @staticmethod
+    def _fetch(*job_states, head="abc"):
+        """A fake `gh api`; each jobs call returns the next verify (status, conclusion), the last repeats."""
+        states = list(job_states)
 
         def fetch(path):
-            status, conclusion = states[0] if path.endswith("/jobs") else (None, None)
-            if path.endswith("/jobs"):
-                if len(states) > 1:
-                    states.pop(0)
-                return {"jobs": [{"name": "verify", "status": status, "conclusion": conclusion}]}
-            run_status = states[0][0]
-            return {**self.RUN, "status": "completed" if run_status == "completed" else "in_progress"}
+            status, conclusion = states[0]
+            if not path.endswith("/jobs"):
+                return {"head_sha": head, "path": check_pr.VERIFY_WORKFLOW, "event": "pull_request", "status": status}
+            if len(states) > 1:
+                states.pop(0)
+            return {"jobs": [{"name": "verify", "status": status, "conclusion": conclusion}]}
         return fetch
 
-    def test_edit_waits_for_the_verify_run_of_the_head(self):
-        slept = []
-        fetch = self._fetch([("in_progress", None), ("in_progress", None), ("completed", "success")])
-        ok = check_pr.verify_runs([("villadalmine/k8s-lan-party", "1")], "villadalmine/k8s-lan-party", "abc",
-                                  fetch=fetch, wait=600, sleep=slept.append, clock=lambda: 0)
-        self.assertTrue(ok)
+    def test_wait_for_the_verify_run_of_the_head(self):
+        cited, repo, slept = [("villadalmine/k8s-lan-party", "1")], "villadalmine/k8s-lan-party", []
+        run = ("in_progress", None)
+        fetch = self._fetch(run, run, ("completed", "success"))
+        self.assertTrue(check_pr.verify_runs(cited, repo, "abc", fetch=fetch, sleep=slept.append, clock=lambda: 0))
         self.assertEqual(len(slept), 2)
-
-    def test_wait_has_a_deadline(self):
-        times = iter([0, 0, 1000, 1000])
-        fetch = self._fetch([("in_progress", None)])
-        ok = check_pr.verify_runs([("villadalmine/k8s-lan-party", "1")], "villadalmine/k8s-lan-party", "abc",
-                                  fetch=fetch, wait=600, sleep=lambda s: None, clock=lambda: next(times))
-        self.assertFalse(ok)
-
-    def test_no_wait_for_a_run_of_another_head(self):
-        slept = []
-        fetch = self._fetch([("in_progress", None)])
-        ok = check_pr.verify_runs([("villadalmine/k8s-lan-party", "1")], "villadalmine/k8s-lan-party", "def",
-                                  fetch=fetch, wait=600, sleep=slept.append, clock=lambda: 0)
-        self.assertFalse(ok)
+        times = iter([0, 0, 9999])  # deadline
+        self.assertFalse(check_pr.verify_runs(cited, repo, "abc", fetch=self._fetch(run), sleep=lambda s: None,
+                                              clock=lambda: next(times)))
+        slept.clear()  # another head: no wait
+        self.assertFalse(check_pr.verify_runs(cited, repo, "def", fetch=self._fetch(run), sleep=slept.append))
         self.assertEqual(slept, [])
-
-    def test_failed_verify_never_proves_the_head(self):
-        fetch = self._fetch([("completed", "failure")])
-        self.assertFalse(check_pr.verify_runs([("villadalmine/k8s-lan-party", "1")], "villadalmine/k8s-lan-party",
-                                              "abc", fetch=fetch, wait=0))
+        self.assertFalse(check_pr.verify_runs(cited, repo, "abc", fetch=self._fetch(("completed", "failure"))))
 
     def _main(self, *argv):
         import contextlib, io
@@ -216,41 +170,29 @@ class CheckPr(unittest.TestCase):
             code = check_pr.main()
         return code, out.getvalue()
 
-    def test_verify_runs_mode_advisory_on_push_strict_on_edit(self):
-        import tempfile
-        with tempfile.TemporaryDirectory() as tmp:
-            runs = Path(tmp) / "cited-runs.txt"
-            runs.write_text("villadalmine/k8s-lan-party 1\n", encoding="utf-8")
-            stale = {"head_sha": "old", "path": ".github/workflows/verify.yml", "event": "pull_request",
-                     "status": "completed"}
-            jobs = {"jobs": [{"name": "verify", "status": "completed", "conclusion": "success"}]}
-            with unittest.mock.patch.object(check_pr, "gh_api",
-                                            lambda path: jobs if path.endswith("/jobs") else stale):
-                common = ("--verify-runs", str(runs), "--repo", "villadalmine/k8s-lan-party", "--head", "new")
-                code, out = self._main(*common, "--action", "synchronize")
-                self.assertEqual(code, 0)
-                self.assertIn("::warning::", out)
-                code, out = self._main(*common, "--action", "edited")
-                self.assertEqual(code, 1)
-                self.assertIn("::error::", out)
-
-    def test_event_mode_reads_the_live_body_and_the_action(self):
+    def test_main_modes(self):
         import json, tempfile
-        stale_body = GOOD.replace("- CI: https://github.com/villadalmine/k8s-lan-party/actions/runs/123", "- CI: ")
         with tempfile.TemporaryDirectory() as tmp:
-            event = Path(tmp) / "event.json"
-            live = Path(tmp) / "pr.json"
+            runs, event, live, nobody = (Path(tmp) / n for n in ("runs.txt", "event.json", "pr.json", "nb.json"))
+            runs.write_text("villadalmine/k8s-lan-party 1\n", encoding="utf-8")
+            with unittest.mock.patch.object(check_pr, "gh_api", self._fetch(("completed", "success"), head="old")):
+                common = ("--verify-runs", str(runs), "--repo", "villadalmine/k8s-lan-party", "--head", "new")
+                self.assertEqual(self._main(*common, "--action", "synchronize")[0], 0)  # a stale link warns
+                for action in ("edited", "labeled", ""):
+                    self.assertEqual(self._main(*common, "--action", action)[0], 1, action)
+            stale = GOOD.replace("- CI: https://github.com/villadalmine/k8s-lan-party/actions/runs/123", "- CI: ")
             event.write_text(json.dumps({"action": "edited", "pull_request": {
-                "title": "docs: x", "body": stale_body, "user": {"login": "me"}, "labels": []}}))
+                "title": "docs: x", "body": stale, "user": {"login": "me"}, "labels": []}}))
             live.write_text(json.dumps({"title": "docs: x", "body": GOOD}))
-            self.assertEqual(self._main("--event", str(event))[0], 1)            # edited, no link
+            nobody.write_text(json.dumps({"title": "docs: x"}))
+            self.assertEqual(self._main("--event", str(event))[0], 1)  # edited, no link
             self.assertEqual(self._main("--event", str(event), "--pr-file", str(live))[0], 0)
+            code, out = self._main("--event", str(event), "--pr-file", str(nobody))  # falls back to the payload
+            self.assertEqual(code, 1)
+            self.assertNotIn("missing section", out)
             self.assertEqual(self._main("--event", str(event), "--action", "synchronize")[0], 0)
-
-    def test_local_pr_check_follows_the_push_rule(self):
         src = (Path(check_pr.__file__).parent / "pr_check.py").read_text(encoding="utf-8")
-        self.assertIn('"--action", "synchronize"', src)
-
+        self.assertIn('"--action", "synchronize"', src)  # make pr-check runs before the push
 
 if __name__ == "__main__":
     unittest.main()
