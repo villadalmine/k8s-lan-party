@@ -3,7 +3,7 @@ tipo: runbook
 id: k8s-lan-party-try-it
 version: 0.1.0
 fecha_alta: 2026-10-28
-fecha_ultimo_cambio: 2026-10-28
+fecha_ultimo_cambio: 2026-11-03
 categoria: plataforma
 dueno_agente: casa-orquestador
 pieza: k8s-lan-party
@@ -81,7 +81,7 @@ EOF
 `bash`, `curl`, `python3`; internet for the images and the pinned binaries.
 
 ```bash
-export RUNTIME=incus TAINT=yes
+export RUNTIME=incus TAINT=yes   # stays in this shell: `unset RUNTIME TAINT` when done. `poc-join`, `poc-pool`, `poc-placement`, `poc-vm` and `poc-bgp` pin their own CNI and TAINT; the other suites inherit TAINT (the Incus ones pin `CNI=flannel`), and none of those depends on TAINT (issue #59)
 ./mesh host init                                  # CA, lighthouse VM, control plane VM (about 4 min)
 ./mesh host invite alice --trust friends
 ./mesh play alice                                 # a VM joins with `edge-mesh join`
@@ -116,7 +116,7 @@ on a public server (recipe 5 or 6). Running a second game next to this one: HOST
 `python3`. The container names (`lh`, `cp`, `alice`) and the network `emesh` are fixed: one game per Docker host.
 
 ```bash
-export RUNTIME=docker TAINT=yes
+export RUNTIME=docker TAINT=yes   # stays in this shell: `unset RUNTIME TAINT` when done. `poc-join`, `poc-pool`, `poc-placement`, `poc-vm` and `poc-bgp` pin their own CNI and TAINT; the other suites inherit TAINT (the Incus ones pin `CNI=flannel`), and none of those depends on TAINT (issue #59)
 # then exactly the commands of recipe 1, from `./mesh host init` to `./kc get nodes`
 ```
 

@@ -3,7 +3,7 @@ tipo: doc
 id: k8s-lan-party-poc
 version: 0.3.0
 fecha_alta: 2026-10-19
-fecha_ultimo_cambio: 2026-10-28
+fecha_ultimo_cambio: 2026-11-03
 categoria: plataforma
 dueno_agente: casa-orquestador
 pieza: k8s-lan-party
@@ -25,7 +25,7 @@ directory). Where each suite passed and how often is in [docs/POC-STATUS.md](../
 
 | Command | Script | Checks | What it proves |
 | :--- | :--- | :--- | :--- |
-| `make poc-join` | `poc-join.sh` | 17 (J01-J17) | **step 1**: Nebula CA + lighthouse + control plane; two outside nodes join with one bundle and one command; a study lab (CKA 1.1) runs on them; narrowed firewall, token reuse, expired certificate, blocked UDP and revocation behave |
+| `make poc-join` | `poc-join.sh` | 17 (J01-J17) | **step 1**: Nebula CA + lighthouse + control plane; two outside nodes join with one bundle and one command; a study lab (CKA 1.1) runs on them; narrowed firewall, token reuse, expired certificate, blocked UDP and revocation behave. Pins `CNI=flannel TAINT=no` (issue #59) |
 | `make poc-host` | `poc-host.sh` | 14 (H01-H11, H02b, H09b, H09c) | **host your own game**: `mesh host init / invite / players / kick / down` |
 | `make poc-golden` | `poc-golden.sh` | 32 (G1.1-G10.1; 31 run, G2.8 waits for #9; G3.4 needs `MUTUAL=yes ./cilium.sh`, else it SKIPs) | **golden path**: one check per golden rule against a game that is already up (yours or a stranger's); `GOLDEN_ENV="<column>"` writes the table in POC-STATUS.md; it builds nothing |
 | `make poc-weakness` | `poc-weakness.sh` | 8 (W00-W06, W03b) | what one control plane costs: flapping, tolerance, a lossy link, control plane down, the supervised k3s agent |
@@ -47,7 +47,7 @@ directory). Where each suite passed and how often is in [docs/POC-STATUS.md](../
 | `vm/run-all.sh` | | 89 | join, host, weakness, CAs, revoke and placement on Incus VMs in one go |
 | `make poc-down` | `down.sh` | | remove every container, network and the state |
 | `make test` | `test_pool.py`, `test_admission.py`, `test_admission_auto.py`, `../tests/` | | the pool logic (1 h lease, per-identity rules, daily cap, FIFO waitlist), the admission ledger (the file, the lock, names), the automatic tick (switch, panic, events and hook, outbox, metrics, 8 concurrent ticks), the participants' schema, policy, PR gate and issuing plan, the public page and its puller (one test class per threat of ADMISSION.md B2, `test_page.py`), the PR gates, every PoC script keeps its executable bit, two state directories do not touch each other |
-| `make poc-pool` | `poc-pool.sh` | 30 (PL01-PL25, PL07b, PL09b, PL13b, PL17b, PL21b) | **the pool's cluster side and the player's own access** (issues #9, #11): a namespace `play-<name>` per player (Pod Security restricted, quota, limits, NetworkPolicy, the participant guard: private pods bound by name to the player's own node) and a kubeconfig whose token lives exactly the lease, kept apart from the node credential; the error matrix rows 6, 7, 8, 9 and 11 with their messages and exit codes (`edge-mesh kubectl`); no secret, node or other namespace; the idle kick; the second request of an address held while its lease runs and through the cooldown; the rate limit; `X-Forwarded-For`; the lease end removes node, namespace and token and the place is reused (Incus VMs) |
+| `make poc-pool` | `poc-pool.sh` | 30 (PL01-PL25, PL07b, PL09b, PL13b, PL17b, PL21b) | **the pool's cluster side and the player's own access** (issues #9, #11): a namespace `play-<name>` per player (Pod Security restricted, quota, limits, NetworkPolicy, the participant guard: private pods bound by name to the player's own node) and a kubeconfig whose token lives exactly the lease, kept apart from the node credential; the error matrix rows 6, 7, 8, 9 and 11 with their messages and exit codes (`edge-mesh kubectl`); no secret, node or other namespace; the idle kick; the second request of an address held while its lease runs and through the cooldown; the rate limit; `X-Forwarded-For`; the lease end removes node, namespace and token and the place is reused (Incus VMs). Pins `TAINT=no` (issue #59) |
 | `vm/run-all.sh` | | 89 | join, host, weakness, CAs, revoke and placement on Incus VMs in one go |
 | `make poc-down` | `down.sh` | | remove every container, network and the state |
 | `make test` | `test_pool.py`, `test_admission.py`, `test_admission_auto.py`, `test_participant.py`, `test_edge_mesh.py`, `../tests/` | | the pool logic (1 h lease, per-identity rules, daily cap, FIFO waitlist), the admission ledger (the file, the lock, names), the automatic tick (switch, panic, events and hook, outbox, metrics, 8 concurrent ticks, the idle kick, the rate limit), the player's namespace objects and kubeconfig, `edge-mesh kubectl`'s exit codes, the public page and its puller (one test class per threat of ADMISSION.md B2, `test_page.py`), the PR gates, every PoC script keeps its executable bit, two state directories do not touch each other |
