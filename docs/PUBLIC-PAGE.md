@@ -12,7 +12,7 @@ estado: construida y probada (make test; make poc-page en VMs Incus y con un ser
 depende_de: [docs/ADMISSION.md, docs/HOST-YOUR-OWN.md, poc/page/page.py, poc/page/puller.py, poc/page/seal.py, poc/page/visit.py, poc/page/page-server.sh, poc/lighthouse-vps.sh]
 lo_usan: [README.md, docs/HOST-YOUR-OWN.md, docs/ADMISSION.md, docs/JOIN.md]
 docs: [docs/ADMISSION.md, docs/HOST-YOUR-OWN.md, docs/DESIGN.md]
-scripts: [poc/page/page.py, poc/page/puller.py, poc/page/seal.py, poc/page/visit.py, poc/page/page-server.sh, poc/poc-page.sh, poc/test_page.py]
+scripts: [poc/page/page.py, poc/page/puller.py, poc/page/seal.py, poc/page/visit.py, poc/page/page-server.sh, poc/poc-page.sh, poc/test_page.py, poc/test_page_token.py]
 runbooks: [docs/HOST-YOUR-OWN.md]
 tags: [pagina-publica, admision, anti-bot, api, caddy, puller, opcional]
 ---
@@ -76,7 +76,7 @@ From the repository's `poc/` directory on your host:
 SSH="ssh -i ~/.ssh/server admin@page.example.org sudo"
 ./page/page-server.sh install --ssh "$SSH" --site page.example.org         # the page, its unit, the Caddy site (add --with-caddy if it has none)
 ./page/page-server.sh puller-token --ssh "$SSH"                             # the token is made HERE (.state/page/puller.token, 0600); only its SHA-256 goes there
-./page/page-server.sh verify --ssh "$SSH" --site page.example.org           # ok: page service active ... ok: the puller's hash is set
+./page/page-server.sh verify --ssh "$SSH" --site page.example.org         # ok: page service active ... ok: the puller's token is accepted (200), tested from here
 python3 page/puller.py run --url https://page.example.org --token-file .state/page/puller.token   # puller: open | listed 0 | ... (the page opens)
 ```
 
