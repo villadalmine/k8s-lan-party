@@ -257,7 +257,8 @@ def feature_gate(body: str, files: list[str], cat: dict, commits: list[str] | No
     if not feats:
         return []
     clean = re.sub(r"<!--.*?-->", "", body, flags=re.S)
-    evidence = sections(body).get("Evidence", "")
+    # Known gaps says what the evidence does not cover: neither a PASS nor a FAIL there is a citation
+    evidence = re.sub(r"^###\s+Known gaps.*?(?=^###|\Z)", "", sections(body).get("Evidence", ""), flags=re.M | re.S)
     lines = evidence.splitlines()
     rows = [_cells(ln) for ln in lines if ln.lstrip().startswith("|")]
     prose = [ln for ln in lines if not ln.lstrip().startswith("|")]

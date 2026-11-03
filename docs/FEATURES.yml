@@ -11,6 +11,8 @@
 # features: steps are ids from the suite's source (`step <id>`, `check <rule> <id>`); `A-B` is every step from A to B in source order.
 #   runtime: on a suite that runs on docker and incus, each proof names one, and both are listed: a run on one runtime leaves the other's
 #   code paths (poc/up.sh or poc/vm/up.sh, the branches of lib.sh) unproved, so the feature shows PARTIAL until both ran.
+#   game: on a suite that checks a game (poc-golden), the game the proof needs (aws: the stranger's control plane of DEMO-AWS.md, run by
+#   hand); make regression checks its own game, so the table says NOT RUN(aws). A change there cites `- `demo-aws`: PASS` of that run.
 #   paths: globs of tracked files that change the feature; components: the pieces it relies on (the feature graph's last column).
 meta:
   tipo: catalogo
@@ -345,7 +347,7 @@ features:
   - id: demo-aws
     description: the demo on AWS (docs/DEMO-AWS.md) - a stranger's control plane on a cloud VM built with OpenTofu, players join, the golden checks run, nothing left billing
     proven_by:
-      - {suite: poc-golden, steps: [G1.1-G2.7, G3.1-G10.1]}
+      - {suite: poc-golden, game: aws, steps: [G1.1-G2.7, G3.1-G10.1]}
     paths: [examples/aws/*.tf, examples/aws/*.tftpl, examples/aws/leftovers.sh]
     components: [OpenTofu, AWS, Nebula, k3s]
     docs: [docs/DEMO-AWS.md]

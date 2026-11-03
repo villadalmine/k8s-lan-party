@@ -1,12 +1,6 @@
-"""Diagrams that cannot go stale (issue #62): every docs/diagrams/*.mmd has an SVG and a PNG carrying the SHA-256 of the source, and the
-feature graph (docs/diagrams/features.mmd) is exactly what scripts/features.py generates from docs/FEATURES.yml. Without mermaid-cli only
-the hashes are compared; with it (MMDC or `mmdc` on PATH) the feature graph is also rendered, so a source mermaid refuses fails here."""
-import os
-import shutil
-import subprocess
-import sys
-import tempfile
-import unittest
+"""Issue #62: every docs/diagrams/*.mmd has an SVG and a PNG carrying its SHA-256, and features.mmd is what the catalog generates.
+With mermaid-cli (MMDC or `mmdc` on PATH) the feature graph is also rendered; without it only the hashes are compared."""
+import os, shutil, subprocess, sys, tempfile, unittest  # noqa: E401
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))

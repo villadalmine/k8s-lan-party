@@ -116,6 +116,8 @@ def validate(cat: dict, make: dict[str, str] | None = None, files: list[str] | N
             if (len(rts) > 1 or proof.get("runtime")) and proof.get("runtime") not in rts:
                 problems.append(f"feature {fid}: {sid} runs on {', '.join(rts)}: each proof names one of them as its runtime")
             on.setdefault(sid, set()).add(proof.get("runtime"))
+            if proof.get("game") and not suites[sid].get("on_game_of"):
+                problems.append(f"feature {fid}: {sid} builds its own game: 'game' is only for a suite that checks one (poc-golden)")
             if not proof.get("steps"):
                 problems.append(f"feature {fid}: {sid} names no step")
                 continue
@@ -220,6 +222,8 @@ def table(cat: dict, runs: Path, commit: str, date: str, env: str = "") -> str:
         parts, results = [], []
         for proof in f["proven_by"]:
             status, steps = proof_status(runs_of[proof["suite"]], proof.get("runtime"))
+            if proof.get("game") and status in ("RAN", "TIMEOUT"):   # make regression checks its own game, never this one
+                status, steps = f"NOT RUN({proof['game']})", {}
             r = proof_result(status, steps, expand(proof["steps"], script_steps(suites[proof["suite"]]["script"])))
             results.append(r)
             on = f" ({proof['runtime']})" if proof.get("runtime") else ""

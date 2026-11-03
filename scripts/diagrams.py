@@ -1,10 +1,7 @@
 #!/usr/bin/env python3
-"""The diagrams under docs/diagrams (issue #62): every <name>.mmd is rendered to <name>.svg and <name>.png, and both carry the SHA-256 of
-the source (the SVG as a comment, the PNG as a tEXt chunk). tests/test_diagrams.py fails when a .mmd changed and its SVG or PNG was not
-rendered again. Checking needs nothing but Python; rendering needs mermaid-cli (MMDC, default `mmdc`).
-
-    scripts/diagrams.py check               every .mmd: its SVG and PNG carry its hash
-    scripts/diagrams.py render [NAME ...]   render with mermaid-cli and stamp the hash (all diagrams when no name is given)
+"""docs/diagrams (issue #62): each <name>.mmd has a <name>.svg and .png carrying the source's SHA-256 (an SVG comment, a PNG tEXt chunk).
+    scripts/diagrams.py check               every SVG and PNG carries the hash of its .mmd (Python only)
+    scripts/diagrams.py render [NAME ...]   render with mermaid-cli (MMDC, default `mmdc`) and stamp the hash (all when no name)
 """
 from __future__ import annotations
 
@@ -36,10 +33,7 @@ def chunks(png: bytes) -> list[tuple[bytes, bytes]]:
 
 
 def png_hash(png: Path) -> str | None:
-    for kind, data in chunks(png.read_bytes()):
-        if kind == b"tEXt" and data.startswith(KEY + b"\0"):
-            return data[len(KEY) + 1:].decode()
-    return None
+    return next((d[len(KEY) + 1:].decode() for k, d in chunks(png.read_bytes()) if k == b"tEXt" and d.startswith(KEY + b"\0")), None)
 
 
 def svg_hash(svg: Path) -> str | None:

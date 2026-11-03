@@ -116,6 +116,19 @@ class Table(unittest.TestCase):
         cat = {**CAT, "cluster_paths": CAT["cluster_paths"] + ["README.md"]}
         self.assertIn("cluster_paths: README.md is in no feature's paths (the gate would ask nothing for it)", features.validate(cat))
 
+    def test_a_proof_on_another_game_is_not_run_by_a_regression(self):
+        """demo-aws is proved by poc-golden on the AWS game (game: aws): a regression passes poc-golden on poc-vm's game, not that one."""
+        golden = features.script_steps("poc/poc-golden.sh")
+        with tempfile.TemporaryDirectory() as t:
+            (Path(t) / "poc-golden@incus.status").write_text("incus\tRAN\n")
+            (Path(t) / "poc-golden@incus.out").write_text("".join(f"PASS {s:<6} x\n" for s in golden) + "RESULT PASS\n")
+            one = features.table(CAT, Path(t), "abc", "2026-11-03")
+        self.assertIn("| `demo-aws` | NOT RUN(aws) |", one)
+        self.assertIn("| `golden-rules` | PASS |", one)
+        bad = {**CAT["features"][0], "proven_by": [{"suite": "poc-join", "runtime": "incus", "game": "aws", "steps": ["J01"]},
+                                                    {"suite": "poc-join", "runtime": "docker", "steps": ["J01"]}]}
+        self.assertTrue(any("'game' is only for" in p for p in features.validate({**CAT, "features": [bad]})))
+
     def test_a_runtime_the_suite_does_not_have_fails(self):
         bad = {**CAT["features"][0], "proven_by": [{"suite": "poc-vm", "runtime": "docker", "steps": ["V01"]}]}
         self.assertTrue(any("poc-vm runs on incus" in p for p in features.validate({**CAT, "features": [bad]})))

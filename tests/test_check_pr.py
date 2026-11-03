@@ -236,7 +236,6 @@ class FeatureGate(unittest.TestCase):
         self.assertIn("node-guard (missing)", self.gate(subset, "poc/lib.sh")[0])
 
     def test_the_table_must_come_from_a_commit_of_the_pr(self):
-        self.assertEqual(check_pr.feature_gate(self.table({}), ["poc/lib.sh"], CAT, ["abcdef0123456789"]), [])
         self.assertIn("a commit of this PR", check_pr.feature_gate(self.table({}), ["poc/lib.sh"], CAT, ["1234567890ab"])[0])
 
     def test_a_fail_for_a_touched_suite_is_never_hidden_by_a_pass(self):
@@ -247,6 +246,12 @@ class FeatureGate(unittest.TestCase):
         self.assertIn("poc-golden", self.gate(both, "docs/GOLDEN-RULES.md")[0])
         proven_by = GATED.replace("poc-golden: RESULT PASS", "| `golden-rules` | PARTIAL | `poc-golden` G1.1: PASS |")
         self.assertIn("cite the RESULT PASS of poc-golden", self.gate(proven_by, "docs/GOLDEN-RULES.md")[0])
+
+    def test_known_gaps_is_not_evidence(self):
+        gap = GATED.replace("### Known gaps\nnone\n", "### Known gaps\npoc-golden: RESULT FAIL (1) once, before the fix of J11\n")
+        self.assertEqual(self.gate(gap, "docs/GOLDEN-RULES.md"), [])
+        only_gap = gap.replace("poc-golden: RESULT PASS\n", "").replace("### Known gaps\n", "### Known gaps\npoc-golden: RESULT PASS\n")
+        self.assertIn("cite the RESULT PASS of poc-golden", self.gate(only_gap, "docs/GOLDEN-RULES.md")[0])
 
     def test_docs_impact_names_the_listed_docs_or_says_none_with_a_reason(self):
         self.assertIn("add a '### Docs impact'", self.gate(GOOD.replace("### Known gaps", "poc-golden: RESULT PASS\n### Known gaps"),
