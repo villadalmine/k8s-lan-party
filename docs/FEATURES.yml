@@ -4,7 +4,8 @@
 # no suite step, or a step, path, doc or diagram does not exist. Change the catalog in the same PR that changes a suite or a feature.
 #
 # suites:   one entry per `poc-*` target of the Makefile, in the order `make regression` runs them (cheap and offline first).
-#   runtime: where the suite can run: none (no machines), docker, incus, kind. Two values: either one (make regression picks one).
+#   runtime: where the suite can run: none (no machines), docker, incus, kind. Two values: make regression picks one, or runs both with
+#   REGRESSION_RUNTIME=docker-vm (the docker and kind suites in an Incus VM of the run).
 #   on_game_of: the suite builds nothing and checks the game another suite leaves up (make regression runs that one with KEEP=1).
 #   role: teardown: a target that proves nothing by itself (it removes); make regression runs it last.
 # features: steps are ids from the suite's source (`step <id>`, `check <rule> <id>`); `A-B` is every step from A to B in source order.

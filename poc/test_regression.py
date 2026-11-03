@@ -17,10 +17,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 
-# every call is logged; `incus list` prints $INCUS_LIST (a foreign instance), `docker info` and `docker network inspect` exit as told
+# every call is logged; `incus list` prints $INCUS_LIST (a foreign instance), `docker info` and `docker network inspect` exit as told;
+# the tarball piped into the VM is kept in $STUB_LOG.tar; `incus init` fails with STUB_FAIL_INIT=1
 STUB = """#!/bin/sh
 echo "$(basename "$0") $*" >>"$STUB_LOG"
-case "$(basename "$0") $1" in "incus list") printf '%s' "${INCUS_LIST:-}" ;; "incus network") exit 1 ;; "docker info") exit "${DOCKER_INFO:-1}" ;;
+case "$*" in *"tar xf -"*) cat >"$STUB_LOG.tar" ;; esac
+[ "$(basename "$0") $1 ${STUB_FAIL_INIT:-}" != "incus init 1" ] || exit 1
+case "$(basename "$0") $1" in "incus list") printf '%s' "${INCUS_LIST:-}" ;; "incus network") [ "$2" != show ] || exit 1 ;;
+  "incus query") echo '{"space": {"used": 1, "total": 10}}' ;; "docker info") exit "${DOCKER_INFO:-1}" ;;
   "docker network") exit "${DOCKER_NET:-1}" ;; docker*) exit 1 ;; esac
 exit 0
 """
@@ -55,7 +59,7 @@ class Runner(unittest.TestCase):
         self.assertEqual(self.removed(), [])
 
     def test_the_live_games_project_is_never_touched_even_with_a_marker(self):
-        mark = "project=emesh-demo\ncreated=yes\nbridges=emregbr emregpub emrega emregb\n"
+        mark = "project=emesh-demo\ncreated=yes\nbridges=emregbr emregpub emrega emregb emregdvm\n"
         r, _ = self.run_regression({"INCUS_PROJECT": "emesh-demo", "INCUS_LIST": "emesh-cp\n"}, "", "down", mark=mark)
         self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
         self.assertIn("INCUS_PROJECT=emesh-demo: refused", r.stdout)
@@ -64,7 +68,7 @@ class Runner(unittest.TestCase):
         self.assertIn("bridge emeshdemo: refused", r.stdout)
 
     def test_down_removes_what_its_marker_names(self):
-        mark = "project=emesh-test\ncreated=yes\nbridges=emregbr emregpub emrega emregb\n"
+        mark = "project=emesh-test\ncreated=yes\nbridges=emregbr emregpub emrega emregb emregdvm\n"
         r, reg = self.run_regression({"INCUS_LIST": "emesh-cp\n"}, "", "down", mark=mark)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn("incus delete -f emesh-cp", self.removed())
@@ -77,6 +81,44 @@ class Runner(unittest.TestCase):
         self.assertIn("docker network emesh exists", r.stdout)
         self.assertEqual(self.removed(), [])
         self.assertEqual(list((reg / "runs").iterdir()), [])
+
+    def test_docker_vm_builds_the_vm_runs_the_docker_suite_in_it_and_removes_it(self):
+        r, reg = self.run_regression({"REGRESSION_RUNTIME": "docker-vm", "ONLY": "poc-cilium poc-kind"})
+        calls = self.log.read_text()
+        self.assertIn("incus init images:ubuntu/24.04/cloud regdocker --vm", calls)
+        self.assertIn("incus exec regdocker --cwd /root/repo ./poc/vm/docker-vm.sh", calls)
+        self.assertIn("incus exec regdocker --cwd /root/repo --env RUNTIME=docker --env EMESH_STATE=/root/state/poc-cilium", calls)
+        self.assertIn("./poc/kind-cilium.sh", calls)
+        self.assertEqual((reg / "runs/poc-cilium@docker.status").read_text(), "docker\tRAN\n")
+        self.assertEqual((reg / "runs/poc-kind@kind.status").read_text(), "kind\tRAN\n")
+        self.assertIn("incus delete -f regdocker", self.removed())
+        self.assertIn("incus network delete emregdvm", self.removed())
+        self.assertFalse((reg / "project.created").exists())
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)   # the stub prints no RESULT line: that fails the run
+        self.assertIn("no RESULT PASS: poc-cilium@docker, poc-kind@kind", r.stderr)
+
+    def test_only_tracked_files_travel_to_the_docker_vm(self):
+        planted = []
+        for rel in (".env", "examples/aws/terraform.tfvars", "poc/zz-planted.key"):
+            p = ROOT / rel
+            if not p.exists():
+                p.write_text("SECRET=planted\n")
+                planted.append(p)
+        self.addCleanup(lambda: [p.unlink() for p in planted if p.exists()])
+        self.run_regression({"REGRESSION_RUNTIME": "docker-vm", "ONLY": "poc-cilium"})
+        names = subprocess.run(["tar", "tf", f"{self.log}.tar"], capture_output=True, text=True, check=True).stdout.splitlines()
+        self.assertIn("poc/regression.sh", names)
+        for rel in (".env", "examples/aws/terraform.tfvars", "poc/zz-planted.key"):
+            self.assertNotIn(rel, names)
+        self.assertFalse(any(n.startswith(("poc/.cache", ".git/")) for n in names))
+
+    def test_a_docker_vm_that_cannot_be_built_leaves_nothing_and_runs_nothing(self):
+        r, reg = self.run_regression({"REGRESSION_RUNTIME": "docker-vm", "ONLY": "poc-cilium", "STUB_FAIL_INIT": "1"})
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn("the docker VM could not be built", r.stdout)
+        self.assertEqual(list((reg / "runs").iterdir()), [])
+        self.assertFalse((reg / "project.created").exists())
+        self.assertIn("incus network delete emregdvm", self.removed())
 
     def test_an_unknown_suite_in_only_is_refused(self):
         r, _ = self.run_regression({"ONLY": "poc-jion"})
@@ -96,8 +138,8 @@ class Runner(unittest.TestCase):
     def test_docker_suites_on_a_host_without_docker_are_skipped_not_failed(self):
         r, reg = self.run_regression({"ONLY": "poc-cilium poc-kind"})
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertEqual((reg / "runs/poc-cilium.status").read_text(), "docker\tSKIP(docker)\n")
-        self.assertEqual((reg / "runs/poc-kind.status").read_text(), "kind\tSKIP(kind)\n")
+        self.assertEqual((reg / "runs/poc-cilium@docker.status").read_text(), "docker\tSKIP(docker)\n")
+        self.assertEqual((reg / "runs/poc-kind@kind.status").read_text(), "kind\tSKIP(kind)\n")
         self.assertIn("| `kind` | SKIP(kind) |", r.stdout)
 
 
