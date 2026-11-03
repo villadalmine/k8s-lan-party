@@ -148,7 +148,7 @@ narrows what a write by that account may claim, keyed on the node its pod-bound 
 
 | Object | Without the guard, the owner of a joined node could | Guard (ValidatingAdmissionPolicy) | Negative test |
 | :--- | :--- | :--- | :--- |
-| `CiliumNode` | replace another node's WireGuard key or addresses; give his own node another node's pod range; claim another node's address (or one in its pod range) in his own object, which every node puts in its WireGuard allowed IPs and ipcache | only its own node's object; `spec.ipam.podCIDRs` never changes (the operator hands them out); its own `spec.addresses`, `health` and `ingress` may not equal another node's address or fall in another node's pod CIDRs (every `CiliumNode` is a param) | `poc-vm` V06c, V09c |
+| `CiliumNode` | replace another node's WireGuard key or addresses; give his own node another node's pod range; claim in his own object an address of another node, of another node's pod range, or of anything outside the cluster (the lighthouse, a resolver), which every node puts in its WireGuard allowed IPs and ipcache with him as peer | only its own node's object; `spec.ipam.podCIDRs` never changes (the operator hands them out); its own addresses are bounded: at most one `InternalIP`, inside the game's Nebula subnet (`MESH_CIDR`), no `ExternalIP`, every other address (CiliumInternalIP, health, ingress) inside its own pod CIDRs, and none equal to another node's address or inside another node's pod CIDRs (every `CiliumNode` is a param). Not bounded: which free mesh IP it takes, residual (5) | `poc-vm` V06c, V09c |
 | `CiliumEndpoint` | publish "this pod IP lives on my node" for another node's pod, or take over or delete another node's endpoint, so the other nodes tunnel that pod's traffic to him | every `CiliumNode` is a param: the endpoint (new and old) must name an address of the agent's own `CiliumNode` with pod IPs inside its pod CIDRs, and no pod IP in another node's pod CIDRs (other nodes are judged by their operator-owned CIDRs only, so a claimed address cannot veto them) | `poc-vm` V09b |
 | `CiliumIdentity` | rewrite an existing identity's labels (the ID of a private workload would mean his labels), directly or by creating `0<id>` (agents key identities on `ParseUint(name)`); create one in the reserved range or with a `reserved:` label | security labels of an existing identity never change; a new one only in 256-65535, as the canonical decimal, without `reserved:` labels (assumes `cluster.id` 0: with ClusterMesh every allocation would be refused); no delete | `poc-vm` V09c |
 
@@ -167,7 +167,10 @@ operator, not tied to a node), so the peer node proves it holds a certificate fr
 an IP of his own range) before that pod's agent does; the honest agent then cannot take it over, and the operator keeps it while the pod runs, so
 the other nodes never learn that pod's real IP from its endpoint (a denial of service on that pod, not a redirect: the squatted endpoint
 carries his own address and range; recorded by `poc-vm` V09b). Closing it would need
-the Pod as an admission param. The full fix
+the Pod as an admission param. (5) **A free mesh IP can be pre-claimed.** The guard knows the game's Nebula subnet, not which IP the host issued to which node, so a joined
+node can take a free IP of the mesh as its one InternalIP: the node that later gets that IP is refused when its agent creates its `CiliumNode`
+(first writer wins), and until then every node tunnels that /32 to him. Recorded by `poc-vm` V09c; the close (pin the InternalIP to the issued IP,
+which the host already lists in `kube-system/edge-mesh-nodes`) is issue #58. The full fix
 for identities, operator-managed identities (the agents write none), was tried: in Cilium 1.20.3 it leaves every pod with a named port without
 an identity (coredns: the agent adds a `named-ports` label the operator does not), fixed upstream after 1.20.4 (cilium/cilium e27ce9ee66); it is
 the next step when that ships. **So:** identity-based policy and mutual authentication are a boundary between honest nodes, not against the

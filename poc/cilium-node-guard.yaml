@@ -5,6 +5,11 @@
 # 1. CiliumNodes (issue #8). A CiliumNode carries the node's WireGuard public key, addresses and pod CIDRs, which every other node uses to encrypt
 #    and route to it. A write is admitted only for the CiliumNode of the agent's own node, and never changes its pod CIDRs: in cluster-pool IPAM
 #    the operator hands them out, so an agent that could set them could claim another node's pod range (issue #29).
+#    And the addresses it claims for itself are bounded (issue #29, review round 2 of PR #53): at most one InternalIP and it lies in the game's
+#    Nebula subnet (@MESH_CIDR@, written by cilium.sh from stack.env: MESH_CIDR), no ExternalIP, and every other address (CiliumInternalIP, the
+#    health and ingress IPs) inside its own pod CIDRs. Every node puts a peer's addresses in its ipcache and its WireGuard allowed IPs, so without
+#    this a joined node could claim an IP outside the cluster (the lighthouse, a resolver) and have every node tunnel it to him. What is left:
+#    claiming a FREE IP of the mesh as its one InternalIP (residual (5), DESIGN.md 3.3; the close is issue #58).
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
 metadata:
@@ -25,6 +30,15 @@ spec:
     expression: "request.operation == 'DELETE' || !has(object.spec.ipam) || !has(object.spec.ipam.podCIDRs) ? [] : object.spec.ipam.podCIDRs"
   - name: oldCidrs
     expression: "request.operation != 'UPDATE' || !has(oldObject.spec.ipam) || !has(oldObject.spec.ipam.podCIDRs) ? [] : oldObject.spec.ipam.podCIDRs"
+  - name: addrs
+    expression: "request.operation == 'DELETE' || !has(object.spec.addresses) ? [] : object.spec.addresses"
+  - name: others
+    expression: >-
+      variables.addrs.filter(a, !has(a.type) || (a.type != 'InternalIP' && a.type != 'ExternalIP')).filter(a, has(a.ip)).map(a, a.ip) +
+      (request.operation != 'DELETE' && has(object.spec.health) && has(object.spec.health.ipv4) ? [object.spec.health.ipv4] : []) +
+      (request.operation != 'DELETE' && has(object.spec.health) && has(object.spec.health.ipv6) ? [object.spec.health.ipv6] : []) +
+      (request.operation != 'DELETE' && has(object.spec.ingress) && has(object.spec.ingress.ipv4) ? [object.spec.ingress.ipv4] : []) +
+      (request.operation != 'DELETE' && has(object.spec.ingress) && has(object.spec.ingress.ipv6) ? [object.spec.ingress.ipv6] : [])
   validations:
   - expression: >-
       'authentication.kubernetes.io/node-name' in request.userInfo.extra &&
@@ -32,6 +46,14 @@ spec:
     message: a Cilium agent may write only the CiliumNode of its own node
   - expression: "variables.cidrs.all(c, c in variables.oldCidrs) && variables.oldCidrs.all(c, c in variables.cidrs)"
     message: "the pod CIDRs of a CiliumNode are set by the operator, never by a Cilium agent (edge-mesh, issue #29)"
+  - expression: "variables.addrs.filter(a, has(a.type) && a.type == 'ExternalIP').size() == 0"
+    message: "a CiliumNode written by a Cilium agent carries no ExternalIP (edge-mesh, issue #29)"
+  - expression: >-
+      variables.addrs.filter(a, has(a.type) && a.type == 'InternalIP').size() <= 1 &&
+      variables.addrs.filter(a, has(a.type) && a.type == 'InternalIP').all(a, has(a.ip) && cidr('@MESH_CIDR@').containsIP(a.ip))
+    message: "a CiliumNode carries at most one InternalIP, inside the game's Nebula subnet (edge-mesh, issue #29)"
+  - expression: "variables.others.all(i, variables.cidrs.exists(c, cidr(c).containsIP(i)))"
+    message: "a CiliumNode's other addresses (CiliumInternalIP, health, ingress) lie inside its own pod CIDRs (edge-mesh, issue #29)"
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding

@@ -327,8 +327,18 @@ identity_guard_holds() { # from n2, with its agent token: web's identity cannot 
   obj=$(k get ciliumnode "$(nn n2)" -o json) || return 1   # (the role may update a CiliumNode, not patch it)
   out=$(sed "s#\"$(cn_cidr "$(nn n2)")\"#\"$(cn_cidr "$(nn cp)")\"#" <<<"$obj" | agent_write n2 replace --dry-run=server -f -)
   echo "n2 gives its own CiliumNode cp's pod range: $out"; denied_29 "$out" || return 1
-  out=$(sed '0,/"addresses": \[/s//"addresses": [{"ip": "'"$(cn_addr "$(nn cp)")"'", "type": "InternalIP"},/' <<<"$obj" | agent_write n2 replace --dry-run=server -f -)
-  echo "n2 adds cp's address to its own CiliumNode: $out"; denied_29 "$out" || return 1
+  local mine; mine=$(cn_addr "$(nn n2)")
+  out=$(sed "s#\"ip\": \"$mine\"#\"ip\": \"$(cn_addr "$(nn cp)")\"#" <<<"$obj" | agent_write n2 replace --dry-run=server -f -)
+  echo "n2 takes cp's address as its InternalIP: $out"; denied_29 "$out" || return 1
+  out=$(sed '0,/"addresses": \[/s//"addresses": [{"ip": "'"${MESH_CIDR%.*}"'.201", "type": "InternalIP"},/' <<<"$obj" | agent_write n2 replace --dry-run=server -f -)
+  echo "n2 adds a second InternalIP: $out"; denied_29 "$out" || return 1
+  out=$(sed '0,/"addresses": \[/s//"addresses": [{"ip": "'"${MESH_CIDR%.*}"'.202", "type": "ExternalIP"},/' <<<"$obj" | agent_write n2 replace --dry-run=server -f -)
+  echo "n2 adds an ExternalIP: $out"; denied_29 "$out" || return 1
+  out=$(sed "s#\"ip\": \"$mine\"#\"ip\": \"192.0.2.10\"#" <<<"$obj" | agent_write n2 replace --dry-run=server -f -)
+  echo "n2 claims an address outside the mesh (192.0.2.10) as its InternalIP: $out"; denied_29 "$out" || return 1
+  # residual (5), recorded not judged: a FREE address of the mesh as its one InternalIP passes (DESIGN.md 3.3; the close is issue #58)
+  out=$(sed "s#\"ip\": \"$mine\"#\"ip\": \"${MESH_CIDR%.*}.200\"#" <<<"$obj" | agent_write n2 replace --dry-run=server -f -)
+  echo "n2 claims a free mesh address (${MESH_CIDR%.*}.200) as its InternalIP (accepted, recorded: residual 5): $out"; grep -q 'replaced (server dry run)' <<<"$out" || return 1
   local free=65000; while k get ciliumidentity "$free" >/dev/null 2>&1; do free=$((free - 1)); done   # identity IDs are allocated at random
   out=$(printf 'apiVersion: cilium.io/v2\nkind: CiliumIdentity\nmetadata: {name: "%s"}\nsecurity-labels: {"k8s:app": "web"}\n' "$free" | agent_write n2 create --dry-run=server -f -)
   echo "n2 creates a new identity $free in the global range (allowed, recorded): $out"; grep -q 'created (server dry run)' <<<"$out"

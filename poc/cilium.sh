@@ -26,4 +26,5 @@ helm_cp upgrade --install cilium cilium --repo https://helm.cilium.io --version 
 # every agent shares one service account, and its token sits on every node's disk. poc/cilium-node-guard.yaml narrows what a write by it may claim:
 # only its own node's CiliumNode, never its pod CIDRs (issues #8, #29); a CiliumIdentity only in the global range, never a reserved label, never
 # relabelled; and only CiliumEndpoints of its own node's address and pod CIDRs (issue #29)
-k apply -f - <"$POC/cilium-node-guard.yaml" >/dev/null
+# (the file names the game's Nebula subnet as @MESH_CIDR@: one InternalIP per CiliumNode, inside it)
+sed "s#@MESH_CIDR@#$MESH_CIDR#g" "$POC/cilium-node-guard.yaml" | k apply -f - >/dev/null
