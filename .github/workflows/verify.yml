@@ -1,13 +1,18 @@
 name: Verify
 
-# Adapted from study-cybercirujas (verify.yml). Two required checks (names matter: the ruleset in
-# .github/rulesets/main.json requires them by name):
-#   verify    - the repo's own checks: labels as code, unit tests of the gates, no secrets
-#   pr-format - the PR description: sections, scope, provenance, DCO, the cited CI run
-# plus where-it-ran, a comment with the line to paste under "Evidence -> Where it ran".
+# Adapted from study-cybercirujas (verify.yml). The ruleset in .github/rulesets/main.json requires two
+# checks by name: `verify` (here: labels as code, unit tests of the gates, no secrets) and `pr-format`
+# (the PR description, in pr-format.yml), plus where-it-ran here, a comment with the line to paste
+# under "Evidence -> Where it ran".
+#
+# Only code events trigger this workflow (issue #60, review of #61): a description edit or a label
+# never runs it, so it never creates a skipped `verify` check run on a head. GitHub counts `skipped`
+# as passing and the ruleset takes the newest check run of each name, so a skipped `verify` would hide
+# a red one. Every `verify` check run on a head is a real run on that exact commit.
+# tests/test_check_pr.py (test_verify_never_skips_by_event) keeps it that way.
 on:
   pull_request:
-    types: [opened, synchronize, reopened, edited, labeled, unlabeled]
+    types: [opened, synchronize, reopened]
   push:
     branches: [main]
 
@@ -15,15 +20,15 @@ permissions:
   contents: read
 
 concurrency:
-  # A newer push makes the older run irrelevant; cancel it rather than queue.
-  # A description edit or a label must not cancel a code run on the same ref (same rule as study).
-  group: verify-${{ github.ref }}-${{ contains(fromJSON('["edited","labeled","unlabeled"]'), github.event.action) && 'meta' || 'code' }}
-  cancel-in-progress: true
+  # A newer push to the same PR cancels the older run: that run is on the old head, so its cancelled
+  # checks never land on the new head. A push to main gets its own group (sha) and is never cancelled:
+  # every commit on main keeps its own verify result.
+  group: verify-${{ github.event_name == 'push' && format('main-{0}', github.sha) || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   verify:
-    # `edited`/`labeled`/`unlabeled` only re-run pr-format: the code did not change.
-    if: ${{ !contains(fromJSON('["edited","labeled","unlabeled"]'), github.event.action) }}
+    # No `if:`: this job must never be skipped on a pull_request (see the header).
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -72,52 +77,10 @@ jobs:
           fi
           echo "authors OK ($range)"
 
-  pr-format:
-    # The PR description is part of the change: required sections, a Conventional Commit title, a
-    # declared scope, declared provenance and a DCO sign-off on every commit. Offline, no model.
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      contents: read
-      pull-requests: read
-      actions: read          # the cited run and its jobs (a permissions block grants nothing it does not list)
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - name: Check the PR description
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          BASE_REF: ${{ github.base_ref }}
-        run: |
-          # Labels read live, not from the payload: "Re-run jobs" replays the original event,
-          # which may predate a waiver label.
-          gh api "repos/${{ github.repository }}/issues/${PR_NUMBER}/labels" \
-            --jq '.[].name' > labels.txt || rm -f labels.txt
-          python3 scripts/check_pr.py --event "$GITHUB_EVENT_PATH" --labels-file labels.txt \
-            --base "origin/${BASE_REF}" --runs-file cited-runs.txt
-      - name: Check the run cited under "Where it ran"
-        # check_pr.py stays offline; this step is its one networked mode, with the job's own token.
-        # At least one cited run must be of this repository, on the PR's current head commit, from
-        # verify.yml on a pull_request event, with its `verify` job green. pr-format runs from the PR
-        # branch, so a PR that edits .github/ is still read by the maintainer (CODEOWNERS).
-        if: always() && hashFiles('cited-runs.txt') != ''
-        env:
-          GH_TOKEN: ${{ github.token }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: |
-          python3 scripts/check_pr.py --verify-runs cited-runs.txt \
-            --repo "${{ github.repository }}" --head "$HEAD_SHA"
-
   where-it-ran:
     # After verify passes on a new head, post (or update) one comment with the exact line for the
     # description's "Where it ran" subsection. Our own Actions token, no external bot.
-    if: ${{ github.event_name == 'pull_request' && !contains(fromJSON('["edited","labeled","unlabeled"]'), github.event.action) }}
+    if: github.event_name == 'pull_request'
     needs: [verify]
     runs-on: ubuntu-latest
     timeout-minutes: 5

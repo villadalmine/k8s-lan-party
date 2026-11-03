@@ -1,0 +1,72 @@
+name: PR format
+
+# The required check `pr-format` (.github/rulesets/main.json requires it by name): the PR description,
+# its sections, scope, provenance, DCO and the CI run cited under "Where it ran". Its own workflow, so
+# that a description edit or a label re-runs only this, and verify.yml never shows a skipped `verify`
+# (issue #60, review of #61). Offline except the cited-run step.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited, labeled, unlabeled]
+
+permissions:
+  contents: read
+
+concurrency:
+  # A newer push cancels the older push run (its check is on the old head). An edit or a label never
+  # cancels anything and is never cancelled: its own group (run id). A cancelled check on the head reads
+  # as "not successful". The body is read live, so a late run checks the latest one.
+  group: >-
+    pr-format-${{ contains(fromJSON('["opened","synchronize","reopened"]'), github.event.action)
+    && github.ref || format('{0}-meta-{1}', github.ref, github.run_id) }}
+  cancel-in-progress: ${{ contains(fromJSON('["opened","synchronize","reopened"]'), github.event.action) }}
+
+jobs:
+  pr-format:
+    # The PR description is part of the change: required sections, a Conventional Commit title, a
+    # declared scope, declared provenance and a DCO sign-off on every commit. Offline, no model.
+    # "Where it ran" (issue #60): on a push (opened/synchronize/reopened) the run to cite does not exist
+    # yet, so the link is advisory; the proof for that head is the `verify` run verify.yml starts for the
+    # same event, a required check that is never skipped. On every other action (edited, labeled,
+    # unlabeled, anything new) the cited run must be a green verify run of the exact head, checked
+    # against the API; it waits while that run is queued or running (check_pr.py WAIT_SECONDS).
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: read          # the cited run and its jobs (a permissions block grants nothing it does not list)
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Check the PR description
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          # Labels read live, not from the payload: "Re-run jobs" replays the original event,
+          # which may predate a waiver label.
+          gh api "repos/${{ github.repository }}/issues/${PR_NUMBER}/labels" \
+            --jq '.[].name' > labels.txt || rm -f labels.txt
+          # The title and body read live too: a run that starts after a later edit checks that edit.
+          gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}" > pr.json || rm -f pr.json
+          python3 scripts/check_pr.py --event "$GITHUB_EVENT_PATH" --pr-file pr.json --labels-file labels.txt \
+            --base "origin/${BASE_REF}" --runs-file cited-runs.txt
+      - name: Check the run cited under "Where it ran"
+        # check_pr.py stays offline; this step is its one networked mode, with the job's own token.
+        # Except on a push (opened/synchronize/reopened, where it only warns): at least one cited run
+        # must be of this repository, on the PR's current head commit, from verify.yml on a pull_request
+        # event, with its `verify` job green (it waits while that run is queued or running). pr-format
+        # runs from the PR branch, so a PR that edits .github/ is still read by the maintainer (CODEOWNERS).
+        if: always() && hashFiles('cited-runs.txt') != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          ACTION: ${{ github.event.action }}
+        run: |
+          python3 scripts/check_pr.py --verify-runs cited-runs.txt \
+            --repo "${{ github.repository }}" --head "$HEAD_SHA" --action "$ACTION"
