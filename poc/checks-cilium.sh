@@ -336,6 +336,12 @@ identity_guard_holds() { # from n2, with its agent token: web's identity cannot 
   echo "n2 adds an ExternalIP: $out"; denied_29 "$out" || return 1
   out=$(sed "s#\"ip\": \"$mine\"#\"ip\": \"192.0.2.10\"#" <<<"$obj" | agent_write n2 replace --dry-run=server -f -)
   echo "n2 claims an address outside the mesh (192.0.2.10) as its InternalIP: $out"; denied_29 "$out" || return 1
+  # the other addresses (health, ingress, CiliumInternalIP, an entry with no type) must lie in its own pod CIDRs: every node loads them too
+  local hip; hip=$(k get ciliumnode "$(nn n2)" -o jsonpath='{.spec.health.ipv4}'); [ -n "$hip" ] || { echo "n2's CiliumNode has no health IP"; return 1; }
+  out=$(sed "s#\"ipv4\": \"$hip\"#\"ipv4\": \"192.0.2.10\"#" <<<"$obj" | agent_write n2 replace --dry-run=server -f -)
+  echo "n2 sets its health IP to 192.0.2.10: $out"; denied_29 "$out" || return 1
+  out=$(sed '0,/"addresses": \[/s//"addresses": [{"ip": "192.0.2.11"},/' <<<"$obj" | agent_write n2 replace --dry-run=server -f -)
+  echo "n2 adds an address with no type (192.0.2.11): $out"; denied_29 "$out" || return 1
   # residual (5), recorded not judged: a FREE address of the mesh as its one InternalIP passes (DESIGN.md 3.3; the close is issue #58)
   out=$(sed "s#\"ip\": \"$mine\"#\"ip\": \"${MESH_CIDR%.*}.200\"#" <<<"$obj" | agent_write n2 replace --dry-run=server -f -)
   echo "n2 claims a free mesh address (${MESH_CIDR%.*}.200) as its InternalIP (accepted, recorded: residual 5): $out"; grep -q 'replaced (server dry run)' <<<"$out" || return 1
