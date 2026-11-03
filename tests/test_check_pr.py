@@ -202,6 +202,10 @@ class CheckPr(unittest.TestCase):
             self.assertEqual(self._main("--event", str(event), "--pr-file", str(live))[0], 0)
             self.assertEqual(self._main("--event", str(event), "--action", "synchronize")[0], 0)
 
+    def test_local_pr_check_follows_the_push_rule(self):
+        src = (Path(check_pr.__file__).parent / "pr_check.py").read_text(encoding="utf-8")
+        self.assertIn('"--action", "synchronize"', src)
+
 
 if __name__ == "__main__":
     unittest.main()

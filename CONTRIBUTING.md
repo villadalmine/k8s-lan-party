@@ -60,6 +60,7 @@ make install-hooks                               # OPTIONAL: run it before every
 ```
 
 `make test` runs the unit tests of the gates; `make labels-check` checks the labels.
+`make pr-check` runs before the push, so like CI's push run it does not ask for the *Where it ran* link yet.
 
 ## Pull requests
 
