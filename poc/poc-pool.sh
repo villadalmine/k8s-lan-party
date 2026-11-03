@@ -12,7 +12,9 @@
 # Needs a Linux host with Incus. PASS/FAIL per step; identical across runs. Test values: POOL_LEASE (default 900 s; a token lives at least
 # 10 minutes), POOL_IDLE (240), POOL_COOLDOWN (60); the other limits are the real ones of pool.yaml. KEEP=1 leaves the VMs up.
 set -u
-export RUNTIME=incus MAX_VMS=4 CNI=flannel
+# TAINT=no pinned (issue #59): the participant's pods tolerate nothing (the participant guard refuses a pod that tolerates every taint), and
+# trust taints on players' nodes are not supported with the pool yet (DESIGN.md 14); a TAINT=yes left in the shell would leave them Pending
+export RUNTIME=incus MAX_VMS=4 CNI=flannel TAINT=no
 . "$(dirname "$0")/lib.sh"
 . "$POC/vm/lib-vm.sh"
 "$POC/vm/down.sh" >/dev/null 2>&1
