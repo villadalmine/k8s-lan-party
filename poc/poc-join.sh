@@ -3,6 +3,11 @@
 # and one command, the default CNI (flannel over the Nebula interface), and a real study lab (CKA 1.1) running on them.
 # Output: one PASS/FAIL line per step, identical across runs. Numbers go to .state/measurements.txt (they vary).
 set -u
+# The game this suite proves, pinned like every other suite pins its own (poc-placement TAINT=yes, poc-vm CNI=cilium TAINT=yes): the default
+# CNI (J08 measures flannel.1) and nodes WITHOUT the trust taint. A TAINT=yes left in the caller's shell (TRY-IT.md recipe 2 exports it) made n1
+# and n2 register with trust=<level>:NoSchedule; with cp tainted control-plane, the study lab's pod, which tolerates nothing, had no node at all
+# and stayed Pending: J11 and J12 failed (issue #59). Tainted joins and placement by trust are proved by poc-placement and poc-vm.
+export CNI=flannel TAINT=no
 . "$(dirname "$0")/lib.sh"
 "$POC/down.sh" >/dev/null 2>&1
 mkdir -p "$STATE"; : >"$LOG"; : >"$STATE/measurements.txt"
@@ -66,7 +71,8 @@ step J09 "study lab cka/1.1: break leaves the lab broken" lab_break
 step J10 "study lab cka/1.1: verify says NOT solved yet, as it must" lab_not_yet
 k delete storageclass cka-lab-broken-sc >>"$LOG" 2>&1
 printf 'apiVersion: storage.k8s.io/v1\nkind: StorageClass\nmetadata:\n  name: cka-lab-broken-sc\nprovisioner: rancher.io/local-path\nreclaimPolicy: Delete\nvolumeBindingMode: WaitForFirstConsumer\n' | k apply -f - >>"$LOG" 2>&1
-wait_for 180 lab_pod_running
+wait_for 180 lab_pod_running || { echo "the lab pod is not Running after 180 s:"; k -n cka-1-1-storage-lab describe pod cka-lab-writer
+  k get nodes -o custom-columns=NAME:.metadata.name,TAINTS:.spec.taints; } >>"$LOG" 2>&1   # why, for J11/J12 (the output stays fixed)
 step J11 "study lab cka/1.1: after the reference fix, verify says solved" lab_solved
 step J12 "the lab pod ran on a joined outside node, not on the control plane" lab_on_outside
 

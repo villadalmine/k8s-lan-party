@@ -3,7 +3,7 @@ tipo: doc
 id: k8s-lan-party-poc
 version: 0.3.0
 fecha_alta: 2026-10-19
-fecha_ultimo_cambio: 2026-10-28
+fecha_ultimo_cambio: 2026-11-03
 categoria: plataforma
 dueno_agente: casa-orquestador
 pieza: k8s-lan-party
@@ -25,7 +25,7 @@ directory). Where each suite passed and how often is in [docs/POC-STATUS.md](../
 
 | Command | Script | Checks | What it proves |
 | :--- | :--- | :--- | :--- |
-| `make poc-join` | `poc-join.sh` | 17 (J01-J17) | **step 1**: Nebula CA + lighthouse + control plane; two outside nodes join with one bundle and one command; a study lab (CKA 1.1) runs on them; narrowed firewall, token reuse, expired certificate, blocked UDP and revocation behave |
+| `make poc-join` | `poc-join.sh` | 17 (J01-J17) | **step 1**: Nebula CA + lighthouse + control plane; two outside nodes join with one bundle and one command; a study lab (CKA 1.1) runs on them; narrowed firewall, token reuse, expired certificate, blocked UDP and revocation behave. Pins `CNI=flannel TAINT=no` (issue #59) |
 | `make poc-host` | `poc-host.sh` | 14 (H01-H11, H02b, H09b, H09c) | **host your own game**: `mesh host init / invite / players / kick / down` |
 | `make poc-golden` | `poc-golden.sh` | 31 (G1.1-G10.1; 30 run, G2.8 waits for #9; G3.4 needs `MUTUAL=yes ./cilium.sh`, else it SKIPs) | **golden path**: one check per golden rule against a game that is already up (yours or a stranger's); `GOLDEN_ENV="<column>"` writes the table in POC-STATUS.md; it builds nothing |
 | `make poc-weakness` | `poc-weakness.sh` | 8 (W00-W06, W03b) | what one control plane costs: flapping, tolerance, a lossy link, control plane down, the supervised k3s agent |
