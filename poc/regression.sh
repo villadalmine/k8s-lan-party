@@ -110,7 +110,8 @@ dvm_up() { # the docker VM: Ubuntu, Docker, kind, kubectl and helm (poc/vm/docke
       --network "$NET_DVM" >/dev/null && incus start "$DVM" || return 1
   local i; for i in $(seq 120); do incus exec "$DVM" -- true 2>/dev/null && break; sleep 2; done
   incus exec "$DVM" -- sh -c 'cloud-init status --wait >/dev/null 2>&1; mkdir -p /root/repo /root/state' &&
-    tar -C "$ROOT" --exclude=./.git --exclude=./poc/.regression --exclude=./poc/.state -cf - . | incus exec "$DVM" -- tar xf - -C /root/repo &&
+    # tracked files only (their working-tree content): what .gitignore keeps out (.env, keys, tfstate/tfvars, poc/.cache) never travels
+    git -C "$ROOT" ls-files -z | tar -C "$ROOT" --null -T - --ignore-failed-read -cf - | incus exec "$DVM" -- tar xf - -C /root/repo &&
     dvm ./poc/vm/docker-vm.sh && dvm ./poc/vm/docker-vm.sh   # the second run must change nothing (idempotent)
 }
 pool_ok() { # pool_ok: the storage pool under POOL_MAX %
@@ -176,7 +177,7 @@ cleanup() { # cleanup <id> <runtime> <state>: what the suite may have left (a ti
 while IFS=$'\t' read -r -u 3 id runtimes script game _; do
   selected "$id" || continue
   rts=$(plan "$runtimes")
-  [ -n "$rts" ] || { printf '%s\tSKIP(%s)\n' "${runtimes%%,*}" "${runtimes%%,*}" >"$REG/runs/$id@${runtimes%%,*}.status"; continue; }
+  [ -n "$rts" ] || { for r in ${runtimes//,/ }; do printf '%s\tSKIP(%s)\n' "$r" "$r" >"$REG/runs/$id@$r.status"; done; continue; }
   for rt in $rts; do
     if { [ "$rt" = incus ] || [ -n "$DOCKER_VM" ] && [ "$rt" != none ]; } && ! pool_ok; then printf '%s\tSKIP(pool)\n' "$rt" >"$REG/runs/$id@$rt.status"; continue; fi
     st="$REG/state/$id"; [ "$game" = - ] || st="$REG/state/$game"

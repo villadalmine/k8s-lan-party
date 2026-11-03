@@ -17,9 +17,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 
-# every call is logged; `incus list` prints $INCUS_LIST (a foreign instance), `docker info` and `docker network inspect` exit as told
+# every call is logged; `incus list` prints $INCUS_LIST (a foreign instance), `docker info` and `docker network inspect` exit as told;
+# the tarball piped into the VM is kept in $STUB_LOG.tar; `incus init` fails with STUB_FAIL_INIT=1
 STUB = """#!/bin/sh
 echo "$(basename "$0") $*" >>"$STUB_LOG"
+case "$*" in *"tar xf -"*) cat >"$STUB_LOG.tar" ;; esac
+[ "$(basename "$0") $1 ${STUB_FAIL_INIT:-}" != "incus init 1" ] || exit 1
 case "$(basename "$0") $1" in "incus list") printf '%s' "${INCUS_LIST:-}" ;; "incus network") [ "$2" != show ] || exit 1 ;;
   "incus query") echo '{"space": {"used": 1, "total": 10}}' ;; "docker info") exit "${DOCKER_INFO:-1}" ;;
   "docker network") exit "${DOCKER_NET:-1}" ;; docker*) exit 1 ;; esac
@@ -93,6 +96,29 @@ class Runner(unittest.TestCase):
         self.assertFalse((reg / "project.created").exists())
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)   # the stub prints no RESULT line: that fails the run
         self.assertIn("no RESULT PASS: poc-cilium@docker, poc-kind@kind", r.stderr)
+
+    def test_only_tracked_files_travel_to_the_docker_vm(self):
+        planted = []
+        for rel in (".env", "examples/aws/terraform.tfvars", "poc/zz-planted.key"):
+            p = ROOT / rel
+            if not p.exists():
+                p.write_text("SECRET=planted\n")
+                planted.append(p)
+        self.addCleanup(lambda: [p.unlink() for p in planted if p.exists()])
+        self.run_regression({"REGRESSION_RUNTIME": "docker-vm", "ONLY": "poc-cilium"})
+        names = subprocess.run(["tar", "tf", f"{self.log}.tar"], capture_output=True, text=True, check=True).stdout.splitlines()
+        self.assertIn("poc/regression.sh", names)
+        for rel in (".env", "examples/aws/terraform.tfvars", "poc/zz-planted.key"):
+            self.assertNotIn(rel, names)
+        self.assertFalse(any(n.startswith(("poc/.cache", ".git/")) for n in names))
+
+    def test_a_docker_vm_that_cannot_be_built_leaves_nothing_and_runs_nothing(self):
+        r, reg = self.run_regression({"REGRESSION_RUNTIME": "docker-vm", "ONLY": "poc-cilium", "STUB_FAIL_INIT": "1"})
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn("the docker VM could not be built", r.stdout)
+        self.assertEqual(list((reg / "runs").iterdir()), [])
+        self.assertFalse((reg / "project.created").exists())
+        self.assertIn("incus network delete emregdvm", self.removed())
 
     def test_an_unknown_suite_in_only_is_refused(self):
         r, _ = self.run_regression({"ONLY": "poc-jion"})

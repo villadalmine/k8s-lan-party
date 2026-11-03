@@ -105,6 +105,13 @@ class Table(unittest.TestCase):
         self.assertIn("| `poc-join` | docker | PASS | 17 PASS |\n| `poc-join` | incus | PASS | 17 PASS |", one)
         self.assertIn("| `study-lab` | PASS | `poc-join` (docker) J09-J12: PASS; `poc-join` (incus) J09-J12: PASS |", one)
 
+    def test_each_runtime_answers_with_its_own_skip(self):
+        with tempfile.TemporaryDirectory() as t:
+            for rt in ("docker", "incus"):
+                (Path(t) / f"poc-weakness@{rt}.status").write_text(f"{rt}\tSKIP({rt})\n")
+            one = features.table(CAT, Path(t), "abc", "2026-11-03")
+        self.assertIn("`poc-weakness` (docker) W00-W06: SKIP(docker); `poc-weakness` (incus) W00-W06: SKIP(incus)", one)
+
     def test_a_runtime_the_suite_does_not_have_fails(self):
         bad = {**CAT["features"][0], "proven_by": [{"suite": "poc-vm", "runtime": "docker", "steps": ["V01"]}]}
         self.assertTrue(any("poc-vm runs on incus" in p for p in features.validate({**CAT, "features": [bad]})))
