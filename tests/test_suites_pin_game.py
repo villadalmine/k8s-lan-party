@@ -5,11 +5,13 @@ With the control plane tainted too, the study lab's pod, which tolerates nothing
 poc-pool has the same dependency: the participant's pods tolerate nothing, and trust taints are not supported with the pool (DESIGN.md 14).
 Both suites now set their own CNI and TAINT, like poc-placement and poc-vm do. This test runs the head of each suite (everything up to and
 including `. lib.sh`, before any container or VM is touched) with the wrong values exported and checks what the rest of the suite would see.
-Docker and Incus are stubs.
+Docker and Incus are stubs. TryItNoteMatchesTheSuites checks the note of docs/TRY-IT.md recipes 1 and 2 against what each suite exports,
+so the list of suites that pin CNI and TAINT cannot drift from the scripts (review of PR #64).
 """
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -50,7 +52,8 @@ class SuitesPinGame(unittest.TestCase):
                         EMESH_CACHE=str(self.tmp / "cache"))
 
     def seen(self, suite: str, **env: str) -> str:
-        code = head_of(POC / suite) + 'echo "CNI=$CNI TAINT=$TAINT RUNTIME=$RUNTIME"\n'
+        # ${X:-unset}: the suite runs under set -u, and a suite that does not set CNI must show that, not die
+        code = head_of(POC / suite) + 'echo "CNI=${CNI:-unset} TAINT=${TAINT:-unset} RUNTIME=${RUNTIME:-unset}"\n'
         # bash -c '<code>' <$0>: dirname "$0" is poc/, as when the suite runs
         p = subprocess.run([BASH, "-c", code, str(POC / suite)], env={**self.env, **env}, capture_output=True, text=True, timeout=60)
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
@@ -69,6 +72,48 @@ class SuitesPinGame(unittest.TestCase):
 
     def test_poc_join_keeps_the_callers_runtime(self) -> None:
         self.assertEqual(self.seen("poc-join.sh", TAINT="yes", RUNTIME="incus"), "CNI=flannel TAINT=no RUNTIME=incus")
+
+
+def suites() -> dict[str, str]:
+    """Every PoC suite (poc/poc-*.sh, poc/vm/poc-*.sh, poc/vm/run-all.sh) by name, with its text."""
+    files = sorted(POC.glob("poc-*.sh")) + sorted((POC / "vm").glob("poc-*.sh")) + [POC / "vm" / "run-all.sh"]
+    return {str(f.relative_to(POC).with_suffix("")): f.read_text(encoding="utf-8") for f in files}
+
+
+def exported(text: str, var: str) -> str | None:
+    """The value a suite exports for var on an `export ...` line, or None."""
+    m = re.search(rf"(?m)^export [^#\n]*\b{var}=(\S+)", text)
+    return m.group(1) if m else None
+
+
+def delegate(text: str) -> str | None:
+    """A suite that is only `exec .../poc-X.sh` (vm/poc-placement.sh): the name of the suite it runs."""
+    m = re.search(r'(?m)^exec "\$\(dirname "\$0"\)/\.\./(poc-[a-z-]+)\.sh"', text)
+    return m.group(1) if m else None
+
+
+class TryItNoteMatchesTheSuites(unittest.TestCase):
+    """docs/TRY-IT.md recipes 1 and 2 say which suites pin CNI and TAINT; the note is checked against the scripts so it cannot drift."""
+
+    NOTE = re.compile(r"((?:`poc-[a-z-]+`(?:, | and )?)+) pin their own CNI and TAINT; the other suites inherit TAINT \(the Incus ones pin "
+                      r"`CNI=flannel`\), and none of those depends on TAINT \(issue #59\)")
+
+    def test_the_note_names_exactly_the_suites_that_pin_taint(self) -> None:
+        notes = self.NOTE.findall((POC.parent / "docs" / "TRY-IT.md").read_text(encoding="utf-8"))
+        self.assertEqual(len(notes), 2, "the note is expected once in recipe 1 and once in recipe 2")
+        pinning = {n.split("/")[-1] for n, t in suites().items() if exported(t, "TAINT")}
+        for note in notes:
+            self.assertEqual(set(re.findall(r"`(poc-[a-z-]+)`", note)), pinning)
+
+    def test_every_other_incus_suite_pins_cni_flannel(self) -> None:
+        all_suites = suites()
+        for name, text in all_suites.items():
+            if exported(text, "TAINT") or exported(text, "RUNTIME") != "incus":
+                continue
+            with self.subTest(suite=name):
+                target = delegate(text)
+                cni = exported(all_suites[target], "CNI") if target else exported(text, "CNI")
+                self.assertEqual(cni, "flannel")
 
 
 if __name__ == "__main__":
