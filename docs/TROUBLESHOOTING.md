@@ -11,7 +11,7 @@ meta: ../meta.yml
 depende_de: [docs/REQUIREMENTS.md, docs/POC-STATUS.md]
 lo_usan: [README.md, docs/HOST-YOUR-OWN.md, docs/JOIN.md]
 docs: [docs/DESIGN.md]
-scripts: [poc/cilium.sh, poc/spire-args.sh, poc/checks-cilium.sh, poc/issue.sh, poc/gateway.sh, poc/cilium-node-guard.yaml, poc/node-trust-freeze.yaml]
+scripts: [poc/cilium.sh, poc/spire-args.sh, poc/spire-agent-rbac.yaml, poc/checks-cilium.sh, poc/issue.sh, poc/gateway.sh, poc/cilium-node-guard.yaml, poc/node-trust-freeze.yaml]
 runbooks: []
 tags: [problemas, diagnostico, spire, cilium, nebula, kyverno]
 ---
@@ -71,6 +71,8 @@ it**. `poc/.state/poc.log` has the detail of the last run of any PoC script (`/t
 ### Nodes are NotReady, `kubectl logs/exec` fails, pods on other nodes are unreachable after narrowing the firewall
 - **Cause:** a port outside the allow-list. The list is ICMP (any host), TCP 10250 (from group `control-plane`), and TCP 6443, UDP 51871 and UDP 8472
   (8472 only with flannel) from the groups `own`, `friends` and `public`: a host whose certificate has none of them (the lighthouse) gets ICMP only.
+  With Cilium node encryption, host traffic between two nodes that are not the control plane rides WireGuard (51871), so these per-port rules
+  only bite toward the control plane (issue #57, DESIGN.md 3.3).
 - **Diagnose:** run the capture the suite uses (`underlay_ports` in `poc/checks-cilium.sh`: tcpdump on `nebula1` while pods talk) and compare. A
   *dropped* packet never appears on `nebula1`; look at the sender's side. `FW=open` (any/any) as a bisection tool, never to keep.
 - **Fix:** add the port in `issue.sh` (`INBOUND`). Not needed with Cilium and node encryption: TCP 4240 and TCP 4250.

@@ -205,8 +205,11 @@ spire_agent_narrow() { # issue #35: the SPIRE agent runs under our account and r
   local t c; t=$(spire_agent_token n2) || return 1
   for c in "$(nn cp) $CP_NEB" "$(nn n1) $N1_NEB"; do set -- $c
     out=$(nx n2 curl -sk -m 8 -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $t" "https://$2:10250/pods"); echo "n2 -> kubelet of $1 ($2:10250/pods): ${out:-none}"
-    [ "$1" != "$(nn cp)" ] || [ "$out" != 200 ] || return 1
+    [ "$1" != "$(nn cp)" ] || [ "$out" = 000 ] || return 1
   done
+  # on the kubelet it does reach (n1, issue #57): pod specs yes, logs no (nodes/log and nodes/proxy are not in the role)
+  out=$(nx n2 curl -sk -m 8 -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $t" "https://$N1_NEB:10250/containerLogs/default/web/c")
+  echo "n2 -> kubelet of $(nn n1) /containerLogs/default/web/c: ${out:-none}"; [ "$out" = 403 ]
 }
 
 # --- mutual authentication, the deny half (issue #8). The same policy (web needs mutual auth from app=cli) must DROP a peer that cannot authenticate.

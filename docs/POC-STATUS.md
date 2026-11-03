@@ -101,7 +101,8 @@ Each recipe of [TRY-IT.md](TRY-IT.md) was run as the table says; the run is reco
 
 - **A1.** Cilium + WireGuard + SPIRE with the uid fix on the Dell VMs: PASS, two identical runs (`V01-V92`).
 - **A2.** A real narrowed Nebula firewall, in `issue.sh` (`FW=narrow` is the default, `FW=open` gives the old any/any). Inbound allows only:
-  ICMP, `TCP 6443`, `TCP 10250` (only from group `control-plane`), `UDP 51871`, and `UDP 8472` only when flannel is the CNI. Since 2026-10-28
+  ICMP, `TCP 6443`, `TCP 10250` (only from group `control-plane`; with Cilium node encryption this holds only toward the control plane, host traffic
+  between other nodes rides WireGuard 51871: issue #57), `UDP 51871`, and `UDP 8472` only when flannel is the CNI. Since 2026-10-28
   `6443`, `51871` and `8472` are accepted only from the groups `own`, `friends` and `public` (one rule per group), so the lighthouse, whose certificate
   has only the group `lighthouse`, reaches the hosts with ICMP and nothing else (`poc-host` H02b, `poc-page` G10).
   Re-run: join/host/weakness (flannel, `8472` open) and the Cilium step (no `8472`, no `4240`) pass. New negative checks: `J13` / `V15` / `C14`
@@ -221,7 +222,7 @@ and cut the game when it stopped (it took the mesh's route); the suite now tries
 | No cross-signing between control planes, no per-host CAs | phase 2 question, not needed for the join path | phase 2 |
 | SPIRE agent and Cilium agent run on `friends` and `public` nodes | they must, for the data plane and for identity | confidential nodes (later) |
 | Cilium mutual auth is beta | upstream | keep it opt-in per policy |
-| The SPIRE agent token on joined nodes may `get nodes/pods`: the pod specs of a node whose kubelet port it reaches directly. Narrowed (#35): no more `nodes/proxy` (pod lists, logs and exec of any node through the API server), `pods` or `nodes` (`spire-agent-rbac.yaml`, `poc-vm` V103, golden G3.6) | the workload attestor needs the local kubelet's `/pods` | accepted: the control plane's kubelet does not answer it; another joined node's kubelet does (measured, DESIGN.md 3.3), and the k3s controller credential reads all pod specs anyway |
+| The SPIRE agent token on joined nodes may `get nodes/pods`: the pod specs of a node whose kubelet port it reaches directly. Narrowed (#35): no more `nodes/proxy` (pod lists, logs and exec of any node through the API server), `pods` or `nodes` (`spire-agent-rbac.yaml`, `poc-vm` V103, golden G3.6) | the workload attestor needs the local kubelet's `/pods` | the control plane's kubelet does not answer it; another joined node's kubelet does (Cilium node encryption leaves the control plane out, so between other nodes Nebula's port rules do not apply: issue #57); the k3s controller credential reads all pod specs anyway |
 | `system:k3s-controller` on every joined machine may patch the status (conditions, capacity, addresses) of any Node and read all pod specs | k3s design | labels and the trust taint are frozen (`node-trust-freeze.yaml`, G09b, L52b); the rest accepted for a node you do not own |
 | A joined node's Cilium token can still create `CiliumEndpoints` and `CiliumIdentities`, and every SPIRE agent may fetch every identity's certificate | upstream design: one service account for all agents; the registration entries are not tied to a node | test the forged-endpoint attack, then decide (Cilium's operator-managed identities, or no mutual-auth claim toward joined nodes); DESIGN.md 3.3 |
 

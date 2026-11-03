@@ -170,13 +170,16 @@ could have reached the maintainer's own nodes with it. What the agent needs is o
 now runs under our own account and role (`poc/spire-agent-rbac.yaml`, applied by `spire-args.sh` before the helm install, the chart's own account
 and role turned off; the account keeps the chart's name, `spire-agent`, because the chart's SPIRE init script registers the agents by that name), whose only right is `get nodes/pods`. Mutual authentication still works with it (`poc-vm` V92-V102, the deny half
 included), and `poc-vm` V103 is the negative test: with the token read from a joined node's disk, the proxy to the control plane's kubelet, `get pod`
-and `get node` are refused. **What is left (measured 2026-11-02):** `nodes/pods` is honoured by any kubelet the token reaches directly, and it
-reads the pod specs (not logs, not exec) of that node. On the Dell VMs, from the public node with that token: the control plane's kubelet does not
-answer (the Nebula firewall opens 10250 to the control plane group only), but the friends node's kubelet answered `/pods` with 200. So between joined
-nodes the kubelet port is reachable even though the narrowed Nebula firewall lists it for the control plane only. Our reading is that host-to-host
-traffic between Cilium nodes rides Cilium's own WireGuard (UDP 51871, allowed) and so is not filtered per port by Nebula, but that cause is not proven
-(followed up separately). An `own` node that is not the control plane could be reached the same way. Its pod specs are also readable by every joined
-machine through the k3s controller credential (above), so this adds no new kind of exposure; private data never belongs in a pod spec.
+and `get node` are refused. **What is left (measured 2026-11-02, issue #57):** `nodes/pods` works against any kubelet the token reaches directly, and reads the pod
+specs (not logs, not exec) of that node. On the Dell VMs, from the public node with that token, the control plane's kubelet does not answer, but the
+friends node's kubelet answered `/pods` with 200. The cause is documented upstream. `cilium.sh` turns on WireGuard node-to-node encryption
+(`encryption.nodeEncryption=true`), and Cilium leaves control-plane nodes out of it by default (`node-encryption-opt-out-labels` defaults to
+`node-role.kubernetes.io/control-plane`, [Cilium WireGuard docs](https://docs.cilium.io/en/v1.20/security/network/encryption-wireguard/)). So n2 to the
+control plane travels in clear over Nebula, where the per-port rule (10250 only from the group `control-plane`) filters it; n2 to n1 travels inside
+Cilium's WireGuard (UDP 51871, accepted from every member group), and Nebula never sees the inner port. **Between two nodes that are not the control
+plane, the narrowed Nebula firewall does not apply per port: every host port is reachable, not only the kubelet.** That includes an `own` node that
+is not the control plane. Pod specs are already readable by every joined machine through the k3s controller credential (above), so for this token it
+adds no new kind of exposure. The firewall gap itself is issue #57.
 
 ## 4. Trust and placement policy
 

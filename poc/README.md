@@ -72,6 +72,7 @@ WSL2 as a node was run by hand (docs/REQUIREMENTS.md, the host matrix); the refu
 | `install-placement.sh`, `placement/` | install Kyverno and the trust-placement policies on your own control plane |
 | `cilium.sh`, `checks-cilium.sh`, `spire-args.sh` | step 2: the Cilium install (`BGP=yes` adds the BGP control plane, `MUTUAL=yes` SPIRE), its assertions (shared by Docker and VMs), the hardened SPIRE arguments |
 | `node-trust-freeze.yaml` | only the host (`system:masters`) may change a node's `node-restriction.kubernetes.io/` labels or `trust` taint, on a Node or its status: closes the k3s controller credential on every joined machine; `up.sh` applies it |
+| `spire-agent-rbac.yaml` | the SPIRE agent's own namespace, account and role, `get nodes/pods` only (issue #35); `spire-args.sh` applies it before the helm install. After `helm uninstall` they stay (the chart does not own them): delete them by hand |
 | `cilium-node-guard.yaml` | a Cilium agent's token may write only the `CiliumNode` of its own node (where the node publishes its WireGuard key); `cilium.sh` applies it |
 | `gateway.sh`, `gateway/` | issue #13: `gateway.sh bgp` (BGP from own nodes only, the pool by Service label, `gateway/bgp.yaml`), `install` (Envoy Gateway, cert-manager, a local CA and the Gateway, all on own nodes, `gateway/gateway.yaml`), `router` (the test FRR router, `gateway/frr.conf`) |
 | `kind-cilium.sh` | step 2 on kind |
