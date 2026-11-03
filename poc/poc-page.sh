@@ -47,7 +47,7 @@ page_install() { "$PS" install --ssh "$PUB_SSH" --site "$SITE" --tls internal --
 cp_up() { HOST_ONLY=1 "$POC/vm/up.sh" && incus exec emesh-cp -- ping -c1 -W2 "$LH_NEB"; }
 token_only_hash() { # the token stays on the host (0600); the server holds its SHA-256 and nothing that equals the token
   "$PS" puller-token --ssh "$PUB_SSH" && [ "$(stat -c %a "$TOKEN")" = 600 ] &&
-  [ "$(echo 'cat /etc/k8s-lan-party-page/puller.sha256' | pub)" = "$(tr -d '\n' <"$TOKEN" | sha256sum | cut -d' ' -f1)" ] &&
+  [ "$(echo 'cat /etc/k8s-lan-party-page/puller.sha256' | pub)" = "$(tr -d '\r\n' <"$TOKEN" | sha256sum | cut -d' ' -f1)" ] &&
   ! echo "grep -rqsF -- '$(cat "$TOKEN")' /etc /opt /var/lib /root /home" | pub; }
 cacert() { "$PS" cacert --ssh "$PUB_SSH" >"$CA" && grep -q 'BEGIN CERTIFICATE' "$CA"; }
 api() { curl -s --cacert "$CA" -m 20 "$@"; }
@@ -220,7 +220,7 @@ step G03 "the page on the public server: Caddy, the unit, the site (page-server.
 step G04 "install again: nothing changed" unchanged "$PS" install --ssh "$PUB_SSH" --site "$SITE" --tls internal --with-caddy
 step G05 "the control plane, behind the external lighthouse" cp_up
 step G06 "the puller's token stays on the host (0600); the server holds only its SHA-256" token_only_hash
-step G07 "page-server.sh verify: services, loopback-only page, the API through Caddy, headers, no key on disk" "$PS" verify --ssh "$PUB_SSH" --site "$SITE"
+step G07 "page-server.sh verify: services, loopback-only page, the API through Caddy, headers, no key on disk, the puller's token accepted (tested from the host)" "$PS" verify --ssh "$PUB_SSH" --site "$SITE" --tls internal
 step G08 "before the control plane reports, the page says closed and refuses a request (503)" g08
 step G09 "auto on; a tick and a pull: the page is open and shows the same numbers as admission-status" g09
 step G09b "body limits per route: the puller's 60 KB report passes Caddy (not 413), a visitor's 20 KB body is refused (413)" report_size_limits

@@ -92,7 +92,7 @@ Each recipe of [TRY-IT.md](TRY-IT.md) was run as the table says; the run is reco
 | Recipe | Where | Date | Result |
 | :--- | :--- | :--- | :--- |
 | 1. Incus VMs (host init, invite, play, label, placement, three pods, revoke, down) | the maintainer's lab host, own Incus project | 2026-10-28 | PASS: `joined`, `placement installed`, `bad-app` refused (`private-cannot-name-a-foreign-node`), `private-app` on `cp`, `shared-app` on `alice`, revoke leaves only `cp`, `VM flow removed` |
-| 2. Docker (the same steps, `RUNTIME=docker`) | an Ubuntu 24.04 VM with Docker 29.9 | 2026-10-28 | PASS for every step; **`down` left the player container and the network** (found; issue #36, not fixed here) |
+| 2. Docker (the same steps, `RUNTIME=docker`) | an Ubuntu 24.04 VM with Docker 29.9 | 2026-10-28 | PASS for every step; **`down` left the player container and the network** (found; fixed in issue #36: `down.sh` removes every container on the network, H11 checks it) |
 | 3. kind | WSL2 | earlier (3 runs) | not re-run on 2026-10-28 |
 | 4. WSL2 as a player | a fresh Ubuntu 24.04 distro on Windows 11 | 2026-10-28 | PASS twice (see above); as a host: not run |
 | 5. A cloud VM (lighthouse with relay; player arm64) | AWS eu-west-1, t3.small and t4g.small, destroyed afterwards, nothing billing checked | 2026-10-28 | not run as one recipe: its parts ran in recipe 6 (lighthouse + relay on amd64, a player on arm64) and in the cloud-VM admission cycle recorded above |
@@ -172,7 +172,7 @@ Choices and limits:
 | Goal (issue) | Evidence | Status |
 | :--- | :--- | :--- |
 | Step 1: it joins, one bundle and one command, study lab runs, token reuse / expired cert / blocked UDP (#4) | `poc-join` J01-J17, Dell VMs x2 and WSL Docker | **done** |
-| Host your own game: init / invite / players / kick / down (#5) | `poc-host` H01-H11, Dell VMs x2 and WSL Docker; `invite --trust public` run on WSL Docker | **done** |
+| Host your own game: init / invite / players / kick / down (#5) | `poc-host` H01-H11 + H02b/H09b/H09c, Dell VMs x2 and WSL Docker; `invite --trust public` run on WSL Docker | **done** |
 | Weaknesses of one control plane as data (#6) | `poc-weakness` W00-W06 and W03b, 8 of 8 on the Dell VMs (W03b and the supervised agent: 2026-10-26, one run; W05 had been failing since the agent died on the flannel panic, see TROUBLESHOOTING); numbers in DESIGN.md 13.1 | **done** |
 | Revocation in one command (#7) | `J17`: node deleted, cannot reach the lighthouse, does not come back | **done**: `mesh host revoke <name>` is the one command, idempotent, refuses an unknown name, covers pool nodes, and later invites inherit the blocklist; `poc-revoke` R01-R10 passes twice with identical output on WSL Docker and 10 of 10 on the Dell VMs (2026-10-26, one run); the negative test shows `kubectl delete node` alone does not revoke (the machine stays in the mesh); measured 3 to 5 s to lose access |
 | A lighthouse on a separate public server (needed by the public demo, #16) | `poc-lighthouse` P01-P18 with P09b, P12b-P12e (23 checks), a Dell VM plays the server | **done on a VM**; a real public server is the maintainer's step in DEMO.md |
