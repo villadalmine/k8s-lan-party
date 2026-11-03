@@ -112,6 +112,10 @@ class Table(unittest.TestCase):
             one = features.table(CAT, Path(t), "abc", "2026-11-03")
         self.assertIn("`poc-weakness` (docker) W00-W06: SKIP(docker); `poc-weakness` (incus) W00-W06: SKIP(incus)", one)
 
+    def test_every_cluster_path_belongs_to_a_feature(self):
+        cat = {**CAT, "cluster_paths": CAT["cluster_paths"] + ["README.md"]}
+        self.assertIn("cluster_paths: README.md is in no feature's paths (the gate would ask nothing for it)", features.validate(cat))
+
     def test_a_runtime_the_suite_does_not_have_fails(self):
         bad = {**CAT["features"][0], "proven_by": [{"suite": "poc-vm", "runtime": "docker", "steps": ["V01"]}]}
         self.assertTrue(any("poc-vm runs on incus" in p for p in features.validate({**CAT, "features": [bad]})))

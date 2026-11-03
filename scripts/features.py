@@ -133,9 +133,13 @@ def validate(cat: dict, make: dict[str, str] | None = None, files: list[str] | N
         for doc in (f.get("docs") or []) + (f.get("diagrams") or []):
             if doc not in files:
                 problems.append(f"feature {fid}: {doc} is not a tracked file")
+    owned = [g for f in cat.get("features") or [] for g in f.get("paths") or []]
     for glob in cat.get("cluster_paths") or []:
-        if not any(fnmatch.fnmatch(p, glob) for p in files):
+        matched = [p for p in files if fnmatch.fnmatch(p, glob)]
+        if not matched:
             problems.append(f"cluster_paths: {glob} matches no tracked file")
+        problems += [f"cluster_paths: {p} is in no feature's paths (the gate would ask nothing for it)" for p in matched
+                     if not any(fnmatch.fnmatch(p, g) for g in owned)]
     for sid, s in suites.items():
         if sid not in cited and s.get("role") != "teardown":
             problems.append(f"suite {sid}: no feature names one of its steps")

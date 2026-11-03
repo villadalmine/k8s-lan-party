@@ -210,18 +210,43 @@ class FeatureGate(unittest.TestCase):
 
     def test_the_suites_of_the_touched_features_must_pass(self):
         self.assertEqual(self.gate(GATED, "docs/GOLDEN-RULES.md"), [])
-        self.assertIn("cite the RESULT PASS of poc-golden", self.gate(GATED.replace("RESULT PASS", "RESULT FAIL (1)"), "docs/GOLDEN-RULES.md")[0])
+        failed = " ".join(self.gate(GATED.replace("RESULT PASS", "RESULT FAIL (1)"), "docs/GOLDEN-RULES.md"))
+        self.assertIn("FAIL for what this PR touches: poc-golden", failed)
+        self.assertIn("cite the RESULT PASS of poc-golden", failed)
         self.assertIn("poc-placement", self.gate(GATED, "poc/vm/poc-placement.sh")[0])   # placement: poc-placement and poc-golden
+
+    LIB = ("join", "host-your-own", "join-token-burn", "node-guard", "two-level-ca")   # the features poc/lib.sh touches
+
+    def table(self, result: dict, commit: str = "abcdef012345") -> str:
+        rows = "".join(f"| `{f}` | {result.get(f, 'PASS')} | `poc-join` J01: x |\n" for f in self.LIB)
+        return GOOD.replace("### Known gaps", f"Commit `{commit}`, 2026-11-03, left behind: nothing.\n\n| Feature | Result | Proven by |\n"
+                            f"| :--- | :--- | :--- |\n{rows}### Docs impact\nnone: a comment in lib.sh, no behaviour changes\n### Known gaps")
 
     def test_a_cluster_change_needs_the_regression_table_or_every_feature(self):
         none = GOOD.replace("### Known gaps", "### Docs impact\nnone: a comment in lib.sh, no behaviour changes\n### Known gaps")
         self.assertIn("paste the table of `make regression`", self.gate(none, "poc/lib.sh")[0])
-        table = none.replace("### Docs impact", "| Feature | Result | Proven by |\n| :--- | :--- | :--- |\n| `join` | PASS | x |\n### Docs impact")
-        self.assertEqual(self.gate(table, "poc/lib.sh"), [])
-        self.assertIn("FAIL rows: `join`", self.gate(table.replace("| `join` | PASS", "| `join` | FAIL"), "poc/lib.sh")[0])
-        listed = none.replace("### Docs impact", "".join(f"- `{f}`: PASS\n" for f in
-                              ("join", "host-your-own", "join-token-burn", "node-guard", "two-level-ca")) + "### Docs impact")
+        self.assertEqual(check_pr.feature_gate(self.table({}), ["poc/lib.sh"], CAT, ["abcdef0123456789"]), [])
+        listed = none.replace("### Docs impact", "".join(f"- `{f}`: PASS\n" for f in self.LIB) + "### Docs impact")
         self.assertEqual(self.gate(listed, "poc/lib.sh"), [])
+
+    def test_every_touched_feature_must_be_pass_in_the_table(self):
+        for verdict in ("PARTIAL", "NOT RUN", "SKIP(docker)", "FAIL"):
+            self.assertIn(f"join ({verdict})", " ".join(self.gate(self.table({"join": verdict}), "poc/lib.sh")), verdict)
+        subset = self.table({}).replace("| `node-guard` | PASS | `poc-join` J01: x |\n", "")   # a make regression ONLY=... table
+        self.assertIn("node-guard (missing)", self.gate(subset, "poc/lib.sh")[0])
+
+    def test_the_table_must_come_from_a_commit_of_the_pr(self):
+        self.assertEqual(check_pr.feature_gate(self.table({}), ["poc/lib.sh"], CAT, ["abcdef0123456789"]), [])
+        self.assertIn("a commit of this PR", check_pr.feature_gate(self.table({}), ["poc/lib.sh"], CAT, ["1234567890ab"])[0])
+
+    def test_a_fail_for_a_touched_suite_is_never_hidden_by_a_pass(self):
+        pair = GATED.replace("poc-golden: RESULT PASS", "| Suite | Runtime | Result | Steps |\n| :--- | :--- | :--- | :--- |\n"
+                             "| `poc-golden` | docker | FAIL (1) | x |\n| `poc-golden` | incus | PASS | x |")
+        self.assertIn("FAIL for what this PR touches: poc-golden", self.gate(pair, "docs/GOLDEN-RULES.md")[0])
+        both = GATED.replace("poc-golden: RESULT PASS", "poc-golden: RESULT PASS\npoc-golden (rerun): RESULT FAIL (2)")
+        self.assertIn("poc-golden", self.gate(both, "docs/GOLDEN-RULES.md")[0])
+        proven_by = GATED.replace("poc-golden: RESULT PASS", "| `golden-rules` | PARTIAL | `poc-golden` G1.1: PASS |")
+        self.assertIn("cite the RESULT PASS of poc-golden", self.gate(proven_by, "docs/GOLDEN-RULES.md")[0])
 
     def test_docs_impact_names_the_listed_docs_or_says_none_with_a_reason(self):
         self.assertIn("add a '### Docs impact'", self.gate(GOOD.replace("### Known gaps", "poc-golden: RESULT PASS\n### Known gaps"),

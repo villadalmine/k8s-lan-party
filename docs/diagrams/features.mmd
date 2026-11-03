@@ -51,6 +51,7 @@ flowchart LR
     f_weakness["weakness"]
     f_kind["kind"]
     f_vm["vm"]
+    f_demo_aws["demo-aws"]
   end
   subgraph Components
     c_Nebula["Nebula"]
@@ -76,6 +77,8 @@ flowchart LR
     c_age["age"]
     c_kind["kind"]
     c_Incus["Incus"]
+    c_OpenTofu["OpenTofu"]
+    c_AWS["AWS"]
   end
   subgraph Files
     p_poc_edge_mesh["poc/edge-mesh"]
@@ -131,6 +134,9 @@ flowchart LR
     p_poc_poc_weakness_sh["poc/poc-weakness.sh"]
     p_poc_kind_cilium_sh["poc/kind-cilium.sh"]
     p_poc_vm__["poc/vm/*"]
+    p_examples_aws___tf["examples/aws/*.tf"]
+    p_examples_aws___tftpl["examples/aws/*.tftpl"]
+    p_examples_aws_leftovers_sh["examples/aws/leftovers.sh"]
   end
   s_poc_join -->|"J01-J07, J15-J16"| f_join
   s_poc_vm -->|"V01, V04"| f_join
@@ -345,3 +351,11 @@ flowchart LR
   f_vm --> c_k3s
   f_vm --> c_Cilium
   f_vm -.-> p_poc_vm__
+  s_poc_golden -->|"G1.1-G2.7, G3.1-G10.1"| f_demo_aws
+  f_demo_aws --> c_OpenTofu
+  f_demo_aws --> c_AWS
+  f_demo_aws --> c_Nebula
+  f_demo_aws --> c_k3s
+  f_demo_aws -.-> p_examples_aws___tf
+  f_demo_aws -.-> p_examples_aws___tftpl
+  f_demo_aws -.-> p_examples_aws_leftovers_sh

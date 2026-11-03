@@ -93,8 +93,11 @@ and UTC day gives the same table (exit 1 when a suite that ran has no `RESULT PA
 
 - a PR that touches features cites, under *Evidence*, the `RESULT PASS` of every suite those features list, one line each
   (`poc-golden: RESULT PASS`), or the `make regression` table;
-- a PR that changes the cluster (`cluster_paths` in the catalog: the files that build or run a game) pastes the `make regression` table with
-  no `FAIL` row, or lists every touched feature with PASS (`` `join`: PASS ``);
+- a PR that changes the cluster (`cluster_paths` in the catalog: the files that build or run a game) pastes the `make regression` table, in
+  which every touched feature is `PASS` (not `PARTIAL`, `NOT RUN` or `SKIP`, and not left out of a subset table), or lists every touched
+  feature with PASS (`` `join`: PASS ``). A pasted table keeps its `Commit `<sha>`` line, and that commit must be one of the PR's;
+- a `FAIL` row or a `RESULT FAIL` line for a touched suite or feature fails the check, whatever else passed (a Docker FAIL is not hidden by
+  an Incus PASS); the *Proven by* column of the table is not a citation;
 - `### Docs impact` (under *Evidence*) names each doc and diagram the catalog lists for those features that the PR updated, or says
   `none: <reason>`.
 

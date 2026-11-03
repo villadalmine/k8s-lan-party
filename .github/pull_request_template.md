@@ -38,8 +38,8 @@
 make pr-check   # CI's PR checks, locally (CONTRIBUTING -> Check before you push)
 ```
 <!-- check_pr.py maps your changed paths to features (docs/FEATURES.yml) and wants, one line each, the RESULT PASS of their suites
-     ("poc-join: RESULT PASS"). A change to the cluster (cluster_paths): the table of `make regression` with no FAIL row, or every touched
-     feature with PASS ("`join`: PASS"). CONTRIBUTING -> A PR that touches the cluster proves the whole stack. -->
+     ("poc-join: RESULT PASS"). A change to the cluster (cluster_paths): the table of `make regression` of a commit of this PR, every
+     touched feature PASS, or every touched feature with PASS ("`join`: PASS"). Any FAIL for them fails. CONTRIBUTING -> A PR that touches the cluster proves the whole stack. -->
 
 ### Where it ran
 

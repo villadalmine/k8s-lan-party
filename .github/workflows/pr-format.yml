@@ -42,8 +42,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      # check_pr.py reads docs/FEATURES.yml (the feature gate, issue #62); the same pin as participants.yml and sign.yml
-      - run: pip install -q pyyaml==6.0.3
+      # check_pr.py reads docs/FEATURES.yml (the feature gate, issue #62); every package pinned by hash, as in participants.yml and sign.yml
+      - run: pip install -q --require-hashes -r .github/requirements-ci.txt
       - name: Check the PR description
         env:
           GH_TOKEN: ${{ github.token }}
