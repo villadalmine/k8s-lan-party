@@ -89,6 +89,30 @@ want of a runtime; the VM goes with the project. The run writes one table,
 suite and feature x result with the commit and the date, into [`docs/POC-STATUS.md`](docs/POC-STATUS.md); the same commit on the same host
 and UTC day gives the same table (exit 1 when a suite that ran has no `RESULT PASS`). Paste it (or its failing rows) under *Evidence*.
 
+**What `pr-format` asks for (`scripts/check_pr.py`).** It maps the PR's changed paths to the features of `docs/FEATURES.yml` (their `paths`;
+a workflow can be one, e.g. `.github/workflows/participants.yml` belongs to `participants`):
+
+- a PR that touches features cites, under *Evidence*, the `RESULT PASS` of every suite those features list, one line each
+  (`poc-golden: RESULT PASS`), or the `make regression` table;
+- a PR that changes the cluster (`cluster_paths` in the catalog: the files that build or run a game) pastes the `make regression` table, in
+  which every touched feature is `PASS` (not `PARTIAL`, `NOT RUN` or `SKIP`, and not left out of a subset table), or lists every touched
+  feature with PASS (`` `join`: PASS ``). A pasted table keeps its `Commit `<sha>`` line, and that commit must be one of the PR's;
+- a `FAIL` row or a `RESULT FAIL` line for a touched suite or feature fails the check, whatever else passed (a Docker FAIL is not hidden by
+  an Incus PASS); the *Proven by* column of the table and the *Known gaps* subsection are not citations;
+- a proof can name the game it needs (`game: aws` for `demo-aws`): `make regression` checks its own game, so its table says `NOT RUN(aws)`,
+  and a change to `examples/aws` cites `` `demo-aws`: PASS `` from a run of DEMO-AWS.md;
+- `### Docs impact` (under *Evidence*) names each doc and diagram the catalog lists for those features that the PR updated, or says
+  `none: <reason>`.
+
+Like the run link, these are warnings on a push and required on the edit that pastes the link.
+
+**Diagrams cannot go stale.** Every `docs/diagrams/<name>.mmd` has a `<name>.svg` and a `<name>.png` that carry the SHA-256 of the source
+(a comment in the SVG, a `tEXt` chunk in the PNG). Change a `.mmd` and render it again: `make diagrams NAME=<name>` (needs mermaid-cli,
+`MMDC=/path/to/mmdc` or `mmdc` on the `PATH`; 12.0.0 was used). `docs/diagrams/features.mmd` is generated from `docs/FEATURES.yml`
+(`make diagrams` writes it first): the graph suite and steps -> feature -> components and files. `tests/test_diagrams.py` fails when a source
+changed and its SVG or PNG was not rendered again, or when the feature graph does not match the catalog; without mermaid-cli it compares the
+hashes only.
+
 ## Pull requests
 
 One template, [`.github/pull_request_template.md`](.github/pull_request_template.md). Every PR has the same

@@ -25,7 +25,12 @@ exam versions). The PR format is the same whoever wrote the change, a person or 
   commit of base..HEAD is checked, whatever the PR's number or dates; merged history never is. The
   author email of a commit is set by whoever commits, so nothing is exempt by email;
 - the shape: more than 400 changed lines of code (waived by the `size-exception` label, set by a
-  maintainer, never by this check).
+  maintainer, never by this check);
+- the feature gate (docs/FEATURES.yml, issue #62): the changed paths touch features, and Evidence does not
+  cite the RESULT PASS of their suites; a change to the cluster (`cluster_paths`) needs the table of
+  `make regression` (no FAIL row) or every touched feature with PASS; and `### Docs impact` must name
+  every doc and diagram of the touched features, or say "none: <reason>". Like the run link, only a
+  warning on a push, strict on every other action.
 
 No model. No network either, except `--verify-runs` (CI only): that mode asks the GitHub API, with
 `gh api`, whether the run cited under "Where it ran" is a green run of verify.yml on the PR's head
@@ -43,6 +48,7 @@ No model. No network either, except `--verify-runs` (CI only): that mode asks th
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import json
 import re
 import subprocess
@@ -228,6 +234,75 @@ def dco(commits: list[dict], pr_author: str | None = None) -> list[str]:
         subject = c["message"].strip().splitlines()[0] if c["message"].strip() else ""
         problems.append(f"DCO: commit {c['sha'][:7]} ({subject[:60]!r}) has no 'Signed-off-by: Name <email>' "
                         f"for its author <{c['email']}>; {DCO_FIX}")
+    return problems
+
+
+# --- the feature gate: changed paths -> features -> evidence and docs (issue #62) ---
+
+def catalog() -> dict:
+    sys.path.insert(0, str(REPO / "scripts"))
+    import features  # noqa: E402 (scripts/features.py: the catalog's one reader)
+    return features.load()
+
+
+def word(name: str) -> str:
+    return rf"(?<![\w-]){re.escape(name)}(?![\w-])"
+
+
+def feature_gate(body: str, files: list[str], cat: dict, commits: list[str] | None = None) -> list[str]:
+    """What the description lacks for the features the changed files touch (empty when they touch none). `commits`: the PR's
+    base..HEAD shas; a pasted `make regression` table must name one of them (None: not checked)."""
+    hit = lambda globs: [f for f in files if any(fnmatch.fnmatch(f, g) for g in globs)]  # noqa: E731
+    feats = [f for f in cat["features"] if hit(f["paths"])]
+    if not feats:
+        return []
+    clean = re.sub(r"<!--.*?-->", "", body, flags=re.S)
+    # Known gaps says what the evidence does not cover: neither a PASS nor a FAIL there is a citation
+    evidence = re.sub(r"^###\s+Known gaps.*?(?=^###|\Z)", "", sections(body).get("Evidence", ""), flags=re.M | re.S)
+    lines = evidence.splitlines()
+    rows = [_cells(ln) for ln in lines if ln.lstrip().startswith("|")]
+    prose = [ln for ln in lines if not ln.lstrip().startswith("|")]
+    frow = {r[0].strip("`"): r[1] for r in rows if len(r) == 3 and r[0].startswith("`")}   # | `feature` | result | proven by |
+    srow: dict[str, list[str]] = {}                                                       # | `suite` | runtime | result | steps |
+    for r in (r for r in rows if len(r) == 4 and r[0].startswith("`")):
+        srow.setdefault(r[0].strip("`"), []).append(r[2])
+    said = lambda name, verdict: any(re.search(word(name), ln) and re.search(rf"RESULT {verdict}|:\s*{verdict}\b", ln)  # noqa: E731
+                                     for ln in prose)
+    fids, suites = [f["id"] for f in feats], sorted({p["suite"] for f in feats for p in f["proven_by"]})
+    problems, cluster, names = [], hit(cat.get("cluster_paths") or []), ", ".join(fids)
+    table = any(re.match(r"^\|\s*Feature\s*\|\s*Result\s*\|", ln) for ln in lines)
+    failed = sorted({s for s in suites if said(s, "FAIL") or any(v.startswith("FAIL") for v in srow.get(s, []))} |
+                    {f for f in fids if said(f"`{f}`", "FAIL") or frow.get(f, "").startswith("FAIL")})
+    if failed:
+        problems.append(f"Evidence: FAIL for what this PR touches: {', '.join(failed)}")
+    if table:
+        sha = re.search(r"Commit `([0-9a-f]{7,40})", evidence)
+        if commits is not None and not (sha and any(c.startswith(sha.group(1)) for c in commits)):
+            problems.append("Evidence: the make regression table must come from a commit of this PR (its 'Commit `<sha>`' line, in base..HEAD)")
+    if cluster and table:
+        bad = [f"{f} ({frow.get(f, 'missing')})" for f in fids if frow.get(f) != "PASS"]
+        if bad:
+            problems.append(f"Evidence: in the make regression table every touched feature must be PASS: {', '.join(bad)}")
+    elif cluster:
+        missing = [f for f in fids if not said(f"`{f}`", "PASS")]
+        if missing:
+            problems.append(f"Evidence: this PR changes the cluster ({', '.join(cluster[:3])}...): paste the table of `make regression`, "
+                            f"or list every touched feature with PASS; missing: {', '.join(missing)}")
+    else:
+        missing = [s for s in suites if not (said(s, "PASS") or "PASS" in srow.get(s, []))]
+        if missing:
+            problems.append(f"Evidence: the changed paths touch {names}; cite the RESULT PASS of {', '.join(missing)} "
+                            "(one line each, or the make regression table)")
+    m = re.search(r"^###\s+Docs impact\s*$(.*?)(?=^##|\Z)", clean, re.M | re.S)
+    if not m:
+        return problems + [f"add a '### Docs impact' subsection: the changed paths touch {names} (docs/FEATURES.yml)"]
+    said = m.group(1)
+    if re.search(r"\bnone\b\s*[:—–-]+\s*\S+(\s+\S+){2,}", said, re.I):
+        return problems
+    listed = sorted({d for f in feats for d in (f.get("docs") or []) + (f.get("diagrams") or [])})
+    left = [d for d in listed if d not in said and Path(d).name not in said]
+    if left:
+        problems.append(f"Docs impact: name what you updated of {', '.join(left)}, or write 'none: <reason>'")
     return problems
 
 
@@ -448,6 +523,11 @@ def main() -> int:
 
     strict = citation_required(action)
     problems = check(title, body, strict) + size(code_lines, labels)
+    gate = feature_gate(body, files, catalog(), [c["sha"] for c in commits_of(args.base)] if args.base else None) if files else []
+    if strict:
+        problems += gate
+    for problem in gate if not strict else []:
+        print(f"::warning::PR: {problem} (on '{action}' only a warning; the edit after the push checks it)")
     if args.base:
         problems += dco(commits_of(args.base), author)
     if args.runs_file:
