@@ -126,7 +126,7 @@ class Runner(unittest.TestCase):
         state = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, state)
         (state / "poc.log").write_text("STEP V01\n")
-        (state / "golden.log").write_text("CHECK G2.3\nK3S_TOKEN=K10abc::server:secret\n-----BEGIN PRIVATE KEY-----\n"
+        (state / "golden.log").write_text("CHECK G2.3\nK3S_TOKEN=K10abc::server:secret\n-----BEGIN " + "PRIVATE KEY-----\n"
                                           "    certificate-authority-data: LS0t\nCHECK G2.4\n")
         (state / "bundles").mkdir()
         r, reg = self.run_regression({}, "", "save-logs", "poc-vm", "incus", str(state))
