@@ -19,7 +19,9 @@ exam versions). The PR format is the same whoever wrote the change, a person or 
   verify.yml on the PR's head commit. Only on a push (`opened`, `synchronize`, `reopened`) is the link
   advisory: the run to cite does not exist yet, and the proof for that head is the `verify` run
   verify.yml starts for the same event (a required check, never skipped). Every other action, also an
-  empty or unknown one, is strict (fail closed);
+  empty or unknown one, is strict (fail closed), except while the subsection is still the documented
+  `- CI: pending` with no run linked (issue #79: `gh pr create --label` fires one `labeled` run per
+  label before any run exists): that is advisory too. A body that links a run stays strict;
 - a non-merge commit of the PR has no `Signed-off-by:` trailer (Developer Certificate of Origin, the
   `DCO` file) whose email is the commit author's or the PR author's GitHub noreply address. EVERY
   commit of base..HEAD is checked, whatever the PR's number or dates; merged history never is. The
@@ -330,6 +332,17 @@ def citation_required(action: str | None) -> bool:
     return action not in ADVISORY_ACTIONS
 
 
+PENDING = re.compile(r"^\s*[-*]\s*CI:\s*pending\b", re.I | re.M)
+
+
+def pending_citation(body: str) -> bool:
+    """True for the documented intermediate state (issue #79): `### Where it ran` has `- CI: pending` and
+    links no run. A body that links any run, green or not, is never pending, so a wrong link stays strict."""
+    evidence = sections(body).get("Evidence", "")
+    match = re.search(r"^###\s+Where it ran.*?$(.*?)(?=^###\s|\Z)", evidence, re.M | re.S)
+    return bool(match) and not cited_runs(body) and PENDING.search(match.group(1)) is not None
+
+
 def has_where_it_ran(body: str) -> bool:
     evidence = sections(body).get("Evidence", "")
     return re.search(r"^###\s+Where it ran", evidence, re.M) is not None
@@ -521,7 +534,11 @@ def main() -> int:
     files = args.files if args.files is not None else (changed_files(args.base) if args.base else [])
     code_lines = code_lines_changed(args.base) if args.base and args.files is None else None
 
-    strict = citation_required(action)
+    # A body still at "CI: pending" is the documented intermediate state (a label added by `gh pr create
+    # --label`, the edit before the run exists): advisory like a push. The merge rule, not this check, stops
+    # a pending body from being merged (CONTRIBUTING -> Where it ran).
+    pending_body = pending_citation(body)
+    strict = citation_required(action) and not pending_body
     problems = check(title, body, strict) + size(code_lines, labels)
     gate = feature_gate(body, files, catalog(), [c["sha"] for c in commits_of(args.base)] if args.base else None) if files else []
     if strict:
@@ -538,7 +555,10 @@ def main() -> int:
     if problems:
         print(f"\n{len(problems)} problem(s). Template: .github/pull_request_template.md")
         return 1
-    if not strict and not cited_runs(body):
+    if pending_body and citation_required(action):
+        print(f"::warning::'Where it ran' is still 'CI: pending' on '{action}': fine while verify runs, but "
+              "paste the green run of the head before merge (nothing in CI stops a pending merge).")
+    elif not strict and not cited_runs(body):
         print(f"::notice::'Where it ran' has no run link yet; on '{action}' that is fine: paste the line "
               "from the where-it-ran comment once verify passes.")
     print(f"PR description OK ({len(files)} changed file(s)).")
