@@ -25,7 +25,6 @@ BASH = shutil.which("bash")
 PINNED = {
     "poc-join.sh": ("flannel", "no", None),   # both runtimes are proved (POC-STATUS: Dell Incus VMs and Docker)
     "poc-pool.sh": ("flannel", "no", "incus"),
-    "poc-party.sh": ("flannel", "no", "incus"),
 }
 
 
@@ -70,6 +69,11 @@ class SuitesPinGame(unittest.TestCase):
         for suite, (cni, taint, runtime) in PINNED.items():
             with self.subTest(suite=suite):
                 self.assertEqual(self.seen(suite), f"CNI={cni} TAINT={taint} RUNTIME={runtime or 'docker'}")
+
+    def test_poc_party_pins_taint_and_lets_the_caller_pick_the_cni(self) -> None:
+        # poc-party proves the party's NetworkPolicies on both CNIs (flannel by default, CNI=cilium on purpose); TAINT is always no
+        self.assertEqual(self.seen("poc-party.sh"), "CNI=flannel TAINT=no RUNTIME=incus")
+        self.assertEqual(self.seen("poc-party.sh", TAINT="yes", CNI="cilium", RUNTIME="docker"), "CNI=cilium TAINT=no RUNTIME=incus")
 
     def test_poc_join_keeps_the_callers_runtime(self) -> None:
         self.assertEqual(self.seen("poc-join.sh", TAINT="yes", RUNTIME="incus"), "CNI=flannel TAINT=no RUNTIME=incus")

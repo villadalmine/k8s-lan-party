@@ -7,7 +7,7 @@
 # the host's off switch, the host's end, a kick and a lease end each close the party; a reconcile run twice changes nothing.
 # Needs a Linux host with Incus. PASS/FAIL per step; identical across runs. POOL_LEASE (default 1500 s) must cover PY02-PY15. KEEP=1 leaves the VMs.
 set -u
-export RUNTIME=incus MAX_VMS=4 CNI=flannel TAINT=no   # as poc-pool (issue #59): the players' pods tolerate nothing
+export RUNTIME=incus MAX_VMS=4 CNI="${CNI:-flannel}" TAINT=no   # TAINT pinned as poc-pool (issue #59); CNI=cilium runs it on Cilium
 . "$(dirname "$0")/lib.sh"
 . "$POC/vm/lib-vm.sh"
 "$POC/vm/down.sh" >/dev/null 2>&1
