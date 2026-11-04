@@ -1,8 +1,13 @@
-#!/bin/sh
+#!/bin/bash
 # The automated player (issue #75 part B): joins an Odamex server, runs and shoots for N seconds, quits. A virtual screen (Xvfb) holds the game;
 # nothing is shown to anybody. With RECORD=1 the first RECORD_SECONDS of play are also written to /tmp/doom/match.gif (ffmpeg, 320x200).
 #   client.sh <host> <port> <seconds> [name]      exit 0 played; 3 no server answered (the party is not open); 4 other failure
+#   client.sh --probe <host> <port>               exit 0 when a UDP "hostname" is answered (poc/doom/pod.sh probe), 3 when not: a party open or closed
 # It never reaches anything but the server it is told: no master server, no downloads (the wad is in the image).
+if [ "${1:-}" = --probe ]; then   # one datagram on a new local port (a new flow, whatever an old one still has in conntrack), one answer or none in 3 s
+  exec 3<>"/dev/udp/${2:?host}/${3:?port}" && printf hostname >&3 && [ "$(timeout 3 dd bs=64 count=1 <&3 2>/dev/null | wc -c)" -gt 0 ] && exit 0
+  exit 3
+fi
 HOSTNAME_ARG="${1:?host}"; PORT="${2:?port}"; SECS="${3:?seconds}"; NAME="${4:-player}"
 OUT="${OUT:-/tmp/doom}"; WAIT="${CONNECT_WAIT:-20}"; REC="${RECORD:-0}"; RECSECS="${RECORD_SECONDS:-24}"
 export DISPLAY=:99 SDL_AUDIODRIVER=dummy HOME=/tmp

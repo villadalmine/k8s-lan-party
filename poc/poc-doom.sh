@@ -36,6 +36,10 @@ SVC=doom.play-alice.svc.cluster.local
 CLIENT="sudo edge-mesh kubectl exec doom-client -- client.sh $SVC 10666"   # what bob types (shown on the player's screen)
 play() { # play <seconds> [RECORD=1]: bob's client, in bob's namespace, plays on alice's server by the Service name; its screen is the output
   local rec="${2:-0}"; show player "$CLIENT $1 bob" K bob exec doom-client -- env RECORD="$rec" CONNECT_WAIT=40 client.sh "$SVC" 10666 "$1" bob; }
+PROBE=doom-probe.play-alice.svc.cluster.local
+probe() { K bob exec doom-client -- client.sh --probe "$PROBE" 10666; }   # is alice's namespace reachable on 10666/UDP right now (no game, no log line)
+open_now() { probe; }
+closed_now() { local rc; probe; rc=$?; [ "$rc" -eq 3 ]; }   # exactly 3: no answer; any other failure is not a closed party
 server_log() { K alice exec doom-server -- cat /tmp/server.log; }
 connects() { server_log | grep -c ' has connected\.'; }
 
@@ -53,7 +57,8 @@ loaded() { # no registry: the tarball goes into each player's node (k3s ctr), wh
 srv_init() { server_log | grep -q 'Odamex Server Initialized'; }
 server_up() { # alice's server and its UDP Service; Ready; the log says the map is loaded and the public master servers are not contacted
   "$POC/doom/pod.sh" server "$IMG" | K alice apply -f - && K alice expose pod doom-server --name doom --port 10666 --protocol UDP &&
-  K alice wait --for=condition=Ready pod/doom-server --timeout=240s &&
+  "$POC/doom/pod.sh" probe "$AGNHOST_IMAGE" | K alice apply -f - && K alice expose pod doom-probe --name doom-probe --port 10666 --protocol UDP &&
+  K alice wait --for=condition=Ready pod/doom-server pod/doom-probe --timeout=240s &&
   wait_for 60 srv_init &&
   server_log | grep -q 'Masters will not be contacted because sv_usemasters is 0' && server_log | grep -q 'MAP01' &&
   say player "alice: a Doom server (Odamex, Freedoom) in her namespace, on a UDP Service" && show player "sudo edge-mesh kubectl get pods,svc" K alice get pods,svc; }
@@ -62,16 +67,16 @@ client_up() { "$POC/doom/pod.sh" client "$IMG" | K bob apply -f - && K bob wait 
 nobody() { # the client reaches no server (exit 3: nobody answered) and alice's server log has no player: $1 = how many connects it may hold
   local o rc; o=$(show player "$CLIENT 10 bob" K bob exec doom-client -- env CONNECT_WAIT=15 client.sh "$SVC" 10666 10 bob 2>&1); rc=$?; echo "$o"; echo "exit $rc"
   [ "$rc" -eq 3 ] && echo "$o" | grep -q 'no server answered' && [ "$(connects)" -eq "$1" ]; }
-no_consent() { say player "alice runs the server in her namespace; bob's client tries it. Nobody has agreed to anything yet"; nobody 0; }
+no_consent() { say player "alice runs the server in her namespace; bob's client tries it. Nobody has agreed to anything yet"; closed_now && nobody 0; }
 one_side() { say player "alice invites bob: her consent alone opens nothing"
   out_has "your consent is recorded" show player "sudo edge-mesh party invite bob" P alice party invite bob && tick &&
-  out_has "waiting for bob to accept" show player "sudo edge-mesh party list" P alice party list && nobody 0 &&
+  out_has "waiting for bob to accept" show player "sudo edge-mesh party list" P alice party list && closed_now && nobody 0 &&
   [ -z "$(k get networkpolicies -A -l edge-mesh/party -o name)" ]; }
 open_party() { say player "bob accepts: now both agreed"; say host "the host's tick: both consents, both namespaces live, so it opens the party"
   out_has "your consent is recorded" show player "sudo edge-mesh party accept alice" P bob party accept alice &&
   out_has "party: alice -> bob: active: ports 10666/UDP" show host "mesh host auto --once" tick &&
   out_has "active: ports 10666/UDP" show player "sudo edge-mesh party list" P bob party list &&
-  out_has "active: ports 10666/UDP" show host "mesh host party" "$MESH" host party list; }
+  out_has "active: ports 10666/UDP" show host "mesh host party" "$MESH" host party list && wait_for 90 open_now; }
 match() { # the match: bob's client joins through the party, plays $PLAY s and quits; it saw the map, and its screen is a GIF
   local o; o=$(play "$PLAY" 1 2>&1); echo "$o"
   echo "$o" | grep -q 'client bob: map MAP01' && echo "$o" | grep -q 'client bob: in the game' && echo "$o" | grep -q 'left the game' || return 1
@@ -98,8 +103,8 @@ PY
 one_connect() { [ "$(connects)" -eq 1 ]; }
 leave_closes() { say player "bob leaves the party: the same client, the same server, and nobody answers again"
   out_has "left: the host closes the party" show player "sudo edge-mesh party leave" P bob party leave &&
-  out_has "party: alice -> bob: closed: bob left the party" show host "mesh host auto --once" tick && sleep 10 &&   # Cilium takes a moment to drop the rules
-  [ -z "$(k get networkpolicies -A -l edge-mesh/party -o name)" ] && nobody 1; }
+  out_has "party: alice -> bob: closed: bob left the party" show host "mesh host auto --once" tick &&
+  [ -z "$(k get networkpolicies -A -l edge-mesh/party -o name)" ] && wait_for 90 closed_now && nobody 1; }   # the CNI takes a moment to drop the rules
 idempotent() { out_has "party: unchanged" show host "mesh host party reconcile" "$MESH" host party reconcile && out_has "party: unchanged" "$MESH" host party reconcile &&
   [ -z "$(k get configmaps -A -l edge-mesh/party-consent -o name)" ]; }
 free_only() { # nothing non-free is in the image: Freedoom is the only wad, no doom.wad or doom2.wad anywhere, and both licences are there
