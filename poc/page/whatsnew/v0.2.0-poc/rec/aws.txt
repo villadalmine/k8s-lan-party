@@ -1,0 +1,154 @@
+edge-mesh / k8s-lan-party v0.2.0 - end-to-end run with a real visitor on AWS (2026-11-03)
+Visitor: a fresh EC2 t3.small (Ubuntu 24.04, eu-west-1, free tier), nothing open inbound, main 2be78d6 of the public repo.
+Host: the live demo (control plane at home, lighthouse + page on a VPS), auto admission ON, 2 places of 1 h, panic OFF.
+Real IPs, claim code and token ids are masked.
+
+Timeline (UTC):  request 16:49:35 -> approved (auto) 16:50:30 (55 s) -> bundle collected 16:51:35 -> joined 16:51:57 -> Ready 16:52:05 (host)
+                 -> warning 17:45:30 (5 min left) -> lease ended and node expelled 17:50:30 (by the tick, how=expired)
+
+================ 1. VISITOR: keys and request through the public page ================
+2026-11-03T16:49:34Z
+{"api": 1, "closed_reason": null, "difficulty": 18, "eligible": 0, "lease_seconds": 3600, "next_end_in_seconds": [], "open": true, "reported_at": 1793724561, "slots_free": 2, "slots_total": 2, "slots_used": 0, "waiting": 0}
+
+keys: /root/mykeys (host.key and seal.key never leave this machine; host.pub and seal.pub go to the page)
+host.key
+host.pub
+seal.key
+seal.pub
+2026-11-03T16:49:34Z
+asked as aws-e2e (proof of work: 0.5 s). Claim code: XXXXX-XXXXX-XXXXX-XXXXX-XXXXX-X (saved in /root/mykeys/claim-code)
+2026-11-03T16:49:35Z
+aws-e2e: received; the control plane reads new requests about once a minute
+
+================ 2. VISITOR: wait (polls the page, collects the sealed bundle once, opens it with its own key) ================
+$ python3 visit.py wait https://play.cybercirujas.club --keys /root/mykeys
+aws-e2e: received; the control plane reads new requests about once a minute
+aws-e2e: in the list, position 1 of 1; estimated around 2026-11-03T16:51:20Z
+aws-e2e: your place is ready: collect the bundle now (claim), its join token dies 8 minutes after approval
+bundle: /root/mykeys/aws-e2e (lease until 17:50:30 UTC)
+join: sudo edge-mesh join /root/mykeys/aws-e2e --accept-golden-rule
+
+================ 3. VISITOR: join ================
+$ sudo edge-mesh join /root/mykeys/aws-e2e --accept-golden-rule
+2026-11-03T16:51:45Z
+ca.crt
+config.yml
+host.crt
+host.key
+join.env
+kubeconfig
+Golden rule: what runs on someone else's machine can be seen by its owner.
+joined: aws-e2e (trust=public)
+your namespace: play-aws-e2e; try: sudo edge-mesh kubectl get pods
+exit=0
+2026-11-03T16:51:57Z
+
+================ 4. VISITOR: the mesh, a pod in its own namespace, and what it may NOT do ================
+2026-11-03T16:52:29Z
+nebula1          UNKNOWN        10.77.0.17/24 
+rtt min/avg/max/mdev = 97.046/97.148/97.250/0.102 ms
+rtt min/avg/max/mdev = 18.973/19.223/19.473/0.250 ms
+ATTRIBUTE                                           VALUE
+Username                                            system:serviceaccount:play-aws-e2e:user
+UID                                                 <masked>
+Groups                                              [system:serviceaccounts system:serviceaccounts:play-aws-e2e system:authenticated]
+Extra: authentication.kubernetes.io/credential-id   [JTI=<masked>]
+pod/hello created
+pod/hello condition met
+NAME    READY   STATUS    RESTARTS   AGE   IP          NODE      NOMINATED NODE   READINESS GATES
+hello   1/1     Running   0          4s    10.42.9.2   aws-e2e   <none>           <none>
+hello from hello on the mesh
+--- listing nodes:
+Error from server (Forbidden): nodes is forbidden: User "system:serviceaccount:play-aws-e2e:user" cannot list resource "nodes" in API group "" at the cluster scope
+edge-mesh: forbidden (403): you may only work in your namespace play-aws-e2e
+exit=13
+--- other namespace:
+Error from server (Forbidden): pods is forbidden: User "system:serviceaccount:play-aws-e2e:user" cannot list resource "pods" in API group "" in the namespace "kube-system"
+exit=13
+--- secrets:
+edge-mesh: forbidden (403): you may only work in your namespace play-aws-e2e
+Error from server (Forbidden): secrets is forbidden: User "system:serviceaccount:play-aws-e2e:user" cannot list resource "secrets" in API group "" in the namespace "play-aws-e2e"
+edge-mesh: forbidden (403): you may only work in your namespace play-aws-e2e
+exit=13
+
+================ 5. HOST: the request, the lease, the node, the events and the metrics ================
+## 2026-11-03T16:54:59Z host
+auto: on | panic: off | slots 1/2 used | 0 in the list (0 eligible now) | last tick: 2026-11-03T16:54:30Z
+POS  NAME                 STATE     ELIGIBLE              IDENTITY                 NOTE
+NAME                 TRUST    ENDS                  LEFT      IDENTITY
+aws-e2e              public   2026-11-03T17:50:30Z  55m31s    <visitor-ip>
+NAME      STATUS   ROLES           AGE    VERSION
+aws-e2e   Ready    <none>          3m4s   v1.37.1+k3s1
+cp        Ready    control-plane   7d9h   v1.37.1+k3s1
+NAME    READY   STATUS    RESTARTS   AGE
+hello   1/1     Running   0          2m28s
+2026-11-03T16:50:21Z request  aws-e2e: waiting, position 1 of 1
+2026-11-03T16:50:30Z approved auto aws-e2e: approved automatically (public) until 2026-11-03T17:50:30Z
+2026-11-03T16:50:30Z bundle_ready  aws-e2e: bundle ready in the outbox (aws-e2e.tar.gz), lease until 2026-11-03T17:50:30Z
+emesh_node_ready{node="aws-e2e",trust="unknown"} 1
+emesh_node_ready{node="cp",trust="own"} 1
+emesh_nodes{trust="friends"} 0
+emesh_nodes{trust="own"} 1
+emesh_nodes{trust="public"} 0
+emesh_nodes{trust="unknown"} 1
+emesh_cert_expiry_seconds{name="aws-e2e",trust="public"} 3408
+emesh_admission_slots_total 2
+emesh_admission_slots_free 1
+emesh_admission_slots_used 1
+emesh_admission_auto_enabled 1
+emesh_admission_panic 0
+
+Grafana (dashboard 'edge-mesh (malla Nebula)', /d/edge-mesh), panel 'Nodos y estado', instant query emesh_node_ready:
+  {node="aws-e2e", trust="unknown"} 1
+  {node="cp", trust="own"} 1
+
+================ 6. Watching the lease run out (host leases / nodes | visitor pods) ================
+16:55:12 aws-e2e              public   2026-11-03T17:50:30Z  55m18s    <visitor-ip> aws-e2e   Ready    <none>          3m17s   v1.37.1+k3s1 | visitor: hello   1/1   Running   0     2m46s 
+16:57:18 aws-e2e              public   2026-11-03T17:50:30Z  53m12s    <visitor-ip> aws-e2e   Ready    <none>          5m23s   v1.37.1+k3s1 | visitor: hello   1/1   Running   0     4m52s 
+16:59:25 aws-e2e              public   2026-11-03T17:50:30Z  51m05s    <visitor-ip> aws-e2e   Ready    <none>          7m29s   v1.37.1+k3s1 | visitor: hello   1/1   Running   0     6m58s 
+  ...
+17:49:09 aws-e2e              public   2026-11-03T17:50:30Z  1m21s     <visitor-ip> aws-e2e   Ready    <none>          57m     v1.37.1+k3s1 | visitor: hello   1/1   Running   0     56m 
+17:49:29 aws-e2e              public   2026-11-03T17:50:30Z  1m00s     <visitor-ip> aws-e2e   Ready    <none>          57m     v1.37.1+k3s1 | visitor: hello   1/1   Running   0     57m 
+17:49:50 aws-e2e              public   2026-11-03T17:50:30Z  0m40s     <visitor-ip> aws-e2e   Ready    <none>          57m     v1.37.1+k3s1 | visitor: hello   1/1   Running   0     57m 
+17:50:10 aws-e2e              public   2026-11-03T17:50:30Z  0m20s     <visitor-ip> aws-e2e   Ready    <none>          58m     v1.37.1+k3s1 | visitor: hello   1/1   Running   0     57m 
+17:50:30 | visitor: Unable to connect to the server: dial tcp 10.77.0.2:6443: i/o timeout 
+DONE 17:51:56
+
+================ 7. HOST after the lease end ================
+## 2026-11-03T17:52:10Z host after lease end
+auto: on | panic: off | slots 0/2 used | 0 in the list (0 eligible now) | last tick: 2026-11-03T17:51:30Z
+NAME                 TRUST    ENDS                  LEFT      IDENTITY
+NAME   STATUS   ROLES           AGE     VERSION
+cp     Ready    control-plane   7d10h   v1.37.1+k3s1
+No resources found in play-aws-e2e namespace.
+
+Error from server (NotFound): namespaces "play-aws-e2e" not found
+2026-11-03T16:50:21Z request   aws-e2e: waiting, position 1 of 1
+2026-11-03T16:50:30Z approved auto  aws-e2e: approved automatically (public) until 2026-11-03T17:50:30Z
+2026-11-03T16:50:30Z bundle_ready   aws-e2e: bundle ready in the outbox (aws-e2e.tar.gz), lease until 2026-11-03T17:50:30Z
+2026-11-03T17:45:30Z expiring   aws-e2e: the lease ends at 2026-11-03T17:50:30Z (in 5m00s)
+2026-11-03T17:50:30Z expelled  expired aws-e2e: lease expired, node expelled, place freed
+emesh_node_ready{node="cp",trust="own"} 1
+emesh_nodes{trust="public"} 0
+emesh_blocklist_size 28
+emesh_admission_slots_used 0
+emesh_admission_auto_enabled 1
+emesh_admission_panic 0
+
+================ 8. VISITOR after the lease end: no API, no control plane, no lighthouse ================
+## 2026-11-03T17:52:16Z visitor after lease end
+Unable to connect to the server: context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+exit=1
+2 packets transmitted, 0 received, 100% packet loss, time 1057ms
+
+2 packets transmitted, 0 received, 100% packet loss, time 1005ms
+
+time=2026-11-03T17:52:36.895Z level=INFO msg="Handshake timed out" vpnAddrs=[10.77.0.1] localIndex=<n> remoteIndex=<n> udpAddrs=[<lighthouse-ip>:4242] initiatorIndex=<n> durationNs=6825593189 handshake="map[stage:1 style:ix_psk0]"
+time=2026-11-03T17:52:36.895Z level=INFO msg="Handshake timed out" vpnAddrs=[10.77.0.2] localIndex=<n> remoteIndex=<n> udpAddrs=[] initiatorIndex=<n> durationNs=6825762299 handshake="map[stage:1 style:ix_psk0]"
+time=2026-11-03T17:52:36.918Z level=INFO msg="Handshake message sent" vpnAddrs=[10.77.0.1] localIndex=<n> remoteIndex=<n> udpAddrs=[<lighthouse-ip>:4242] initiatorIndex=<n> handshake="map[stage:1 style:ix_psk0]"
+E1103 17:52:32.203791    2162 controller.go:208] "Failed to ensure lease exists, will retry" err="Get \"https://127.0.0.1:6444/apis/coordination.k8s.io/v1/namespaces/kube-node-lease/leases/aws-e2e?tim
+E1103 17:52:37.002945    2162 status_manager.go:1257] "Failed to get status for pod" err="Get \"https://127.0.0.1:6444/api/v1/namespaces/play-aws-e2e/pods/hello\": net/http: TLS handshake timeout" pod
+
+================ 9. AWS torn down ================
+Destroy complete! Resources: 3 destroyed.   (instance, security group, key pair)
+OK: nothing billing in AWS - every region checked: no instance, volume, elastic IP, extra security group or key pair from this run

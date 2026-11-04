@@ -8,6 +8,7 @@ poc/.state/
 poc/.cache/
 poc/results/
 poc/.regression/
+poc/.showcase/
 
 # examples/aws: local Terraform state and inputs (they name your account and your address)
 examples/aws/.terraform/

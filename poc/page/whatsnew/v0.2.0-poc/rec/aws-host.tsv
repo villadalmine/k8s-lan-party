@@ -1,0 +1,86 @@
+0.000	note	edge-mesh / k8s-lan-party v0.2.0 - end-to-end run with a real visitor on AWS (2026-11-03)
+0.400	note	Visitor: a fresh EC2 t3.small (Ubuntu 24.04, eu-west-1, free tier), nothing open inbound, main 2be78d6 of the public repo.
+0.800	note	Host: the live demo (control plane at home, lighthouse + page on a VPS), auto admission ON, 2 places of 1 h, panic OFF.
+1.200	note	Real IPs, claim code and token ids are masked.
+1.600	note	
+2.000	note	Timeline (UTC):  request 16:49:35 -> approved (auto) 16:50:30 (55 s) -> bundle collected 16:51:35 -> joined 16:51:57 -> Ready 16:52:05 (host)
+2.400	note	                 -> warning 17:45:30 (5 min left) -> lease ended and node expelled 17:50:30 (by the tick, how=expired)
+2.800	note	
+189.400	note	================ 5. HOST: the request, the lease, the node, the events and the metrics ================
+328.600	out	## 2026-11-03T16:54:59Z host
+329.000	out	auto: on | panic: off | slots 1/2 used | 0 in the list (0 eligible now) | last tick: 2026-11-03T16:54:30Z
+329.400	out	POS  NAME                 STATE     ELIGIBLE              IDENTITY                 NOTE
+329.800	out	NAME                 TRUST    ENDS                  LEFT      IDENTITY
+330.200	out	aws-e2e              public   2026-11-03T17:50:30Z  55m31s    <visitor-ip>
+330.600	out	NAME      STATUS   ROLES           AGE    VERSION
+331.000	out	aws-e2e   Ready    <none>          3m4s   v1.37.1+k3s1
+331.400	out	cp        Ready    control-plane   7d9h   v1.37.1+k3s1
+331.800	out	NAME    READY   STATUS    RESTARTS   AGE
+332.200	out	hello   1/1     Running   0          2m28s
+332.200	out	2026-11-03T16:50:21Z request  aws-e2e: waiting, position 1 of 1
+332.200	out	2026-11-03T16:50:30Z approved auto aws-e2e: approved automatically (public) until 2026-11-03T17:50:30Z
+332.200	out	2026-11-03T16:50:30Z bundle_ready  aws-e2e: bundle ready in the outbox (aws-e2e.tar.gz), lease until 2026-11-03T17:50:30Z
+332.600	out	emesh_node_ready{node="aws-e2e",trust="unknown"} 1
+333.000	out	emesh_node_ready{node="cp",trust="own"} 1
+333.400	out	emesh_nodes{trust="friends"} 0
+333.800	out	emesh_nodes{trust="own"} 1
+334.200	out	emesh_nodes{trust="public"} 0
+334.600	out	emesh_nodes{trust="unknown"} 1
+335.000	out	emesh_cert_expiry_seconds{name="aws-e2e",trust="public"} 3408
+335.400	out	emesh_admission_slots_total 2
+335.800	out	emesh_admission_slots_free 1
+336.200	out	emesh_admission_slots_used 1
+336.600	out	emesh_admission_auto_enabled 1
+337.000	out	emesh_admission_panic 0
+337.400	out	
+337.800	out	Grafana (dashboard 'edge-mesh (malla Nebula)', /d/edge-mesh), panel 'Nodos y estado', instant query emesh_node_ready:
+338.200	out	  {node="aws-e2e", trust="unknown"} 1
+338.600	out	  {node="cp", trust="own"} 1
+339.000	out	
+339.400	note	================ 6. Watching the lease run out (host leases / nodes | visitor pods) ================
+341.600	out	16:55:12 aws-e2e              public   2026-11-03T17:50:30Z  55m18s    <visitor-ip> aws-e2e   Ready    <none>          3m17s   v1.37.1+k3s1 | visitor: hello   1/1   Running   0     2m46s 
+467.600	out	16:57:18 aws-e2e              public   2026-11-03T17:50:30Z  53m12s    <visitor-ip> aws-e2e   Ready    <none>          5m23s   v1.37.1+k3s1 | visitor: hello   1/1   Running   0     4m52s 
+594.600	out	16:59:25 aws-e2e              public   2026-11-03T17:50:30Z  51m05s    <visitor-ip> aws-e2e   Ready    <none>          7m29s   v1.37.1+k3s1 | visitor: hello   1/1   Running   0     6m58s 
+595.000	out	  ...
+3578.600	out	17:49:09 aws-e2e              public   2026-11-03T17:50:30Z  1m21s     <visitor-ip> aws-e2e   Ready    <none>          57m     v1.37.1+k3s1 | visitor: hello   1/1   Running   0     56m 
+3598.600	out	17:49:29 aws-e2e              public   2026-11-03T17:50:30Z  1m00s     <visitor-ip> aws-e2e   Ready    <none>          57m     v1.37.1+k3s1 | visitor: hello   1/1   Running   0     57m 
+3619.600	out	17:49:50 aws-e2e              public   2026-11-03T17:50:30Z  0m40s     <visitor-ip> aws-e2e   Ready    <none>          57m     v1.37.1+k3s1 | visitor: hello   1/1   Running   0     57m 
+3639.600	out	17:50:10 aws-e2e              public   2026-11-03T17:50:30Z  0m20s     <visitor-ip> aws-e2e   Ready    <none>          58m     v1.37.1+k3s1 | visitor: hello   1/1   Running   0     57m 
+3659.600	out	17:50:30 | visitor: Unable to connect to the server: dial tcp 10.77.0.2:6443: i/o timeout 
+3660.000	out	DONE 17:51:56
+3660.400	out	
+3660.800	note	================ 7. HOST after the lease end ================
+3759.600	out	## 2026-11-03T17:52:10Z host after lease end
+3760.000	out	auto: on | panic: off | slots 0/2 used | 0 in the list (0 eligible now) | last tick: 2026-11-03T17:51:30Z
+3760.400	out	NAME                 TRUST    ENDS                  LEFT      IDENTITY
+3760.800	out	NAME   STATUS   ROLES           AGE     VERSION
+3761.200	out	cp     Ready    control-plane   7d10h   v1.37.1+k3s1
+3761.600	out	No resources found in play-aws-e2e namespace.
+3762.000	out	
+3762.400	out	Error from server (NotFound): namespaces "play-aws-e2e" not found
+3762.400	out	2026-11-03T16:50:21Z request   aws-e2e: waiting, position 1 of 1
+3762.400	out	2026-11-03T16:50:30Z approved auto  aws-e2e: approved automatically (public) until 2026-11-03T17:50:30Z
+3762.400	out	2026-11-03T16:50:30Z bundle_ready   aws-e2e: bundle ready in the outbox (aws-e2e.tar.gz), lease until 2026-11-03T17:50:30Z
+3762.400	out	2026-11-03T17:45:30Z expiring   aws-e2e: the lease ends at 2026-11-03T17:50:30Z (in 5m00s)
+3762.400	out	2026-11-03T17:50:30Z expelled  expired aws-e2e: lease expired, node expelled, place freed
+3762.800	out	emesh_node_ready{node="cp",trust="own"} 1
+3763.200	out	emesh_nodes{trust="public"} 0
+3763.600	out	emesh_blocklist_size 28
+3764.000	out	emesh_admission_slots_used 0
+3764.400	out	emesh_admission_auto_enabled 1
+3764.800	out	emesh_admission_panic 0
+3765.200	out	
+3765.600	note	================ 8. VISITOR after the lease end: no API, no control plane, no lighthouse ================
+3765.600	out	## 2026-11-03T17:52:16Z visitor after lease end
+3766.000	out	Unable to connect to the server: context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+3766.400	out	exit=1
+3766.800	out	2 packets transmitted, 0 received, 100% packet loss, time 1057ms
+3767.200	out	
+3767.600	out	2 packets transmitted, 0 received, 100% packet loss, time 1005ms
+3768.000	out	
+3768.400	out	time=2026-11-03T17:52:36.895Z level=INFO msg="Handshake timed out" vpnAddrs=[10.77.0.1] localIndex=<n> remoteIndex=<n> udpAddrs=[<lighthouse-ip>:4242] initiatorIndex=<n> durationNs=6825593189 handshake="map[stage:1 style:ix_psk0]"
+3768.800	out	time=2026-11-03T17:52:36.895Z level=INFO msg="Handshake timed out" vpnAddrs=[10.77.0.2] localIndex=<n> remoteIndex=<n> udpAddrs=[] initiatorIndex=<n> durationNs=6825762299 handshake="map[stage:1 style:ix_psk0]"
+3769.200	out	time=2026-11-03T17:52:36.918Z level=INFO msg="Handshake message sent" vpnAddrs=[10.77.0.1] localIndex=<n> remoteIndex=<n> udpAddrs=[<lighthouse-ip>:4242] initiatorIndex=<n> handshake="map[stage:1 style:ix_psk0]"
+3769.600	out	E1103 17:52:32.203791    2162 controller.go:208] "Failed to ensure lease exists, will retry" err="Get \"https://127.0.0.1:6444/apis/coordination.k8s.io/v1/namespaces/kube-node-lease/leases/aws-e2e?tim
+3770.000	out	E1103 17:52:37.002945    2162 status_manager.go:1257] "Failed to get status for pod" err="Get \"https://127.0.0.1:6444/api/v1/namespaces/play-aws-e2e/pods/hello\": net/http: TLS handshake timeout" pod
+3770.400	out	

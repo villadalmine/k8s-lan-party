@@ -171,12 +171,12 @@ features:
     docs: [docs/ADMISSION.md, docs/JOIN.md]
 
   - id: public-page
-    description: the public page (phase B2) on a server that holds no credential; a visitor asks, waits, collects a sealed bundle, joins, is expelled; panic closes it
+    description: the public page (phase B2) on a server that holds no credential; a visitor asks, waits, collects a sealed bundle, joins, is expelled; panic closes it; What's new tells each release with recordings of real runs (make showcase)
     proven_by:
       - {suite: poc-page, steps: [G01-G26]}
     paths: [poc/page/*, poc/poc-page.sh]
     components: [page, Caddy, Nebula, admission]
-    docs: [docs/PUBLIC-PAGE.md, docs/ADMISSION.md]
+    docs: [docs/PUBLIC-PAGE.md, docs/ADMISSION.md, CONTRIBUTING.md]
 
   - id: lighthouse-external
     description: a lighthouse on a separate public server, prepared, signed and deployed idempotently; its key never leaves it; players join through it

@@ -48,6 +48,7 @@ for _p in (HERE.parent, HERE):   # the repository layout (poc/page) and the depl
 from admission import NAME, RESERVED, AdmissionError, clean_text, locked_state  # noqa: E402
 from pool import client_ip, identity, load_config, _norm as pool_norm  # noqa: E402
 import seal as keys  # noqa: E402
+import news  # noqa: E402
 
 API = 1
 DEFAULTS = {
@@ -95,7 +96,10 @@ SECURITY_HEADERS = {
     "Permissions-Policy": "camera=(), microphone=(), geolocation=(), interest-cohort=()",
     "Cache-Control": "no-store",
 }
-STATIC = {"/static/page.js": "application/javascript; charset=utf-8", "/static/page.css": "text/css; charset=utf-8"}
+JS, CSS = "application/javascript; charset=utf-8", "text/css; charset=utf-8"
+# asciinema-player 3.17.0 (Apache-2.0), from the npm tarball, self-hosted: its SHA-256 in static/VENDOR.md, checked by poc/test_whatsnew.py
+STATIC = {"/static/page.js": JS, "/static/page.css": CSS, "/static/whatsnew.js": JS, "/static/asciinema-player.min.js": JS,
+          "/static/asciinema-player.css": CSS}
 
 
 class Refusal(Exception):
@@ -516,6 +520,7 @@ TEMPLATE = """<!doctype html>
 <html lang=en><head><meta charset=utf-8><meta name=viewport content="width=device-width, initial-scale=1">
 <title>k8s-lan-party: ask for a place</title><link rel=stylesheet href=/static/page.css></head>
 <body><main>
+<p class=top><a href=/whats-new>What's new: the latest release, told as a game</a></p>
 <h1>Ask for a place in the mesh</h1>
 <p>A shared Kubernetes cluster where people lend machines. A place is one machine of yours as a <code>public</code> node for a limited
 time. <b>Golden rule:</b> what runs on someone else's machine can be seen by its owner, so only shareable workloads go to your node.</p>
@@ -659,8 +664,8 @@ class Handler(BaseHTTPRequestHandler):
             if method == "GET" and p == "/":
                 self._send(200, page.html().encode(), "text/html; charset=utf-8")
             elif method == "GET" and p in self.static:
-                body, ctype = self.static[p]
-                self._send(200, body, ctype)
+                body, ctype, *extra = self.static[p]
+                self._send(200, body, ctype, *extra)
             elif method == "GET" and p == "/api/v1/status":
                 self._json(200, page.status())
             elif method == "GET" and p == "/api/v1/challenge":
@@ -770,6 +775,10 @@ def make_server(page: Page, listen: str) -> Server:
     static = {}
     for path, ctype in STATIC.items():
         static[path] = ((HERE / "static" / path.rsplit("/", 1)[1]).read_bytes(), ctype)
+    releases = news.load(HERE / "whatsnew", strict=False)   # What's new: built once, served like the static files (test: strict)
+    static["/whats-new"] = (news.page(releases).encode(), "text/html; charset=utf-8", {"Content-Security-Policy": news.CSP})
+    for path, body in news.casts(HERE / "whatsnew", releases).items():
+        static[path] = (body, "application/x-asciicast; charset=utf-8")
     handler = type("PageHandler", (Handler,), {"page": page, "static": static})
     c = page.cfg
     return Server((host, int(port)), handler, c["max_threads"], c["request_total_seconds"], c["max_per_origin"], tuple(c["trusted_proxies"]))
