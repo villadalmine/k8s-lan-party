@@ -24,6 +24,11 @@ import yaml
 ROOT = Path(__file__).resolve().parent.parent
 CATALOG = ROOT / "docs" / "FEATURES.yml"
 RUNTIMES = ("docker", "incus", "kind", "none")
+# the tables of docs/LEARN.md, in this order: id -> title (issue #77)
+LAYERS = {"mesh": "Joining and the mesh", "admission": "Admission and access", "tenancy": "Tenants, trust and consent",
+          "podnet": "The pod network", "proof": "Operations and proof"}
+LEARN_KEYS = ("concept", "analogy", "real_world", "seen_in")
+VERSION = re.compile(r"v\d+\.\d+\.\d+-poc")
 # `step <id> "..."` in every suite; `check <rule> <id>` and `depends <rule> <id>` in poc-golden.sh
 STEP_DEF = re.compile(r"^\s*(?:step\s+([A-Za-z]+[0-9][0-9A-Za-z]*)|(?:check|depends)\s+\d+\s+(G[0-9]+\.[0-9]+))\s+\"")
 STEP_OUT = re.compile(r"^(PASS|FAIL|SKIP|DEP)\s+(\S+)\s")
@@ -78,6 +83,32 @@ def tracked() -> list[str]:
     return res.stdout.splitlines()
 
 
+def needs_learn(f: dict) -> bool:
+    """The rule of issue #77: a user-facing feature, or one a What's new page shows, explains itself."""
+    return bool(f.get("user_facing")) or bool(f.get("releases"))
+
+
+def validate_learn(f: dict, files: list[str]) -> list[str]:
+    fid, out = f.get("id") or "?", []
+    if f.get("layer") not in LAYERS:
+        out.append(f"feature {fid}: 'layer' must be one of {', '.join(LAYERS)}")
+    if not isinstance(f.get("user_facing"), bool):
+        out.append(f"feature {fid}: 'user_facing' must be true or false (say whether a player, a visitor or the host sees it)")
+    for v in f.get("releases") or []:
+        if not VERSION.fullmatch(str(v)) or f"poc/page/whatsnew/{v}.json" not in files:
+            out.append(f"feature {fid}: releases: {v} has no poc/page/whatsnew/{v}.json")
+    learn = f.get("learn")
+    if learn is None:
+        return out + ([f"feature {fid}: needs a 'learn' block (it is user_facing or a release page shows it)"] if needs_learn(f) else [])
+    if not isinstance(learn, dict) or set(learn) != set(LEARN_KEYS):
+        return out + [f"feature {fid}: 'learn' must hold exactly {', '.join(LEARN_KEYS)}"]
+    for k in LEARN_KEYS:
+        v = learn[k]
+        if not isinstance(v, str) or not v.strip() or v != v.strip() or "\n" in v or "|" in v:
+            out.append(f"feature {fid}: learn.{k} must be one line of text, no '|', no spaces around it")
+    return out
+
+
 def validate(cat: dict, make: dict[str, str] | None = None, files: list[str] | None = None) -> list[str]:
     """Every problem of the catalog against the Makefile, the suites' sources and the tracked files."""
     make = makefile_suites() if make is None else make
@@ -129,6 +160,7 @@ def validate(cat: dict, make: dict[str, str] | None = None, files: list[str] | N
             missing = set(suites[sid]["runtime"]) - got if len(suites[sid]["runtime"]) > 1 else set()
             if missing:
                 problems.append(f"feature {fid}: {sid} is proved on {', '.join(sorted(map(str, got)))} only, not on {', '.join(sorted(missing))}")
+        problems += validate_learn(f, files)
         for glob in f.get("paths") or []:
             if not any(fnmatch.fnmatch(p, glob) for p in files):
                 problems.append(f"feature {fid}: path {glob} matches no tracked file")

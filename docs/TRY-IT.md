@@ -18,6 +18,8 @@ tags: [try-it, recipes, incus, docker, kind, wsl2, cloud, mixed]
 
 # Try it your way
 
+After you try a recipe, [LEARN.md](LEARN.md) tells you what you just saw: the concept behind each step, an analogy and where it is used for real.
+
 People have different machines. Pick the row that matches yours: each recipe below was run on the date given in the table (host a game,
 a player joins, the node is Ready, a pod lands by trust, revoke, tear down). The table says which ones were run in full and which were not. Which host kind passes which step, and why the
 others do not, is the matrix in [REQUIREMENTS.md](REQUIREMENTS.md) ("Host kind against step"); the runs are recorded in

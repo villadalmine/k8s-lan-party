@@ -219,6 +219,25 @@ class Releases(unittest.TestCase):
         self.assertTrue(r["story"]["player"]["steps"] and r["story"]["host"]["steps"])
         self.assertGreaterEqual(len(r["features"]), 6)
 
+    def test_a_bad_learn_file_stops_the_page(self):
+        d = Path(tempfile.mkdtemp(prefix="wn-learn-"))
+        try:
+            (d / "v9.9.9.json").write_text(json.dumps({"version": "v9.9.9", "date": "2026-01-01", "title": "t", "summary": "s",
+                                                       "issues": [1], "release": f"{news.REPO}/releases/tag/v9.9.9"}))
+            card = {"id": "x", "concept": "c", "analogy": "a", "real_world": "r", "seen_in": "s"}
+            (d / "learn.json").write_text(json.dumps({"releases": {"v9.9.9": [card]}}))
+            self.assertEqual(news.load(d)[0]["learn"], [card])
+            for bad in ({"concept": ""}, {"analogy": 3}):
+                (d / "learn.json").write_text(json.dumps({"releases": {"v9.9.9": [{**card, **bad}]}}))
+                with self.assertRaises(news.NewsError):
+                    news.load(d)
+            (d / "learn.json").write_text(json.dumps({"releases": {"v1.1.1": [card]}}))
+            with self.assertRaises(news.NewsError):
+                news.load(d)
+            self.assertEqual(len(news.load(d, strict=False)), 1)
+        finally:
+            shutil.rmtree(d)
+
     def test_a_bad_release_stops_the_page(self):
         d = Path(tempfile.mkdtemp(prefix="wn-"))
         try:
@@ -311,6 +330,21 @@ class Served(unittest.TestCase):
             if i + 1 < len(rs):
                 self.assertIn(f'href="/whats-new/{rs[i + 1]["version"]}"', text)   # the older one
         self.assertIn(f'<section id="{rs[0]["version"]}">', index)            # the newest one in full on the index
+
+    def test_the_three_releases_show_what_you_just_saw(self):
+        # issue #77: the section is built from docs/FEATURES.yml (learn.json), nothing else on the page changes: same CSP as before
+        shown = {"v0.2.0-poc": {"join", "admission-auto", "pool", "public-page", "cilium-guard", "spire-scope"},
+                 "v0.2.1-poc": {"public-page"}, "v0.3.0-poc": {"party", "doom"}}
+        for v, ids in shown.items():
+            s, h, body = self.get(f"/whats-new/{v}")
+            text = body.decode()
+            self.assertIn("What you just saw, and where it", text, v)
+            for i in ids:
+                self.assertIn(f"<h4>{i}</h4>", text, f"{v} does not show {i}")
+            self.assertEqual(h["Content-Security-Policy"], pagemod.SECURITY_HEADERS["Content-Security-Policy"].replace(
+                "script-src 'self'", "script-src 'self' 'wasm-unsafe-eval'"))
+            self.assertNotIn("<script>", text.replace("<script src=", ""))   # no inline script was added
+        self.assertNotIn("What you just saw", self.get("/whats-new/v0.1.0-poc")[2].decode())   # a release that introduced none shows none
 
     def test_game_screens_are_served_as_images_of_this_server_only(self):
         for r in news.load(NEWS):

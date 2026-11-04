@@ -7,6 +7,7 @@
     showcase.py from-text TXT DIR           a text transcript with UTC times (the AWS run) -> DIR/<stem>-player.tsv and DIR/<stem>-host.tsv
     showcase.py cast TSV CAST TITLE         TSV -> an asciicast v2 file; same TSV, same bytes
     showcase.py build DIR                   DIR/rec/<stem>.txt -> TSV, then every DIR/rec/<name>.tsv -> DIR/<name>.cast (titles: DIR.json)
+    showcase.py learn                       learn.json: "what you just saw, and where it is used for real" per release, from docs/FEATURES.yml
     showcase.py scan FILE...                exit 1 and name the line when a file holds what the filter removes (a leak); a .gif: its text blocks
 
 A TSV line is "<seconds>\\t<kind>\\t<text>", kind cmd | out | note. Nothing here is edited by hand: `make showcase` records a real
@@ -211,6 +212,14 @@ def build(d: str) -> None:
         print(f"cast: {rel / name}")
 
 
+def learn() -> None:
+    """poc/page/whatsnew/learn.json, sealed with the hash of the learn data (scripts/learn.py owns the rule and the bytes)."""
+    sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "scripts"))
+    import learn as learn_mod
+    learn_mod.PAGE.write_text(learn_mod.page_json(learn_mod.features.load()), encoding="utf-8")
+    print(f"learn: {learn_mod.PAGE}")
+
+
 def gif_text(path: str) -> list[str]:
     """What a viewer or a tool can read in a GIF besides its pixels: every run of printable characters (comments, application blocks)."""
     return [m.decode() for m in re.findall(rb"[\x20-\x7e]{6,}", Path(path).read_bytes())]
@@ -254,6 +263,9 @@ def main(a: list[str]) -> int:
         return 0
     if cmd == "build":
         build(a[1])
+        return 0
+    if cmd == "learn":
+        learn()
         return 0
     if cmd == "scan":
         return scan(a[1:])
