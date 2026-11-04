@@ -39,6 +39,7 @@ See [GOLDEN-RULES.md](docs/GOLDEN-RULES.md).
 Honest status: this is a **proof of concept, not announced, no support promised**. Golden rule 1 applies to everything below: what runs on
 someone else's machine can be seen by its owner.
 
+- **Learn what you are seeing:** [LEARN.md](docs/LEARN.md) says, for each feature, the platform engineering concept, an analogy, where it is used for real and the tests that prove it.
 - **Host your own game and invite friends:** [HOST-YOUR-OWN.md](docs/HOST-YOUR-OWN.md); join one: [JOIN.md](docs/JOIN.md).
 - **A tested recipe per platform** ([TRY-IT.md](docs/TRY-IT.md)): [Incus VMs](docs/TRY-IT.md#1-incus-vms-a-linux-host),
   [Docker](docs/TRY-IT.md#2-docker-k3s-in-privileged-containers) and [kind](docs/TRY-IT.md#3-kind-the-pod-network-only),

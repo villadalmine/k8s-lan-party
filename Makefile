@@ -9,7 +9,7 @@ PR_TITLE ?=
 ONLY     ?=
 NAME     ?=
 
-.PHONY: regression features-check diagrams poc-lighthouse poc-cilium help labels-check test verify-ci pr-check install-hooks uninstall-hooks poc-join poc-host poc-weakness poc-down poc-ca poc-placement poc-kind poc-vm poc-revoke poc-admission poc-admission-auto poc-participants poc-participants-e2e poc-nat poc-bgp poc-golden poc-pool poc-party poc-doom poc-page showcase showcase-doom showcase-build
+.PHONY: regression features-check learn learn-check diagrams poc-lighthouse poc-cilium help labels-check test verify-ci pr-check install-hooks uninstall-hooks poc-join poc-host poc-weakness poc-down poc-ca poc-placement poc-kind poc-vm poc-revoke poc-admission poc-admission-auto poc-participants poc-participants-e2e poc-nat poc-bgp poc-golden poc-pool poc-party poc-doom poc-page showcase showcase-doom showcase-build
 
 help:
 	@grep -E '^[a-z-]+:.*##' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-14s %s\n", $$1, $$2}'
@@ -29,6 +29,12 @@ verify-ci: ## what the CI job `verify` runs
 
 features-check: ## docs/FEATURES.yml against the Makefile and the suites: every suite listed, every feature proven by steps that exist
 	$(PYTHON) scripts/features.py validate
+
+learn: ## docs/LEARN.md and the What's new learn.json, generated from the learn blocks of docs/FEATURES.yml (issue #77)
+	$(PYTHON) scripts/learn.py write
+
+learn-check: ## docs/LEARN.md and learn.json are what the catalog generates now (never stale)
+	$(PYTHON) scripts/learn.py check
 
 diagrams: ## the feature graph from docs/FEATURES.yml, then render docs/diagrams (NAME=x for one) with mermaid-cli, each SVG and PNG stamped with its source's hash
 	$(PYTHON) scripts/features.py graph --write
@@ -125,6 +131,7 @@ showcase-doom: ## What's new: record a real poc-doom run (needs Incus) as the pl
 
 showcase-build: ## What's new: rebuild every .cast from its committed source (no machines); poc/test_whatsnew.py checks they match
 	for d in poc/page/whatsnew/v*/; do $(PYTHON) poc/page/whatsnew/showcase.py build "$${d%/}" || exit 1; done
+	$(PYTHON) poc/page/whatsnew/showcase.py learn
 
 # Issue #62: every suite of docs/FEATURES.yml, in its order, one at a time; the feature table goes to docs/POC-STATUS.md (poc/regression.sh).
 regression: ## every suite in a fixed order, each with its own state (Incus: own project, UNDERLAY_NET=10.83.0); writes the feature table in docs/POC-STATUS.md; ONLY="poc-x poc-y" for a subset

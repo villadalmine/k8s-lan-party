@@ -97,7 +97,7 @@ install_page() {
   cp "$PAGE/page.py" "$PAGE/news.py" "$PAGE/seal.py" "$POC/pool.py" "$POC/admission.py" "$PAGE/page.yaml" "$t/opt/"
   cp "$PAGE"/static/*.js "$PAGE"/static/*.css "$t/opt/static/"
   # What's new: each release's JSON and its recordings (never the sources under rec/)
-  ( cd "$PAGE" && find whatsnew -maxdepth 2 \( -name 'v*.json' -o -name '*.cast' -o -name '*.gif' \) -print0 | tar cf - --null -T - ) | tar xf - -C "$t/opt"
+  ( cd "$PAGE" && find whatsnew -maxdepth 2 \( -name 'v*.json' -o -name 'learn.json' -o -name '*.cast' -o -name '*.gif' \) -print0 | tar cf - --null -T - ) | tar xf - -C "$t/opt"
   cp "$PAGE/deploy/k8s-lan-party-page.service" "$t/"
   local tls_line=""; [ "$TLS" = internal ] && tls_line="tls internal"
   sed -e "s#^page.example.org {#$SITE {#" -e "s|# @TLS@|$tls_line|" "$PAGE/deploy/k8s-lan-party-page.caddy" >"$t/site.caddy"
@@ -210,6 +210,11 @@ for f in sorted(glob.glob("/opt/k8s-lan-party-page/whatsnew/v*.json")): print(js
   [ "\$s" = 200 ] || { no "What's new: the page /whats-new/\$r answers \$s"; v=-999; }
 done
 [ "\$v" -lt 0 ] || ok "What's new: the \$v release pages answer 200"
+l=0; for r in \$(python3 -I -c 'import json
+print(" ".join(json.load(open("/opt/k8s-lan-party-page/whatsnew/learn.json"))["releases"]))' 2>/dev/null); do
+  curl -sk --connect-to ::127.0.0.1: "$url/whats-new/\$r" | grep -q "What you just saw" && l=\$((l+1)) || { no "What's new: /whats-new/\$r has no learn section"; l=-999; }
+done
+[ "\$l" -le 0 ] || ok "What's new: \$l release pages carry 'What you just saw, and where it's used for real'"
 n=0; b=0; for c in \$(python3 -I -c 'import glob, json
 for f in sorted(glob.glob("/opt/k8s-lan-party-page/whatsnew/v*.json")):
     r = json.load(open(f))

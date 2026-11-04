@@ -1,0 +1,73 @@
+{
+ "releases": {
+  "v0.2.0-poc": [
+   {
+    "analogy": "You plug your PC into the host's LAN with one cable and one password, from wherever you are.",
+    "concept": "Overlay mesh (Nebula) and remote node join: a machine on any network becomes a Kubernetes node over an encrypted tunnel.",
+    "id": "join",
+    "real_world": "Branch offices, rented GPUs and hybrid home and cloud nodes that join a cluster even behind NAT.",
+    "seen_in": "v0.2.0-poc: an AWS machine follows JOIN.md, joins and is Ready in 2 min 30 s."
+   },
+   {
+    "analogy": "A locker with a timer: you get a key, and it stops working when the hour is over.",
+    "concept": "Automated admission with leases: a rule approves and the access expires by itself, so nobody keeps standing access.",
+    "id": "admission-auto",
+    "real_world": "Edge nodes, partners and ephemeral CI runners that get access just in time and lose it with no one to remember.",
+    "seen_in": "v0.2.0-poc: a stranger asks on the page, is approved in 55 s and is expelled at the end of its 1 h lease."
+   },
+   {
+    "analogy": "Every player gets a room with a lock: free to rearrange it, forbidden to open the others.",
+    "concept": "Multi-tenancy: one namespace per player with RBAC, Pod Security, quota and NetworkPolicy; outside it the answer is 403.",
+    "id": "pool",
+    "real_world": "An internal platform where many teams share one cluster without seeing each other.",
+    "seen_in": "v0.2.0-poc: the visitor runs a pod in its own namespace and gets 403 listing nodes."
+   },
+   {
+    "analogy": "A reception desk that takes your name but has no keys; the envelope with the key comes from the back office.",
+    "concept": "A public front door that holds no credential: a visitor asks, waits and collects a sealed bundle from the host's own tick.",
+    "id": "public-page",
+    "real_world": "Self-service onboarding for outside users or partners without giving the web tier any secret.",
+    "seen_in": "v0.2.0-poc and v0.2.1-poc: the request page and this What's new page, served by a server with no credential."
+   },
+   {
+    "analogy": "A player's badge opens his own seat; it cannot rewrite the seating chart.",
+    "concept": "Least privilege for a node's own credentials: a node agent's token must not be able to forge another node's identity.",
+    "id": "cilium-guard",
+    "real_world": "Edge or rented nodes you do not fully control, where each agent's token is scoped to what that agent needs.",
+    "seen_in": "v0.2.0-poc: the Cilium agent's token can no longer forge another node's endpoints, WireGuard key or identities."
+   },
+   {
+    "analogy": "The doorman may check the guest list, but he gets no key to the offices.",
+    "concept": "Scoped RBAC for a node agent: the SPIRE agent's token may get nodes and pods and nothing more.",
+    "id": "spire-scope",
+    "real_world": "Any agent that runs on a node you do not fully trust: give it the exact verbs it needs, and nothing cluster-wide.",
+    "seen_in": "v0.2.0-poc: the SPIRE agent's token may get nodes and pods, and nodes/proxy is refused (poc-vm V103)."
+   }
+  ],
+  "v0.2.1-poc": [
+   {
+    "analogy": "A reception desk that takes your name but has no keys; the envelope with the key comes from the back office.",
+    "concept": "A public front door that holds no credential: a visitor asks, waits and collects a sealed bundle from the host's own tick.",
+    "id": "public-page",
+    "real_world": "Self-service onboarding for outside users or partners without giving the web tier any secret.",
+    "seen_in": "v0.2.0-poc and v0.2.1-poc: the request page and this What's new page, served by a server with no credential."
+   }
+  ],
+  "v0.3.0-poc": [
+   {
+    "analogy": "Two friends at a LAN party agree to plug a cable between their machines; either one can pull it.",
+    "concept": "Mutual consent: a declarative NetworkPolicy opens only after both sides say yes, which is zero trust between tenants.",
+    "id": "party",
+    "real_world": "Two teams or companies sharing one service for a limited time, with no ticket to the platform team.",
+    "seen_in": "v0.3.0-poc: romero invites carmack, carmack accepts, and only then the Doom match starts."
+   },
+   {
+    "analogy": "romero hosts the server; carmack and petersen each cable into his machine, never into each other's.",
+    "concept": "Pairwise, non-transitive access: a party between A and B, and another between A and C, opens nothing between B and C.",
+    "id": "doom",
+    "real_world": "A shared service, such as a database or an inference endpoint, that each consumer reaches without reaching the other consumers.",
+    "seen_in": "v0.3.0-poc: petersen cannot reach carmack although both play on romero's server."
+   }
+  ]
+ }
+}

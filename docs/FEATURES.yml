@@ -13,6 +13,11 @@
 #   code paths (poc/up.sh or poc/vm/up.sh, the branches of lib.sh) unproved, so the feature shows PARTIAL until both ran.
 #   game: on a suite that checks a game (poc-golden), the game the proof needs (aws: the stranger's control plane of DEMO-AWS.md, run by
 #   hand); make regression checks its own game, so the table says NOT RUN(aws). A change there cites `- `demo-aws`: PASS` of that run.
+#   layer / user_facing / releases / learn (issue #77, "learn mode"): layer is one of scripts/features.py LAYERS (the tables of docs/LEARN.md); user_facing is
+#   true when a player, a visitor or the host sees or does it in the demo (a command, a page, a refusal) and is declared on every feature;
+#   releases lists the What's new pages that show the feature; learn = {concept, analogy, real_world, seen_in}, one true sentence each, and is
+#   REQUIRED when user_facing is true or releases is not empty. docs/LEARN.md and poc/page/whatsnew/learn.json are generated from here
+#   (scripts/learn.py write) and sealed with the hash of this data: change the catalog, never those files.
 #   paths: globs of tracked files that change the feature; components: the pieces it relies on (the feature graph's last column).
 meta:
   tipo: catalogo
@@ -66,6 +71,14 @@ suites:
 features:
   - id: join
     description: one bundle and one command join a machine to the game over Nebula; the node is Ready on its Nebula IP; clear failures
+    layer: mesh
+    user_facing: true
+    releases: ["v0.2.0-poc"]
+    learn:
+      concept: "Overlay mesh (Nebula) and remote node join: a machine on any network becomes a Kubernetes node over an encrypted tunnel."
+      analogy: "You plug your PC into the host's LAN with one cable and one password, from wherever you are."
+      real_world: "Branch offices, rented GPUs and hybrid home and cloud nodes that join a cluster even behind NAT."
+      seen_in: "v0.2.0-poc: an AWS machine follows JOIN.md, joins and is Ready in 2 min 30 s."
     proven_by:
       - {suite: poc-join, runtime: docker, steps: [J01-J07, J15-J16]}
       - {suite: poc-join, runtime: incus, steps: [J01-J07, J15-J16]}
@@ -77,6 +90,13 @@ features:
 
   - id: study-lab
     description: a real study lab (CKA 1.1) breaks, verifies and is fixed on the joined outside nodes, never on the control plane
+    layer: tenancy
+    user_facing: true
+    learn:
+      concept: "Practice on real nodes: a lab breaks, is verified and is fixed on the joined machines, never on the control plane."
+      analogy: "A practice room where the exam question is a real machine that is really broken."
+      real_world: "Certification drills and onboarding exercises on disposable nodes instead of a shared production cluster."
+      seen_in: "The CKA 1.1 lab on the joined outside nodes (poc-join, J09 to J12)."
     proven_by:
       - {suite: poc-join, runtime: docker, steps: [J09-J12]}
       - {suite: poc-join, runtime: incus, steps: [J09-J12]}
@@ -86,6 +106,13 @@ features:
 
   - id: host-your-own
     description: mesh host init, invite with a TTL, play, players and kick; the API answers on the Nebula IP only
+    layer: mesh
+    user_facing: true
+    learn:
+      concept: "A self-hosted control plane with bounded invitations: an invite expires, and the API listens on the mesh address only."
+      analogy: "You host a game server, hand out invites that run out, and the server is not on the public internet."
+      real_world: "A platform team opening a cluster to contractors or partner teams, by invitation and for a limited time."
+      seen_in: "The host's terminal: mesh host init, an invite with a TTL, the players list and kick."
     proven_by:
       - {suite: poc-host, runtime: docker, steps: [H01-H09c]}
       - {suite: poc-host, runtime: incus, steps: [H01-H09c]}
@@ -95,6 +122,8 @@ features:
 
   - id: api-members-only
     description: the Kubernetes API listens on the control plane's Nebula IP only; outside the mesh, and from the lighthouse, it does not answer
+    layer: mesh
+    user_facing: false
     proven_by:
       - {suite: poc-host, runtime: docker, steps: [H02, H02b]}
       - {suite: poc-host, runtime: incus, steps: [H02, H02b]}
@@ -106,6 +135,8 @@ features:
 
   - id: nebula-firewall
     description: the narrowed Nebula firewall lets ICMP, 6443 and the documented ports through and refuses any other port between hosts
+    layer: mesh
+    user_facing: false
     proven_by:
       - {suite: poc-join, runtime: docker, steps: [J13]}
       - {suite: poc-join, runtime: incus, steps: [J13]}
@@ -117,6 +148,8 @@ features:
 
   - id: mtu-once
     description: the MTU is set once (Nebula); the pod MTU is derived from it and a full-size packet crosses (issue #8)
+    layer: mesh
+    user_facing: false
     proven_by:
       - {suite: poc-join, runtime: docker, steps: [J08]}
       - {suite: poc-join, runtime: incus, steps: [J08]}
@@ -129,6 +162,8 @@ features:
 
   - id: join-token-burn
     description: every player has its own join token; it lives 8 minutes at most and is burned once the node registered
+    layer: admission
+    user_facing: false
     proven_by:
       - {suite: poc-join, runtime: docker, steps: [J14]}
       - {suite: poc-join, runtime: incus, steps: [J14]}
@@ -141,6 +176,13 @@ features:
 
   - id: node-guard
     description: a copy of a bundle on another machine, or another guest's name, is refused by the node guard and the node password
+    layer: admission
+    user_facing: true
+    learn:
+      concept: "Node identity binding: a join bundle and its node password only work for the machine and the name they were issued for."
+      analogy: "A ticket with your name on it: a photocopy shown at another door is refused."
+      real_world: "Stopping a copied or stolen bootstrap credential from enrolling a second machine in a cluster."
+      seen_in: "A copy of a bundle on another machine, or another guest's name, is refused (poc-admission A15 to A18)."
     proven_by:
       - {suite: poc-admission, steps: [A15-A18, A30]}
       - {suite: poc-admission-auto, steps: [AA13, AA20]}
@@ -150,6 +192,13 @@ features:
 
   - id: admission-manual
     description: people ask for a place, the host approves one at a time within pool.yaml; the lease ends, reap expels, the next one enters
+    layer: admission
+    user_facing: true
+    learn:
+      concept: "Admission control for a limited pool: people request, the host approves within a quota, leases end, the next in line enters."
+      analogy: "A venue with a fixed number of seats, a door person and a waiting list."
+      real_world: "Scarce shared capacity such as GPU nodes or partner access, handed out in turn."
+      seen_in: "The host approves one request at a time; when the lease ends, the next one enters (poc-admission)."
     proven_by:
       - {suite: poc-admission, steps: [A01-A08, A10, A14, A19-A29, A31]}
     paths: [poc/admission.py, poc/pool.yaml, poc/mesh]
@@ -158,6 +207,14 @@ features:
 
   - id: admission-auto
     description: the automatic pool (phase B1) approves, warns, expels at the lease end and promotes; auto off, daily cap, panic, notify, metrics
+    layer: admission
+    user_facing: true
+    releases: ["v0.2.0-poc"]
+    learn:
+      concept: "Automated admission with leases: a rule approves and the access expires by itself, so nobody keeps standing access."
+      analogy: "A locker with a timer: you get a key, and it stops working when the hour is over."
+      real_world: "Edge nodes, partners and ephemeral CI runners that get access just in time and lose it with no one to remember."
+      seen_in: "v0.2.0-poc: a stranger asks on the page, is approved in 55 s and is expelled at the end of its 1 h lease."
     proven_by:
       - {suite: poc-admission-auto, steps: [AA01-AA12, AA14, AA16-AA19, AA21-AA22, AA25-AA37]}
     paths: [poc/admission.py, poc/pool.yaml, poc/mesh]
@@ -166,6 +223,14 @@ features:
 
   - id: pool
     description: a namespace and a kubeconfig per player (RBAC, quota, NetworkPolicy), the error matrix, the idle kick, the lease end removes node, namespace and token
+    layer: tenancy
+    user_facing: true
+    releases: ["v0.2.0-poc"]
+    learn:
+      concept: "Multi-tenancy: one namespace per player with RBAC, Pod Security, quota and NetworkPolicy; outside it the answer is 403."
+      analogy: "Every player gets a room with a lock: free to rearrange it, forbidden to open the others."
+      real_world: "An internal platform where many teams share one cluster without seeing each other."
+      seen_in: "v0.2.0-poc: the visitor runs a pod in its own namespace and gets 403 listing nodes."
     proven_by:
       - {suite: poc-pool, steps: [PL01-PL25]}
     paths: [poc/pool.py, poc/pool.yaml, poc/participant.py, poc/participant-policy.yaml, poc/admission.py]
@@ -174,6 +239,14 @@ features:
 
   - id: party
     description: LAN party mode (issue #75) - two players who both agreed reach each other's namespace on the party's ports only; a third does not; leave, off, end, kick and lease end close it
+    layer: tenancy
+    user_facing: true
+    releases: ["v0.3.0-poc"]
+    learn:
+      concept: "Mutual consent: a declarative NetworkPolicy opens only after both sides say yes, which is zero trust between tenants."
+      analogy: "Two friends at a LAN party agree to plug a cable between their machines; either one can pull it."
+      real_world: "Two teams or companies sharing one service for a limited time, with no ticket to the platform team."
+      seen_in: "v0.3.0-poc: romero invites carmack, carmack accepts, and only then the Doom match starts."
     proven_by:
       - {suite: poc-party, steps: [PY01-PY17]}
     paths: [poc/party.py, poc/test_party.py, poc/poc-party.sh]
@@ -182,6 +255,14 @@ features:
 
   - id: doom
     description: the Doom deathmatch over parties (issue #75 part B) - romero's Odamex server with FreeDM and the robots of carmack and petersen play through two parties on 10666/UDP; the server log is the witness; no consent, after leave, or a third player with another's party connects nothing; the image has nothing non-free
+    layer: tenancy
+    user_facing: true
+    releases: ["v0.3.0-poc"]
+    learn:
+      concept: "Pairwise, non-transitive access: a party between A and B, and another between A and C, opens nothing between B and C."
+      analogy: "romero hosts the server; carmack and petersen each cable into his machine, never into each other's."
+      real_world: "A shared service, such as a database or an inference endpoint, that each consumer reaches without reaching the other consumers."
+      seen_in: "v0.3.0-poc: petersen cannot reach carmack although both play on romero's server."
     proven_by:
       - {suite: poc-doom, steps: [DM01-DM20]}
     paths: [poc/doom/*, poc/poc-doom.sh]
@@ -190,6 +271,14 @@ features:
 
   - id: public-page
     description: the public page (phase B2) on a server that holds no credential; a visitor asks, waits, collects a sealed bundle, joins, is expelled; panic closes it; What's new tells each release with recordings of real runs (make showcase)
+    layer: admission
+    user_facing: true
+    releases: ["v0.2.0-poc", "v0.2.1-poc"]
+    learn:
+      concept: "A public front door that holds no credential: a visitor asks, waits and collects a sealed bundle from the host's own tick."
+      analogy: "A reception desk that takes your name but has no keys; the envelope with the key comes from the back office."
+      real_world: "Self-service onboarding for outside users or partners without giving the web tier any secret."
+      seen_in: "v0.2.0-poc and v0.2.1-poc: the request page and this What's new page, served by a server with no credential."
     proven_by:
       - {suite: poc-page, steps: [G01-G26]}
     paths: [poc/page/*, poc/poc-page.sh]
@@ -198,6 +287,8 @@ features:
 
   - id: lighthouse-external
     description: a lighthouse on a separate public server, prepared, signed and deployed idempotently; its key never leaves it; players join through it
+    layer: mesh
+    user_facing: false
     proven_by:
       - {suite: poc-lighthouse, steps: [P01-P15]}
       - {suite: poc-page, steps: [G02]}
@@ -208,6 +299,13 @@ features:
 
   - id: revoke
     description: one command revokes a player (blocklist on every host, the external lighthouse included, the Node deleted); idempotent, measured
+    layer: mesh
+    user_facing: true
+    learn:
+      concept: "Real revocation: access is cut at the mesh on every host, not only by deleting the Node object."
+      analogy: "Banning a player at the server's door and at the lighthouse, not just crossing the name off the scoreboard."
+      real_world: "Cutting a contractor's or a lost laptop's access now, not when its credential would have expired."
+      seen_in: "Deleting the Node alone leaves the machine in the mesh; one revoke command cuts it (poc-revoke R03 and R04)."
     proven_by:
       - {suite: poc-revoke, runtime: docker, steps: [R01-R10]}
       - {suite: poc-revoke, runtime: incus, steps: [R01-R10]}
@@ -222,6 +320,8 @@ features:
 
   - id: two-level-ca
     description: a persistent CA and a pool CA constrained to group public; pulling the pool CA cuts only the pool
+    layer: mesh
+    user_facing: false
     proven_by:
       - {suite: poc-ca, runtime: docker, steps: [B01-B13]}
       - {suite: poc-ca, runtime: incus, steps: [B01-B13]}
@@ -232,6 +332,13 @@ features:
 
   - id: placement
     description: golden rule 1 - trust-based placement with Kyverno; a private pod on someone else's node is rejected; shareable pods opt in
+    layer: tenancy
+    user_facing: true
+    learn:
+      concept: "Placement by trust: labels, taints and an admission policy decide which pods may run on which nodes."
+      analogy: "Your diary stays in your own bag; only what you mark as shareable goes to a friend's table."
+      real_world: "Sensitive workloads that never leave the on-prem nodes, while shareable ones use rented or partner capacity."
+      seen_in: "A private pod pinned to someone else's node is rejected (poc-placement L20 to L24)."
     proven_by:
       - {suite: poc-placement, runtime: docker, steps: [L01-L45]}
       - {suite: poc-placement, runtime: incus, steps: [L01-L45]}
@@ -243,6 +350,8 @@ features:
 
   - id: trust-freeze
     description: a node cannot raise or change its own trust label or drop its taint; only the host can
+    layer: tenancy
+    user_facing: false
     proven_by:
       - {suite: poc-placement, runtime: docker, steps: [L50-L53]}
       - {suite: poc-placement, runtime: incus, steps: [L50-L53]}
@@ -254,6 +363,8 @@ features:
 
   - id: golden-rules
     description: one check per golden rule against a running game (issue #23); rule 1 is said at join time and in the docs
+    layer: tenancy
+    user_facing: false
     proven_by:
       - {suite: poc-golden, steps: [G1.1-G2.7, G3.1-G10.1]}
     paths: [poc/poc-golden.sh, poc/golden.py, docs/GOLDEN-RULES.md]
@@ -262,6 +373,13 @@ features:
 
   - id: encrypted-pod-network
     description: Cilium in tunnel mode with WireGuard over Nebula; pod to pod, DNS, the clear text never on the Nebula interface, 30 MB intact
+    layer: podnet
+    user_facing: false
+    learn:
+      concept: "Encryption in transit between pods: Cilium with WireGuard on top of the Nebula mesh, so pod traffic is never in clear text on the mesh interface."
+      analogy: "Passing notes in a code, inside a tunnel the others cannot see into."
+      real_world: "Pod traffic that crosses sites, clouds or networks you do not own."
+      seen_in: "poc-cilium: pod to pod and DNS work, and a 30 MB transfer arrives intact."
     proven_by:
       - {suite: poc-cilium, steps: [C01-C09, C12, C13b]}
       - {suite: poc-vm, steps: [V03-V06b, V07-V09, V10, V13-V13b]}
@@ -273,6 +391,8 @@ features:
 
   - id: mutual-auth
     description: SPIRE mutual authentication by policy; non-root, pinned to an own node, on a PVC, survives a restart; a node without an identity is dropped
+    layer: podnet
+    user_facing: false
     proven_by:
       - {suite: poc-cilium, steps: [C90-C97]}
       - {suite: poc-vm, steps: [V90-V102]}
@@ -283,6 +403,14 @@ features:
 
   - id: cilium-guard
     description: issue #53 - the Cilium agent token on a remote node cannot forge another node's endpoints, WireGuard key or identities
+    layer: podnet
+    user_facing: false
+    releases: ["v0.2.0-poc"]
+    learn:
+      concept: "Least privilege for a node's own credentials: a node agent's token must not be able to forge another node's identity."
+      analogy: "A player's badge opens his own seat; it cannot rewrite the seating chart."
+      real_world: "Edge or rented nodes you do not fully control, where each agent's token is scoped to what that agent needs."
+      seen_in: "v0.2.0-poc: the Cilium agent's token can no longer forge another node's endpoints, WireGuard key or identities."
     proven_by:
       - {suite: poc-vm, steps: [V06c, V09b-V09c]}
       - {suite: poc-golden, steps: [G3.5]}
@@ -292,6 +420,14 @@ features:
 
   - id: spire-scope
     description: issue #54 - the SPIRE agent token on a joined node may only get nodes/pods; nodes/proxy, pods and nodes are refused
+    layer: podnet
+    user_facing: false
+    releases: ["v0.2.0-poc"]
+    learn:
+      concept: "Scoped RBAC for a node agent: the SPIRE agent's token may get nodes and pods and nothing more."
+      analogy: "The doorman may check the guest list, but he gets no key to the offices."
+      real_world: "Any agent that runs on a node you do not fully trust: give it the exact verbs it needs, and nothing cluster-wide."
+      seen_in: "v0.2.0-poc: the SPIRE agent's token may get nodes and pods, and nodes/proxy is refused (poc-vm V103)."
     proven_by:
       - {suite: poc-vm, steps: [V103]}
       - {suite: poc-golden, steps: [G3.6]}
@@ -301,6 +437,8 @@ features:
 
   - id: nat-relay
     description: issue #15 - port-preserving NAT gives a direct tunnel; symmetric NAT on both sides falls back to the lighthouse relay, firewall intact
+    layer: mesh
+    user_facing: false
     proven_by:
       - {suite: poc-nat, steps: [N01, N04-N24]}
     paths: [poc/poc-nat.sh, poc/lighthouse-vps.sh, poc/issue.sh]
@@ -309,6 +447,8 @@ features:
 
   - id: bgp-gateway
     description: issue #13 - the gateway (Envoy Gateway, cert-manager TLS) and BGP only on own nodes; remote nodes never announce
+    layer: podnet
+    user_facing: false
     proven_by:
       - {suite: poc-bgp, steps: [G01-G08, G10-G19]}
       - {suite: poc-golden, steps: [G7.1]}
@@ -319,6 +459,8 @@ features:
 
   - id: down-clean
     description: down leaves nothing behind - no machine, container, network, state, page or lighthouse
+    layer: proof
+    user_facing: false
     proven_by:
       - {suite: poc-host, runtime: docker, steps: [H10-H11]}
       - {suite: poc-host, runtime: incus, steps: [H10-H11]}
@@ -330,6 +472,13 @@ features:
 
   - id: participants
     description: issue #12 - join by signed pull request (cosign against a local test CA), encrypted delivery, removal revokes access
+    layer: admission
+    user_facing: true
+    learn:
+      concept: "Join by signed pull request: the request is a reviewed change, the signature proves who made it, and delivery is encrypted."
+      analogy: "You sign the guest book with your own pen, and the host sends the key sealed for you alone."
+      real_world: "GitOps-style onboarding, where access is a signed and reviewed change in a repository."
+      seen_in: "poc-participants runs offline against a local test CA, then end to end (poc-participants-e2e)."
     proven_by:
       - {suite: poc-participants, steps: [S00-S30]}
       - {suite: poc-participants-e2e, steps: [E01-E11]}
@@ -339,6 +488,8 @@ features:
 
   - id: weakness
     description: what one control plane costs - flapping, eviction delay, a lossy link, the control plane down - measured
+    layer: proof
+    user_facing: false
     proven_by:
       - {suite: poc-weakness, runtime: docker, steps: [W00-W06]}
       - {suite: poc-weakness, runtime: incus, steps: [W00-W06]}
@@ -348,6 +499,8 @@ features:
 
   - id: kind
     description: Cilium with WireGuard and hardened SPIRE on kind (no Nebula) - the same assertions on this machine's kernel
+    layer: proof
+    user_facing: false
     proven_by:
       - {suite: poc-kind, steps: [K01-K97]}
     paths: [poc/kind-cilium.sh, poc/checks-cilium.sh]
@@ -356,6 +509,8 @@ features:
 
   - id: vm
     description: the step-2 checks on Incus VMs with a distro kernel; remote nodes tainted at registration as in a real join
+    layer: proof
+    user_facing: false
     proven_by:
       - {suite: poc-vm, steps: [V01-V02, V04b, V06d]}
     paths: [poc/vm/*]
@@ -364,6 +519,8 @@ features:
 
   - id: demo-aws
     description: the demo on AWS (docs/DEMO-AWS.md) - a stranger's control plane on a cloud VM built with OpenTofu, players join, the golden checks run, nothing left billing
+    layer: proof
+    user_facing: false
     proven_by:
       - {suite: poc-golden, game: aws, steps: [G1.1-G2.7, G3.1-G10.1]}
     paths: [examples/aws/*.tf, examples/aws/*.tftpl, examples/aws/leftovers.sh]
