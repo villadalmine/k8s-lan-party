@@ -1,0 +1,83 @@
+0.000	note	The host opens the pool: automatic admission, one place
+0.056	cmd	mesh host auto on
+0.195	out	auto: on
+3.238	cmd	mesh host admission-status
+3.323	out	admission: slots 0/1 used | 0 in the list (0 eligible now) | next to end: none
+14.200	cmd	python3 page/puller.py run --url $PAGE
+14.200	out	puller: open | listed 1 | refused 0 | ready 0 | ended 0 | applied 1 | slots 0/1 used | 1 in the list
+37.800	cmd	mesh host auto --once
+37.800	out	burned 0
+37.800	out	issued decoy
+37.800	out	bundle: .state/bundles/decoy  (send it privately; it holds the player's key and a join token that works until the node registers or 8 min pass)
+37.800	out	namespace: play-decoy  (the bundle's kubeconfig works there only, until 720s from now)
+37.800	out	tick: auto on | expelled 0 | approved 1 | slots 1/1 used | 0 in the list (0 eligible now)
+37.857	cmd	python3 page/puller.py run --url $PAGE
+37.857	out	puller: open | listed 0 | refused 0 | ready 1 | ended 0 | applied 1 | slots 1/1 used | 0 in the list
+49.530	cmd	python3 page/puller.py run --url $PAGE
+49.530	out	puller: open | listed 1 | refused 0 | ready 0 | ended 0 | applied 1 | slots 1/1 used | 1 in the list
+49.895	cmd	mesh host waitlist
+50.011	out	POS  NAME                 STATE     ELIGIBLE              IDENTITY                 NOTE
+50.011	out	1    visitor              waiting   now                   <ip>              public page
+50.067	cmd	mesh host leases
+50.210	out	NAME                 TRUST    ENDS                  LEFT      IDENTITY
+50.210	out	decoy                public   2026-11-04T05:30:41Z  11m39s    <ip>
+51.435	note	A request arrives through the page; the decoy holds the place until its lease ends
+770.532	cmd	mesh host auto --once
+770.532	out	burned 0
+770.532	out	revoked decoy: fingerprint on the blocklist, node deleted, join token gone
+770.532	out	issued visitor
+770.532	out	bundle: .state/bundles/visitor  (send it privately; it holds the player's key and a join token that works until the node registers or 8 min pass)
+770.532	out	namespace: play-visitor  (the bundle's kubeconfig works there only, until 720s from now)
+770.532	out	tick: auto on | expelled 1 | approved 1 | slots 1/1 used | 0 in the list (0 eligible now)
+770.607	cmd	python3 page/puller.py run --url $PAGE
+770.607	out	puller: open | listed 0 | refused 0 | ready 1 | ended 1 | applied 2 | slots 1/1 used | 0 in the list
+790.838	cmd	mesh host leases
+790.915	out	NAME                 TRUST    ENDS                  LEFT      IDENTITY
+790.915	out	visitor              public   2026-11-04T05:42:42Z  11m20s    <ip>
+806.089	cmd	kubectl get nodes
+806.313	out	NAME      STATUS   ROLES           AGE   VERSION
+806.313	out	cp        Ready    control-plane   13m   v1.37.1+k3s1
+806.313	out	visitor   Ready    <none>          6s    v1.37.1+k3s1
+815.934	cmd	kubectl get pods -n play-visitor -o wide
+816.363	out	NAME    READY   STATUS    RESTARTS   AGE   IP          NODE      NOMINATED NODE   READINESS GATES
+816.363	out	hello   1/1     Running   0          9s    10.42.1.3   visitor   <none>           <none>
+816.494	note	The lease runs out: the host does nothing, the tick will
+816.568	cmd	mesh host leases
+816.706	out	NAME                 TRUST    ENDS                  LEFT      IDENTITY
+816.706	out	visitor              public   2026-11-04T05:42:42Z  10m54s    <ip>
+876.787	cmd	mesh host leases
+876.886	out	NAME                 TRUST    ENDS                  LEFT      IDENTITY
+876.886	out	visitor              public   2026-11-04T05:42:42Z  9m54s     <ip>
+936.979	cmd	mesh host leases
+937.052	out	NAME                 TRUST    ENDS                  LEFT      IDENTITY
+937.052	out	visitor              public   2026-11-04T05:42:42Z  8m53s     <ip>
+997.134	cmd	mesh host leases
+997.214	out	NAME                 TRUST    ENDS                  LEFT      IDENTITY
+997.214	out	visitor              public   2026-11-04T05:42:42Z  7m53s     <ip>
+1057.296	cmd	mesh host leases
+1057.387	out	NAME                 TRUST    ENDS                  LEFT      IDENTITY
+1057.387	out	visitor              public   2026-11-04T05:42:42Z  6m53s     <ip>
+1117.468	cmd	mesh host leases
+1117.559	out	NAME                 TRUST    ENDS                  LEFT      IDENTITY
+1117.559	out	visitor              public   2026-11-04T05:42:42Z  5m53s     <ip>
+1177.632	cmd	mesh host leases
+1177.698	out	NAME                 TRUST    ENDS                  LEFT      IDENTITY
+1177.698	out	visitor              public   2026-11-04T05:42:42Z  4m53s     <ip>
+1237.766	cmd	mesh host leases
+1237.828	out	NAME                 TRUST    ENDS                  LEFT      IDENTITY
+1237.828	out	visitor              public   2026-11-04T05:42:42Z  3m53s     <ip>
+1297.900	cmd	mesh host leases
+1297.983	out	NAME                 TRUST    ENDS                  LEFT      IDENTITY
+1297.983	out	visitor              public   2026-11-04T05:42:42Z  2m53s     <ip>
+1358.050	cmd	mesh host leases
+1358.128	out	NAME                 TRUST    ENDS                  LEFT      IDENTITY
+1358.128	out	visitor              public   2026-11-04T05:42:42Z  1m52s     <ip>
+1490.712	cmd	mesh host auto --once
+1490.712	out	burned 0
+1490.712	out	revoked visitor: fingerprint on the blocklist, node deleted, join token gone
+1490.712	out	tick: auto on | expelled 1 | approved 0 | slots 0/1 used | 0 in the list (0 eligible now)
+1490.766	cmd	python3 page/puller.py run --url $PAGE
+1490.766	out	puller: open | listed 0 | refused 0 | ready 0 | ended 1 | applied 1 | slots 0/1 used | 0 in the list
+1491.093	cmd	kubectl get nodes
+1491.283	out	NAME   STATUS   ROLES           AGE   VERSION
+1491.283	out	cp     Ready    control-plane   24m   v1.37.1+k3s1

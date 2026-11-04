@@ -94,8 +94,10 @@ install_page() {
   [ -n "$SITE" ] || { echo "install needs --site"; exit 2; }; site_ok
   local t; t=$(mktemp -d)
   mkdir -p "$t/opt/static"
-  cp "$PAGE/page.py" "$PAGE/seal.py" "$POC/pool.py" "$POC/admission.py" "$PAGE/page.yaml" "$t/opt/"
-  cp "$PAGE/static/page.js" "$PAGE/static/page.css" "$t/opt/static/"
+  cp "$PAGE/page.py" "$PAGE/news.py" "$PAGE/seal.py" "$POC/pool.py" "$POC/admission.py" "$PAGE/page.yaml" "$t/opt/"
+  cp "$PAGE"/static/*.js "$PAGE"/static/*.css "$t/opt/static/"
+  # What's new: each release's JSON and its recordings (never the sources under rec/)
+  ( cd "$PAGE" && find whatsnew -maxdepth 2 \( -name 'v*.json' -o -name '*.cast' \) -print0 | tar cf - --null -T - ) | tar xf - -C "$t/opt"
   cp "$PAGE/deploy/k8s-lan-party-page.service" "$t/"
   local tls_line=""; [ "$TLS" = internal ] && tls_line="tls internal"
   sed -e "s#^page.example.org {#$SITE {#" -e "s|# @TLS@|$tls_line|" "$PAGE/deploy/k8s-lan-party-page.caddy" >"$t/site.caddy"
@@ -110,9 +112,11 @@ put() { # put <src> <dst> <mode>: only when the content differs
   install -m \$3 -o root -g root "\$1" "\$2"; echo "changed: \$2"
 }
 code=""
-for f in page.py seal.py pool.py admission.py page.yaml static/page.js static/page.css; do
-  o=\$(put "\$T/opt/\$f" "/opt/k8s-lan-party-page/\$f" 644); [ -z "\$o" ] || { echo "\$o"; code=1; }
+for f in \$(cd "\$T/opt" && find . -type f | sort); do
+  o=\$(put "\$T/opt/\$f" "/opt/k8s-lan-party-page/\${f#./}" 644); [ -z "\$o" ] || { echo "\$o"; code=1; }
 done
+gone=\$(cd /opt/k8s-lan-party-page && find whatsnew static -type f 2>/dev/null | while read -r f; do [ -e "\$T/opt/\$f" ] || echo "\$f"; done)
+for f in \$gone; do rm -f "/opt/k8s-lan-party-page/\$f"; echo "changed: removed /opt/k8s-lan-party-page/\$f"; code=1; done
 unit=\$(put "\$T/k8s-lan-party-page.service" /etc/systemd/system/k8s-lan-party-page.service 644); [ -z "\$unit" ] || echo "\$unit"
 install -d -m 755 /etc/k8s-lan-party-page
 site=\$(put "\$T/site.caddy" /etc/caddy/conf.d/k8s-lan-party-page.caddy 644); [ -z "\$site" ] || echo "\$site"
@@ -197,6 +201,19 @@ s=\$(curl -sk --connect-to ::127.0.0.1: -o /dev/null -w '%{http_code}' "$url/api
 h=\$(curl -skI --connect-to ::127.0.0.1: "$url/" | tr -d '\r')
 echo "\$h" | grep -qi '^strict-transport-security:' && echo "\$h" | grep -qi "^content-security-policy: default-src 'none'" &&
   ok "HSTS and the CSP are sent" || no "a security header is missing"
+w=\$(curl -skI --connect-to ::127.0.0.1: "$url/whats-new" | tr -d '\r')
+echo "\$w" | head -1 | grep -q ' 200' && echo "\$w" | grep -qi "^content-security-policy: default-src 'none'; script-src 'self' 'wasm-unsafe-eval';" &&
+  ok "What's new answers; its CSP adds only WebAssembly for the player" || no "What's new does not answer, or its CSP is not the page's"
+n=0; b=0; for c in \$(python3 -I -c 'import glob, json
+for f in sorted(glob.glob("/opt/k8s-lan-party-page/whatsnew/v*.json")):
+    r = json.load(open(f))
+    for c in r.get("casts", []): print(r["version"] + "/" + c["file"])'); do
+  # a listed recording not made yet (make showcase records the release it serves) is left out by the page: said, not a failure
+  [ -f "/opt/k8s-lan-party-page/whatsnew/\$c" ] || { echo "skip: /whats-new/\$c is listed but not recorded yet"; continue; }
+  s=\$(curl -sk --connect-to ::127.0.0.1: -o /dev/null -w '%{http_code}' "$url/whats-new/\$c"); n=\$((n+1))
+  [ "\$s" = 200 ] || { no "What's new: the recording /whats-new/\$c answers \$s"; b=1; }
+done
+[ "\$b" = 1 ] || ok "What's new: the \$n recordings of the installed releases answer 200"
 d=/var/lib/private/k8s-lan-party-page
 [ "\$(stat -c %a \$d 2>/dev/null)" = 700 ] && ok "state directory 0700" || no "state directory mode: \$(stat -c %a \$d 2>/dev/null)"
 if grep -rlE 'PRIVATE KEY|K10[0-9a-f]{20}' \$d /opt/k8s-lan-party-page /etc/k8s-lan-party-page >/dev/null 2>&1; then no "a private key or a join token on disk"; else ok "no private key and no join token in the page's files"; fi

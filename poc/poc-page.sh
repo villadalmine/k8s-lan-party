@@ -8,6 +8,8 @@
 #   PUB_SSH="<ssh command to root on a public server>" PUB_ADDR=<its public address> VIS_SSH="<ssh command to root on the visitor>":
 #            real machines on other networks (a cloud VM each, as in the maintainer's run); the suite leaves nothing on them (G25)
 # Test values: ADM_LEASE seconds (default 720), one place (slots: 1). KEEP=1 leaves everything up.
+#   SHOWCASE=<dir> (make showcase): the same run also writes the player's and the host's screens there (<dir>/player.raw, host.raw), with a
+#            pod of the player's and a countdown; poc/page/whatsnew/showcase.py filters them into the recordings of "What's new" (issue #63)
 set -u
 export RUNTIME=incus MAX_VMS=4 CNI=flannel
 . "$(dirname "$0")/lib.sh"
@@ -28,6 +30,16 @@ pub() { $PUB_SSH bash -s; }
 vis() { $VIS_SSH bash -s; }
 CA="$STATE/page/caddy-root.crt"; TOKEN="$STATE/page/puller.token"
 VK=/root/mykeys   # the visitor's keys, on the visitor
+SC="${SHOWCASE:-}"; SCP="$PG/whatsnew/showcase.py"; [ -z "$SC" ] || { mkdir -p "$SC"; : >"$SC/player.raw"; : >"$SC/host.raw"; }
+shot() { # shot <player|host> <shown command>: stdin is that command's output; with SHOWCASE it also goes to that side's screen
+  if [ -n "$SC" ]; then python3 "$SCP" stamp "$SC/$1.raw" "$2"; else cat; fi; }
+say() { [ -z "$SC" ] || python3 "$SCP" note "$SC/$1.raw" "$2"; }   # say <side> <text>: a chapter title of the story
+play() { # play <command>: runs it on the visitor; with SHOWCASE the command and its output are the player's screen
+  echo "$1" | vis 2>&1 | shot player "$1"; return "${PIPESTATUS[1]}"; }
+seen() { # seen <command...>: runs it here; with SHOWCASE the command and its output are the host's screen
+  local shown="$*"; shown="${shown/#$MESH/mesh}"; [ "$1" != k ] || shown="kubectl ${shown#k }"
+  "$@" 2>&1 | shot host "$shown"; return "${PIPESTATUS[0]}"; }
+extra() { [ -z "$SC" ] || "$@" || true; }   # only for the story: never a check, never a failure
 
 plain_vm() { # plain_vm <name> <ip>: an Ubuntu machine with nothing of ours (it plays a public server, or a visitor's own computer)
   incus network show "$VMNET" >/dev/null 2>&1 || incus network create "$VMNET" ipv4.address=$UNDERLAY_NET.1/24 ipv4.nat=true ipv6.address=none >/dev/null
@@ -55,7 +67,12 @@ jget() { python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get(sys.ar
 closed_before_pull() { local s; s=$(api "$SITE/api/v1/status") && [ "$(echo "$s" | jget open)" = False ] &&
   [ "$(api -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' -d '{}' "$SITE/api/v1/requests")" = 503 ]; }
 pull() { python3 "$PG/puller.py" run --url "$SITE" --token-file "$TOKEN" --cacert "$CA" --mesh "$MESH" --state "$STATE"; }
-cycle() { "$MESH" host auto --once >>"$LOG" 2>&1; pull >>"$LOG" 2>&1; }   # what the host's timers run every minute
+cycle() { # what the host's timers run every minute; with SHOWCASE the passes where something happened are the host's screen
+  [ -n "$SC" ] || { "$MESH" host auto --once >>"$LOG" 2>&1; pull >>"$LOG" 2>&1; return; }
+  local t p rc; t=$("$MESH" host auto --once 2>&1); p=$(pull 2>&1); rc=$?; printf '%s\n%s\n' "$t" "$p" >>"$LOG"
+  echo "$t" | grep -q 'expelled 0 | approved 0' || echo "$t" | shot host "mesh host auto --once" >/dev/null
+  echo "$p" | grep -q 'listed 0 | refused 0 | ready 0 | ended 0' || echo "$p" | shot host 'python3 page/puller.py run --url $PAGE' >/dev/null
+  return $rc; }
 cycle_until() { # cycle_until <seconds> <command...>: cycles every 15 s until the command succeeds
   local end=$(( $(date +%s) + $1 )); shift
   while :; do cycle; "$@" >/dev/null 2>&1 && return 0; [ "$(date +%s)" -lt "$end" ] || return 1; sleep 15; done; }
@@ -120,10 +137,13 @@ EOF
     { echo "base64 -d >'${f#*:}' <<'B64'"; base64 -w0 "${f%%:*}"; echo; echo B64; echo "chmod 755 '${f#*:}'"; } | vis || return 1; done
 }
 V="python3 /opt/k8s-lan-party/visit.py"; VA="--keys $VK --cacert /opt/k8s-lan-party/page-ca.crt --nebula-cert /opt/nebula/nebula-cert"
-vis_keys() { echo "$V keygen $VK --nebula-cert /opt/nebula/nebula-cert && stat -c %a $VK/host.key $VK/seal.key | sort -u" | vis | tail -1 | grep -qx 600; }
-vis_asks() { echo "$V request $SITE visitor $VA" | vis | grep -q 'Claim code:'; }
+vis_keys() { say player "1. Make your keys: the private halves never leave this machine"
+  play "$V keygen $VK --nebula-cert /opt/nebula/nebula-cert" && [ "$(echo "stat -c %a $VK/host.key $VK/seal.key | sort -u" | vis)" = 600 ]; }
+vis_asks() { say player "2. Ask for a place: solve the page's puzzle, get a claim code"; play "$V request $SITE visitor $VA" | grep -q 'Claim code:'; }
 vis_waits() { # position 1 of 1, and an estimate about when the decoy's lease ends
-  local s end; s=$(echo "$V status $SITE $VA" | vis) && echo "$s" && echo "$s" | grep -q 'in the list, position 1 of 1' || return 1
+  say player "3. Wait in the list: the only place is taken"
+  local s end; s=$(play "$V status $SITE $VA") && echo "$s" && echo "$s" | grep -q 'in the list, position 1 of 1' || return 1
+  extra seen "$MESH" host waitlist >/dev/null; extra seen "$MESH" host leases >/dev/null
   end=$(python3 -c 'import json,sys; print(next(l["end"] for l in json.load(open(sys.argv[1]))["pool"]["leases"] if l["name"] == "decoy"))' "$STATE/admission/state.json")
   local eta; eta=$(echo "$s" | grep -o 'around [0-9T:-]*Z' | cut -d' ' -f2) && [ -n "$eta" ] &&
   python3 -c 'import sys,datetime as d; e=d.datetime.fromisoformat(sys.argv[1].replace("Z","+00:00")).timestamp(); sys.exit(0 if abs(e-int(sys.argv[2])) <= 180 else 1)' "$eta" "$end"; }
@@ -165,7 +185,15 @@ spoof_and_guess_refused() { local a b d
   echo "spoof: $a | wrong code: $b | page port: $d"
   case "$a" in "429 cooldown" | "409 already-asked") ;; *) return 1 ;; esac
   [ "$b" = "404 unknown" ] && [ "$d" = 000 ]; }
-vis_wait_bg() { echo "nohup $V wait $SITE $VA --interval 10 </dev/null >/root/wait.log 2>&1 &" | vis; }
+vis_wait_bg() { # with SHOWCASE each line of wait also gets the visitor's clock (/root/wait.ts) for the player's screen
+  [ -n "$SC" ] || { echo "nohup $V wait $SITE $VA --interval 10 </dev/null >/root/wait.log 2>&1 &" | vis; return; }
+  say player "4. Keep visit.py wait running: it collects the sealed bundle the moment the place is yours"
+  { echo "W='$V wait $SITE $VA --interval 10'"; cat <<'EOF'; } | vis
+: >/root/wait.log
+nohup bash -c 'PYTHONUNBUFFERED=1 $0 2>&1 | while IFS= read -r l; do printf "%s\t%s\n" "$(date +%s.%N)" "$l"; printf "%s\n" "$l" >>/root/wait.log; done' "$W" </dev/null >/root/wait.ts 2>&1 &
+EOF
+}
+wait_screen() { echo "cat /root/wait.ts" | vis | python3 "$SCP" stamp "$SC/player.raw" "$V wait $SITE $VA --interval 10" --timed >/dev/null; }
 vis_collected() { echo "grep -q '^join: ' /root/wait.log" | vis; }
 decoy_out_vis_in() { cycle_until $((LEASE + 300)) vis_collected && ! k get node decoy && "$MESH" host leases | grep -q '^visitor '; }
 bundle_is_mine() { # the bundle the visitor opened: its own host.key (never on the host or the server), a certificate for its key, public
@@ -174,14 +202,29 @@ bundle_is_mine() { # the bundle the visitor opened: its own host.key (never on t
   "$CACHE/nebula-cert" print -json -path "$STATE/bundles/visitor/host.crt" | python3 -c 'import sys,json; d=json.load(sys.stdin)[0]["details"]; sys.exit(0 if d["groups"] == ["public"] else 1)'; }
 claim_once() { [ "$(vis_curl "-o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' -d '{\"claim_code\":\"$(code_of_vis)\"}' $SITE/api/v1/requests/claim")" = 410 ]; }
 ready() { [ "$(k get node "$1" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null)" = True ]; }
-vis_joins() { echo "edge-mesh join $VK/visitor --accept-golden-rule </dev/null" | vis && cycle_until 240 ready visitor; }
+vis_joins() { say player "5. Join: one command, and your machine is a node of the cluster"
+  play "edge-mesh join $VK/visitor --accept-golden-rule </dev/null" && cycle_until 240 ready visitor || return 1
+  extra seen k get nodes >/dev/null; extra player_pod; }
+HELLO='{"apiVersion":"v1","kind":"Pod","metadata":{"name":"hello"},"spec":{"automountServiceAccountToken":false,"terminationGracePeriodSeconds":1,"securityContext":{"runAsNonRoot":true,"runAsUser":65534,"seccompProfile":{"type":"RuntimeDefault"}},"containers":[{"name":"c","image":"busybox:1.36","command":["sh","-c","echo hello from $(hostname) on the mesh; sleep 3600"],"securityContext":{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]}},"resources":{"limits":{"cpu":"100m","memory":"64Mi"}}}]}}'
+player_pod() { # the story only: the player runs a pod in its own namespace, and finds what it may not do
+  say player "6. Play: a pod in your own namespace (and the cluster says no to the rest)"
+  echo "echo '$HELLO' >/root/hello.json" | vis
+  play "edge-mesh kubectl apply -f /root/hello.json" >/dev/null; play "edge-mesh kubectl wait --for=condition=Ready pod/hello --timeout=180s" >/dev/null
+  play "edge-mesh kubectl get pods -o wide" >/dev/null; play "edge-mesh kubectl logs hello" >/dev/null; play "edge-mesh kubectl get nodes" >/dev/null
+  seen k get pods -n play-visitor -o wide >/dev/null; }
+countdown() { # the story only: the host watches the lease run out, one look a minute
+  local end=$1; say host "The lease runs out: the host does nothing, the tick will"
+  while [ "$(( end - $(date +%s) ))" -gt 60 ]; do seen "$MESH" host leases >/dev/null; sleep 60; done; }
 vis_api() { echo "curl -sk -m5 -o /dev/null -w '%{http_code}' https://$CP_NEB:6443/readyz" | vis; }
 visitor_gone() { ! k get node visitor; }
 vis_kicked() { # the lease ends: one tick expels the visitor, the page says ended, and its tunnel no longer reaches the API
   local end; end=$(python3 -c 'import json,sys; print(next(l["end"] for l in json.load(open(sys.argv[1]))["pool"]["leases"] if l["name"] == "visitor"))' "$STATE/admission/state.json")
+  extra countdown "$end"
   local s=$(( end - $(date +%s) + 2 )); [ "$s" -le 0 ] || sleep "$s"
   cycle_until 120 visitor_gone || return 1
-  echo "$V status $SITE $VA" | vis | grep -q 'your lease ended' && sleep 20 && [ "$(vis_api)" = 000 ]; }
+  extra seen k get nodes >/dev/null; say player "7. Game over: the lease ended, the node is out"
+  play "$V status $SITE $VA" | grep -q 'your lease ended' && sleep 20 && [ "$(vis_api)" = 000 ] || return 1
+  extra play "edge-mesh kubectl get pods --request-timeout=10s" >/dev/null; }
 panic_closes() { # a request made just before the panic is never pulled; the page says closed and refuses new ones
   python3 "$PG/visit.py" request "$SITE" late --keys "$STATE/page/decoy" --cacert "$CA" >/dev/null 2>&1   # a new name, the host's address
   "$MESH" host panic >/dev/null && pull | grep -q 'closed (panic) | nothing pulled' || return 1
@@ -207,11 +250,13 @@ server_clean() { # the marker back: now --with-caddy removes exactly what the sc
   echo 'pkill -f "k3s agent" ; pkill nebula; rm -rf /root/mykeys /opt/k8s-lan-party /tmp/replay.json; true' | vis; }
 
 g08() { cacert && closed_before_pull; }
-g09() { "$MESH" host auto on >/dev/null && same_numbers; }
+g09() { say host "The host opens the pool: automatic admission, one place"; seen "$MESH" host auto on >/dev/null && same_numbers &&
+  extra seen "$MESH" host admission-status >/dev/null; }
 decoy_is_ready() { decoy_state | grep -q 'your place is ready'; }
 g12() { cycle_until 120 decoy_is_ready && decoy_claims; }
 g18() { cycle && vis_waits; }
-g20() { vis_wait_bg && decoy_out_vis_in; }
+g20() { say host "A request arrives through the page; the decoy holds the place until its lease ends"
+  vis_wait_bg && decoy_out_vis_in && { [ -z "$SC" ] || { wait_screen; seen "$MESH" host leases >/dev/null; }; }; }
 g22() { bundle_is_mine && claim_once; }
 
 step G01 "a public server and a visitor's machine on another network ($([ "$EXTERNAL" = 1 ] && echo 'external machines' || echo 'Incus VMs'))" servers_up
@@ -245,6 +290,8 @@ step G26b "remove keeps a Caddy that was not installed by this script (default a
 step G27 "the server is clean: the page, the Caddy this script installed and the lighthouse removed; the visitor's machine cleaned" server_clean
 
 if [ "${KEEP:-0}" != 1 ]; then "$POC/vm/down.sh" >/dev/null 2>&1; fi
+[ -z "$SC" ] || [ "$FAILS" -ne 0 ] || for s in player host; do   # only a run that passed becomes a recording
+  python3 "$SCP" redact "$SC/$s.raw" "$SC/$s.tsv" --strip "$POC/" --strip "${POC%/*}/" || FAILS=$((FAILS+1)); done
 echo "----"
 if [ "$FAILS" -eq 0 ]; then echo "RESULT PASS"; else echo "RESULT FAIL ($FAILS)"; fi
 [ "$FAILS" -eq 0 ]

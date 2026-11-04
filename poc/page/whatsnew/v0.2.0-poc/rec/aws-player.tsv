@@ -1,0 +1,76 @@
+0.000	note	edge-mesh / k8s-lan-party v0.2.0 - end-to-end run with a real visitor on AWS (2026-11-03)
+0.400	note	Visitor: a fresh EC2 t3.small (Ubuntu 24.04, eu-west-1, free tier), nothing open inbound, main 2be78d6 of the public repo.
+0.800	note	Host: the live demo (control plane at home, lighthouse + page on a VPS), auto admission ON, 2 places of 1 h, panic OFF.
+1.200	note	Real IPs, claim code and token ids are masked.
+1.600	note	
+2.000	note	Timeline (UTC):  request 16:49:35 -> approved (auto) 16:50:30 (55 s) -> bundle collected 16:51:35 -> joined 16:51:57 -> Ready 16:52:05 (host)
+2.400	note	                 -> warning 17:45:30 (5 min left) -> lease ended and node expelled 17:50:30 (by the tick, how=expired)
+2.800	note	
+3.200	note	================ 1. VISITOR: keys and request through the public page ================
+3.600	out	2026-11-03T16:49:34Z
+4.000	out	{"api": 1, "closed_reason": null, "difficulty": 18, "eligible": 0, "lease_seconds": 3600, "next_end_in_seconds": [], "open": true, "reported_at": 1793724561, "slots_free": 2, "slots_total": 2, "slots_used": 0, "waiting": 0}
+4.400	out	
+4.800	out	keys: /root/mykeys (host.key and seal.key never leave this machine; host.pub and seal.pub go to the page)
+5.200	out	host.key
+5.600	out	host.pub
+6.000	out	seal.key
+6.400	out	seal.pub
+6.400	out	2026-11-03T16:49:34Z
+6.800	out	asked as aws-e2e (proof of work: 0.5 s). Claim code: XXXXX-XXXXX-XXXXX-XXXXX-XXXXX-X (saved in /root/mykeys/claim-code)
+6.800	out	2026-11-03T16:49:35Z
+7.200	out	aws-e2e: received; the control plane reads new requests about once a minute
+7.600	out	
+8.000	note	================ 2. VISITOR: wait (polls the page, collects the sealed bundle once, opens it with its own key) ================
+8.400	cmd	python3 visit.py wait https://play.cybercirujas.club --keys /root/mykeys
+8.800	out	aws-e2e: received; the control plane reads new requests about once a minute
+9.200	out	aws-e2e: in the list, position 1 of 1; estimated around 2026-11-03T16:51:20Z
+9.600	out	aws-e2e: your place is ready: collect the bundle now (claim), its join token dies 8 minutes after approval
+10.000	out	bundle: /root/mykeys/aws-e2e (lease until 17:50:30 UTC)
+10.400	out	join: sudo edge-mesh join /root/mykeys/aws-e2e --accept-golden-rule
+10.800	out	
+11.200	note	================ 3. VISITOR: join ================
+11.600	cmd	sudo edge-mesh join /root/mykeys/aws-e2e --accept-golden-rule
+134.600	out	2026-11-03T16:51:45Z
+135.000	out	ca.crt
+135.400	out	config.yml
+135.800	out	host.crt
+136.200	out	host.key
+136.600	out	join.env
+137.000	out	kubeconfig
+137.400	out	Golden rule: what runs on someone else's machine can be seen by its owner.
+137.800	out	joined: aws-e2e (trust=public)
+138.200	out	your namespace: play-aws-e2e; try: sudo edge-mesh kubectl get pods
+138.600	out	exit=0
+146.600	out	2026-11-03T16:51:57Z
+147.000	out	
+147.400	note	================ 4. VISITOR: the mesh, a pod in its own namespace, and what it may NOT do ================
+178.600	out	2026-11-03T16:52:29Z
+179.000	out	nebula1          UNKNOWN        10.77.0.17/24 
+179.400	out	rtt min/avg/max/mdev = 97.046/97.148/97.250/0.102 ms
+179.800	out	rtt min/avg/max/mdev = 18.973/19.223/19.473/0.250 ms
+180.200	out	ATTRIBUTE                                           VALUE
+180.600	out	Username                                            system:serviceaccount:play-aws-e2e:user
+181.000	out	UID                                                 <masked>
+181.400	out	Groups                                              [system:serviceaccounts system:serviceaccounts:play-aws-e2e system:authenticated]
+181.800	out	Extra: authentication.kubernetes.io/credential-id   [JTI=<masked>]
+182.200	out	pod/hello created
+182.600	out	pod/hello condition met
+183.000	out	NAME    READY   STATUS    RESTARTS   AGE   IP          NODE      NOMINATED NODE   READINESS GATES
+183.400	out	hello   1/1     Running   0          4s    10.42.9.2   aws-e2e   <none>           <none>
+183.800	out	hello from hello on the mesh
+184.200	out	--- listing nodes:
+184.600	out	Error from server (Forbidden): nodes is forbidden: User "system:serviceaccount:play-aws-e2e:user" cannot list resource "nodes" in API group "" at the cluster scope
+185.000	out	edge-mesh: forbidden (403): you may only work in your namespace play-aws-e2e
+185.400	out	exit=13
+185.800	out	--- other namespace:
+186.200	out	Error from server (Forbidden): pods is forbidden: User "system:serviceaccount:play-aws-e2e:user" cannot list resource "pods" in API group "" in the namespace "kube-system"
+186.600	out	exit=13
+187.000	out	--- secrets:
+187.400	out	edge-mesh: forbidden (403): you may only work in your namespace play-aws-e2e
+187.800	out	Error from server (Forbidden): secrets is forbidden: User "system:serviceaccount:play-aws-e2e:user" cannot list resource "secrets" in API group "" in the namespace "play-aws-e2e"
+188.200	out	edge-mesh: forbidden (403): you may only work in your namespace play-aws-e2e
+188.600	out	exit=13
+189.000	out	
+3770.800	note	================ 9. AWS torn down ================
+3771.200	out	Destroy complete! Resources: 3 destroyed.   (instance, security group, key pair)
+3771.600	out	OK: nothing billing in AWS - every region checked: no instance, volume, elastic IP, extra security group or key pair from this run

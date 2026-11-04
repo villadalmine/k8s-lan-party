@@ -1,0 +1,49 @@
+{
+  "version": "v0.2.0-poc",
+  "date": "2026-11-04",
+  "title": "every feature tested the same way, every time",
+  "release": "https://github.com/villadalmine/k8s-lan-party/releases/tag/v0.2.0-poc",
+  "summary": "The rules of the game did not change; the referee got stricter. Every feature is now in one catalog with the steps that prove it, one command runs the whole stack, and a pull request has to show the evidence for what it touches. Two tokens a joined machine carries lost powers they never needed.",
+  "issues": [29, 35, 47, 52, 53, 54, 56, 59, 60, 62, 64, 65, 66, 67, 68, 69, 71],
+  "story": {
+    "player": {
+      "title": "Player 1: you, with a spare machine",
+      "steps": [
+        "Read the page: free places, the length of the list, how long a place lasts. No account, no e-mail.",
+        "Make your own keys. The private halves never leave your machine; you paste only the public ones.",
+        "Ask: your browser (or visit.py) solves a small puzzle, the page hands you a claim code once.",
+        "Wait: the only place is taken, so you are number 1 in the list, with an estimate of when your turn comes.",
+        "Your turn: visit.py wait collects the bundle, sealed to your key. Only your machine can open it.",
+        "edge-mesh join: one command, and your machine is a node of someone else's cluster, in your own namespace.",
+        "Play: a pod runs on your node. Ask for the cluster's nodes and the answer is 403: you only see your corner.",
+        "Game over: the lease ends, the tick expels your node and the tunnel to the API goes quiet."
+      ]
+    },
+    "host": {
+      "title": "Player 2: the host who runs the pool",
+      "steps": [
+        "Open the pool: automatic admission on, one place, a lease per player.",
+        "The puller, outbound only, brings the new request from the page; the server never holds a credential.",
+        "The tick does the admitting: when the place frees, it approves the first in line and seals its bundle.",
+        "kubectl get nodes: the stranger's machine is there, Ready, with the trust public.",
+        "The countdown: mesh host leases shows the time left. The host does nothing; the timer will.",
+        "Reap: at the end of the lease one tick revokes the node, deletes its namespace and frees the place."
+      ]
+    }
+  },
+  "aws_title": "The same game with a real stranger: an EC2 machine against the live demo (2026-11-03)",
+  "casts": [
+    {"file": "player.cast", "side": "player", "title": "The player's screen", "caption": "a real make showcase run (poc-page) in Incus VMs: the visitor is a VM on its own network."},
+    {"file": "host.cast", "side": "host", "title": "The host's screen", "caption": "the same run, from the control plane: only the ticks and pulls where something happened, and a look a minute at the lease."},
+    {"file": "aws-player.cast", "side": "player", "run": "aws", "title": "The visitor on AWS", "caption": "asked at 16:49, Ready at 16:52, expelled at 17:50 when its hour ended."},
+    {"file": "aws-host.cast", "side": "host", "run": "aws", "title": "The live demo's host", "caption": "the request, the automatic approval, the node, the countdown and the reap."}
+  ],
+  "features": [
+    {"name": "The Cilium guard", "what": "The Cilium agent's token on a joined node can no longer forge another node's endpoints, WireGuard key or identities.", "why": "A joined node is someone else's machine: its owner can read every token on it. A token should do only what that node needs.", "command": "make poc-vm      # V06c, V09b-V09c\nmake poc-golden  # G3.5", "issues": [53, 29, 58]},
+    {"name": "SPIRE, scoped", "what": "The SPIRE agent's token may only get nodes and pods: no nodes/proxy, nothing cluster-wide beyond that.", "why": "nodes/proxy reaches every kubelet. A guest never needs it.", "command": "make poc-vm      # V103\nmake poc-golden  # G3.6", "issues": [54, 35]},
+    {"name": "The puller's token", "what": "Normalized on write and read; verify proves the page accepts it, from your host, without sending it to the server.", "why": "A trailing newline used to lock the host out of its own page.", "command": "./page/page-server.sh verify --ssh \"$SSH\" --site page.example.org", "issues": [52, 47]},
+    {"name": "make regression", "what": "Every suite of the catalog, in a fixed order, each with its own state; it never touches what it did not create, and keeps each suite's logs with secrets redacted.", "why": "Same commit, same host, same day: the same table. A release is that table, all PASS.", "command": "make regression\nmake regression ONLY=\"poc-join poc-revoke\"", "issues": [65, 71]},
+    {"name": "docker-vm", "what": "On a host with Incus and no Docker, the Docker and kind suites run inside a VM of the run: nothing is skipped for want of a runtime.", "why": "One machine proves both runtimes.", "command": "REGRESSION_RUNTIME=docker-vm make regression", "issues": [66]},
+    {"name": "The gate", "what": "docs/FEATURES.yml maps every path to a feature; a pull request cites the PASS of the suites it touches, says its docs impact, and its diagrams carry the hash of their source.", "why": "Evidence, not promises: a change cannot ship untested or with a stale diagram.", "command": "make features-check\nmake pr-check PR_BODY=body.md", "issues": [67, 62, 60, 61]}
+  ]
+}

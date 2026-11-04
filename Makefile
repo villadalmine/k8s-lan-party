@@ -9,7 +9,7 @@ PR_TITLE ?=
 ONLY     ?=
 NAME     ?=
 
-.PHONY: regression features-check diagrams poc-lighthouse poc-cilium help labels-check test verify-ci pr-check install-hooks uninstall-hooks poc-join poc-host poc-weakness poc-down poc-ca poc-placement poc-kind poc-vm poc-revoke poc-admission poc-admission-auto poc-participants poc-participants-e2e poc-nat poc-bgp poc-golden poc-pool poc-page
+.PHONY: regression features-check diagrams poc-lighthouse poc-cilium help labels-check test verify-ci pr-check install-hooks uninstall-hooks poc-join poc-host poc-weakness poc-down poc-ca poc-placement poc-kind poc-vm poc-revoke poc-admission poc-admission-auto poc-participants poc-participants-e2e poc-nat poc-bgp poc-golden poc-pool poc-page showcase showcase-build
 
 help:
 	@grep -E '^[a-z-]+:.*##' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-14s %s\n", $$1, $$2}'
@@ -104,6 +104,16 @@ poc-nat: ## issue #15: symmetric NAT on both sides falls back to a Nebula relay 
 
 poc-page: ## the public page (phase B2, docs/PUBLIC-PAGE.md): a visitor on another machine asks, waits, collects a sealed bundle, joins, is expelled; panic closes it; needs Incus (PUB_SSH/VIS_SSH: real machines)
 	poc/poc-page.sh
+
+# Issue #63: What's new on the public page. The recordings come from a real run only, through the filter; never edit a .cast by hand.
+RELEASE ?= v0.2.0-poc
+showcase: ## What's new: record a real poc-page run (needs Incus) as the player's and the host's screens, filter them, build RELEASE's .cast files
+	rm -rf poc/.showcase && SHOWCASE=$(CURDIR)/poc/.showcase poc/poc-page.sh
+	mkdir -p poc/page/whatsnew/$(RELEASE)/rec && cp poc/.showcase/player.tsv poc/.showcase/host.tsv poc/page/whatsnew/$(RELEASE)/rec/
+	$(PYTHON) poc/page/whatsnew/showcase.py build poc/page/whatsnew/$(RELEASE)
+
+showcase-build: ## What's new: rebuild every .cast from its committed source (no machines); poc/test_whatsnew.py checks they match
+	for d in poc/page/whatsnew/v*/; do $(PYTHON) poc/page/whatsnew/showcase.py build "$${d%/}" || exit 1; done
 
 # Issue #62: every suite of docs/FEATURES.yml, in its order, one at a time; the feature table goes to docs/POC-STATUS.md (poc/regression.sh).
 regression: ## every suite in a fixed order, each with its own state (Incus: own project, UNDERLAY_NET=10.83.0); writes the feature table in docs/POC-STATUS.md; ONLY="poc-x poc-y" for a subset

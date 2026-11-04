@@ -1,9 +1,9 @@
 ---
 tipo: runbook
 id: k8s-lan-party-public-page
-version: 0.1.0
+version: 0.2.0
 fecha_alta: 2026-10-28
-fecha_ultimo_cambio: 2026-10-28
+fecha_ultimo_cambio: 2026-11-04
 categoria: plataforma
 dueno_agente: casa-orquestador
 pieza: k8s-lan-party
@@ -12,9 +12,9 @@ estado: construida y probada (make test; make poc-page en VMs Incus y con un ser
 depende_de: [docs/ADMISSION.md, docs/HOST-YOUR-OWN.md, poc/page/page.py, poc/page/puller.py, poc/page/seal.py, poc/page/visit.py, poc/page/page-server.sh, poc/lighthouse-vps.sh]
 lo_usan: [README.md, docs/HOST-YOUR-OWN.md, docs/ADMISSION.md, docs/JOIN.md]
 docs: [docs/ADMISSION.md, docs/HOST-YOUR-OWN.md, docs/DESIGN.md]
-scripts: [poc/page/page.py, poc/page/puller.py, poc/page/seal.py, poc/page/visit.py, poc/page/page-server.sh, poc/poc-page.sh, poc/test_page.py, poc/test_page_token.py]
+scripts: [poc/page/page.py, poc/page/news.py, poc/page/whatsnew/showcase.py, poc/test_whatsnew.py, poc/page/puller.py, poc/page/seal.py, poc/page/visit.py, poc/page/page-server.sh, poc/poc-page.sh, poc/test_page.py, poc/test_page_token.py]
 runbooks: [docs/HOST-YOUR-OWN.md]
-tags: [pagina-publica, admision, anti-bot, api, caddy, puller, opcional]
+tags: [pagina-publica, admision, anti-bot, api, caddy, puller, opcional, whats-new, asciinema]
 ---
 
 # The public page: let strangers ask for a place by themselves
@@ -56,7 +56,10 @@ sequenceDiagram
 
 The pieces, all in `poc/page/`, Python standard library only: `page.py` (the page), `puller.py` (your host's side), `seal.py` (key checks and the
 sealed envelope: X25519 + HKDF-SHA256 + AES-256-CTR + HMAC-SHA256, through `openssl`), `visit.py` (the visitor's side), `page-server.sh` (install it
-on a server), `static/` (one stylesheet, one script for the browser's proof of work), `deploy/` (the systemd units and the Caddy site).
+on a server), `news.py` (What's new: checks the release files and builds that page), `whatsnew/` (one JSON per release and its `.cast`
+recordings; their filtered sources in `whatsnew/<version>/rec/` are never deployed, and `whatsnew/showcase.py` makes the recordings), `static/`
+(three scripts: the browser's proof of work, What's new and the vendored asciinema player; two stylesheets: the page's and the player's;
+`VENDOR.md` pins the player), `deploy/` (the systemd units and the Caddy site).
 
 ## Requirements
 
@@ -141,6 +144,30 @@ python3 visit.py open ./mykeys sealed.json                                      
 
 `make poc-page` runs these exact calls (G11, the decoy) next to `visit.py` (the visitor).
 
+## What's new: each release, told as a game
+
+`/whats-new` on the same page (linked from the top of `/`) tells every release from both sides: the **player** who lends a machine for an
+hour (reads the page, makes keys, asks, waits, collects, `edge-mesh join`, runs a pod, is expelled) and the **host** who runs the pool (the
+request arrives, the tick admits, `kubectl get nodes`, the countdown, the reap). Each side has a recording you can replay, then one card
+per feature of the release (what, why, the command) and the history of every release with its issues.
+
+- **Data, not code:** `poc/page/whatsnew/<version>.json` (the story, the cards, the links) and `poc/page/whatsnew/<version>/*.cast`. `news.py`
+  checks them when the page starts (a bad link or a missing recording stops it) and builds the HTML once; nothing on that page reads a
+  request into a file name.
+- **The recordings are real and made by script:** `make showcase` runs `poc-page` with `SHOWCASE=poc/.showcase`; the run writes the
+  visitor's and the host's screens with their times, and only a run where every step passed becomes a recording. `showcase.py redact`
+  removes what must never be published (public IPs, k3s tokens, JWTs, claim codes, keys, long base64, fingerprints, UUIDs, your clone's
+  path) into `rec/*.tsv`; `showcase.py build` turns them into asciicast v2 files, the pauses longer than 2 s shortened (and those over a minute
+  say how long they really were). A text transcript (the AWS run of 2026-11-03, `rec/aws.txt`, already masked by hand when it was taken) goes
+  through the same filter. `poc/test_whatsnew.py` rebuilds every `.cast` from its source and fails on one byte of difference, and scans
+  every file with the filter's patterns: one leak fails it.
+- **Nothing from another site:** the player is asciinema-player 3.17.0, served from `/static/` (its SHA-256 in `poc/page/static/VENDOR.md`,
+  checked by the test). It runs a terminal emulator compiled to WebAssembly, so `/whats-new` sends the page's CSP with
+  `'wasm-unsafe-eval'` added to `script-src` (it lets the browser compile WebAssembly, not evaluate JavaScript); every other route keeps the CSP
+  unchanged. No cookie, no tracker, no font or script from a CDN.
+- `page-server.sh install` copies the release files and recordings (never `rec/`) and removes the ones that are gone; `verify` checks that
+  `/whats-new` answers with that CSP.
+
 ## The API, version 1
 
 Stable: within `/api/v1` fields are only added, never renamed or removed; a breaking change is `/api/v2`. Every body is JSON (`Content-Type:
@@ -166,5 +193,7 @@ The states a visitor sees: `received` (the control plane has not read it yet), `
 
 - 2026-10-28: a page that only shows an IP address (a lab without a name) needs `default_sni` in Caddy: a client that opens `https://<ip>` sends no
   server name. `page-server.sh install --with-caddy` sets it to the site's address.
+- 2026-11-04: `incus project create` with no terminal reads the project's YAML from stdin: over ssh it waits forever. Give it `</dev/null`.
+- 2026-11-04: asciinema-player 3 needs `'wasm-unsafe-eval'`: without it the recordings stay blank and the console names the CSP. Only `/whats-new` sends it.
 - 2026-10-28: the public server is a lighthouse too, and a lighthouse is a member of the mesh: every host now accepts the Kubernetes API, WireGuard
   and VXLAN only from the groups `own`, `friends` and `public` (`issue.sh`), never from the lighthouse; `make poc-page` G10 checks it from the server.

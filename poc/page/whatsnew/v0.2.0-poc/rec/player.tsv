@@ -1,0 +1,38 @@
+0.000	note	1. Make your keys: the private halves never leave this machine
+0.056	cmd	python3 /opt/k8s-lan-party/visit.py keygen /root/mykeys --nebula-cert /opt/nebula/nebula-cert
+0.284	out	keys: /root/mykeys (host.key and seal.key never leave this machine; host.pub and seal.pub go to the page)
+1.395	note	2. Ask for a place: solve the page's puzzle, get a claim code
+1.440	cmd	python3 /opt/k8s-lan-party/visit.py request https://<ip> visitor --keys /root/mykeys --cacert /opt/k8s-lan-party/page-ca.crt --nebula-cert /opt/nebula/nebula-cert
+2.102	out	asked as visitor (proof of work: 0.5 s). Claim code: <claim-code> (saved in /root/mykeys/claim-code)
+6.795	note	3. Wait in the list: the only place is taken
+6.850	cmd	python3 /opt/k8s-lan-party/visit.py status https://<ip> --keys /root/mykeys --cacert /opt/k8s-lan-party/page-ca.crt --nebula-cert /opt/nebula/nebula-cert
+7.042	out	visitor: in the list, position 1 of 1; estimated around 2026-11-04T05:31:41Z
+8.419	cmd	python3 /opt/k8s-lan-party/visit.py wait https://<ip> --keys /root/mykeys --cacert /opt/k8s-lan-party/page-ca.crt --nebula-cert /opt/nebula/nebula-cert --interval 10
+8.704	note	4. Keep visit.py wait running: it collects the sealed bundle the moment the place is yours
+8.919	out	visitor: in the list, position 1 of 1; estimated around 2026-11-04T05:31:41Z
+730.341	out	visitor: your place is ready: collect the bundle now (claim), its join token dies 8 minutes after approval
+730.450	out	bundle: /root/mykeys/visitor (lease until 05:42:42 UTC)
+730.454	out	join: sudo edge-mesh join /root/mykeys/visitor --accept-golden-rule
+748.628	note	5. Join: one command, and your machine is a node of the cluster
+748.682	cmd	edge-mesh join /root/mykeys/visitor --accept-golden-rule </dev/null
+748.740	out	Golden rule: what runs on someone else's machine can be seen by its owner.
+758.242	out	joined: visitor (trust=public)
+758.250	out	your namespace: play-visitor; try: sudo edge-mesh kubectl get pods
+763.602	note	6. Play: a pod in your own namespace (and the cluster says no to the rest)
+763.819	cmd	edge-mesh kubectl apply -f /root/hello.json
+764.348	out	pod/hello created
+764.439	cmd	edge-mesh kubectl wait --for=condition=Ready pod/hello --timeout=180s
+771.856	out	pod/hello condition met
+771.932	cmd	edge-mesh kubectl get pods -o wide
+772.206	out	NAME    READY   STATUS    RESTARTS   AGE   IP          NODE      NOMINATED NODE   READINESS GATES
+772.206	out	hello   1/1     Running   0          7s    10.42.1.3   visitor   <none>           <none>
+772.280	cmd	edge-mesh kubectl logs hello
+772.576	out	hello from hello on the mesh
+772.653	cmd	edge-mesh kubectl get nodes
+773.066	out	Error from server (Forbidden): nodes is forbidden: User "system:serviceaccount:play-visitor:user" cannot list resource "nodes" in API group "" at the cluster scope
+773.079	out	edge-mesh: forbidden (403): you may only work in your namespace play-visitor
+1448.576	note	7. Game over: the lease ended, the node is out
+1448.625	cmd	python3 /opt/k8s-lan-party/visit.py status https://<ip> --keys /root/mykeys --cacert /opt/k8s-lan-party/page-ca.crt --nebula-cert /opt/nebula/nebula-cert
+1448.787	out	visitor: your lease ended
+1474.049	cmd	edge-mesh kubectl get pods --request-timeout=10s
+1484.310	out	Unable to connect to the server: context deadline exceeded

@@ -1,0 +1,8 @@
+{
+  "version": "v0.1.0-poc",
+  "date": "2026-10-29",
+  "title": "phase 1 proof of concept",
+  "release": "https://github.com/villadalmine/k8s-lan-party/releases/tag/v0.1.0-poc",
+  "summary": "The first playable level: host your own game (CA, lighthouse, a control plane reachable only over Nebula), join with one bundle and one command, placement by trust, an encrypted pod network, strangers for one hour through manual approval or the automatic pool, and the optional public page.",
+  "issues": [12, 16, 26, 29, 35, 36]
+}

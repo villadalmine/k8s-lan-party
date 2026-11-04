@@ -3,7 +3,7 @@ tipo: doc
 id: k8s-lan-party-poc
 version: 0.3.0
 fecha_alta: 2026-10-19
-fecha_ultimo_cambio: 2026-11-03
+fecha_ultimo_cambio: 2026-11-04
 categoria: plataforma
 dueno_agente: casa-orquestador
 pieza: k8s-lan-party
@@ -82,8 +82,7 @@ WSL2 as a node was run by hand (docs/REQUIREMENTS.md, the host matrix); the refu
 | `vm/` | the Incus VM flow: `up.sh`, `down.sh`, `lib-vm.sh`, `poc-vm.sh`, `poc-bgp.sh`, `poc-placement.sh`, `run-all.sh` |
 | `pool.py`, `pool.yaml`, `test_pool.py` | the capacity pool for the public demo (pure logic, simulated time) |
 | `admission.py`, `test_admission.py`, `test_admission_auto.py`, `poc-admission.sh`, `poc-admission-auto.sh` | admission with manual approval and the automatic tick (B1): the ledger behind `mesh host request / approve / reap` |
-| `page/` (`page.py`, `puller.py`, `seal.py`, `visit.py`, `page-server.sh`, `page.yaml`, `static/`, `deploy/`), `test_page.py`, `poc-page.sh` | the optional public page (B2, [docs/PUBLIC-PAGE.md](../docs/PUBLIC-PAGE.md)): the page on the public server, the puller on the host, the sealed envelope and the strict key checks, the visitor's client, the installer for a server |
-| `page/` (`page.py`, `puller.py`, `seal.py`, `visit.py`, `page-server.sh`, `page.yaml`, `static/`, `deploy/`), `test_page.py`, `poc-page.sh` | the optional public page (B2, [docs/PUBLIC-PAGE.md](../docs/PUBLIC-PAGE.md)): the page on the public server, the puller on the host, the sealed envelope and the strict key checks, the visitor's client, the installer for a server |
+| `page/` (`page.py`, `news.py`, `puller.py`, `seal.py`, `visit.py`, `page-server.sh`, `page.yaml`, `static/`, `whatsnew/`, `deploy/`), `test_page.py`, `test_whatsnew.py`, `poc-page.sh` | the optional public page (B2, [docs/PUBLIC-PAGE.md](../docs/PUBLIC-PAGE.md)): the page on the public server, the puller on the host, the sealed envelope and the strict key checks, the visitor's client, the installer for a server; What's new (`news.py`, `whatsnew/<version>.json` and its `.cast` recordings, made from real runs by `whatsnew/showcase.py` / `make showcase`; `whatsnew/<version>/rec/` is never deployed) |
 | `participants.py`, `test_participants.py`, `poc-participants.sh`, `poc-participants-e2e.sh`, `participants-tools.sh`, `participants-live-smoke.sh` | join by signed PR: `check` (the CI gate), `validate`, `sync` (the issuing side, on the maintainer's host), `open` (the participant), `lint`; the suites and the pinned cosign, age and nebula-cert they fetch; the CI job that runs the verification code against the public Sigstore |
 | `sigstore_test_ca.py` | **TEST ONLY**: a local CA that plays Fulcio for the offline fixture (keys made in the state directory, never committed) |
 | `participant.py`, `participant-policy.yaml`, `test_participant.py`, `test_edge_mesh.py`, `poc-pool.sh` | the player's namespace `play-<name>` (Pod Security, quota, limits, NetworkPolicy, RBAC), their kubeconfig (TokenRequest, the lease's length), what the idle kick reads (`mesh host activity`), and the participant guard (ClusterIP only, no externalIPs, no `nodeName`, no toleration of the control plane) |

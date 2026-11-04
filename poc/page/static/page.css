@@ -12,3 +12,18 @@ button { font: inherit; padding: .5rem .9rem; border: 1px solid var(--accent); b
 .numbers { border-left: 4px solid var(--accent); padding-left: .6rem; }
 .closed { border-left: 4px solid var(--bad); padding-left: .6rem; color: var(--bad); }
 #asked, #where { word-break: break-word; }
+/* What's new (/whats-new): wider, two sides of the game next to each other, then the cards */
+a { color: var(--accent); }
+.top { margin: 0; font-size: .9rem; }
+main.wide { max-width: 78rem; }
+.meta { color: var(--muted); font-size: .9rem; }
+.sides { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 34rem), 1fr)); gap: 1.2rem; }
+.side ol { padding-left: 1.3rem; }
+figure { margin: .8rem 0; min-width: 0; }
+figcaption { color: var(--muted); font-size: .9rem; margin-top: .3rem; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 17rem), 1fr)); gap: 1rem; }
+.card { border: 1px solid var(--line); border-top: 4px solid var(--accent); padding: .2rem .9rem .6rem; }
+.card h4 { margin: .6rem 0 .3rem; }
+table { border-collapse: collapse; width: 100%; display: block; overflow-x: auto; }
+th, td { text-align: left; padding: .3rem .6rem .3rem 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+.card pre { word-break: normal; overflow-wrap: anywhere; }

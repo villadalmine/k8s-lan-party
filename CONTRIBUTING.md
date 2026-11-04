@@ -115,6 +115,25 @@ Like the run link, these are warnings on a push and required on the edit that pa
 changed and its SVG or PNG was not rendered again, or when the feature graph does not match the catalog; without mermaid-cli it compares the
 hashes only.
 
+## What's new: a release on the public page
+
+Every release gets an entry in `/whats-new` (issue #63, [docs/PUBLIC-PAGE.md](docs/PUBLIC-PAGE.md) "What's new"). Adding the next one is one
+data file and its recordings, no code:
+
+```bash
+cp poc/page/whatsnew/v0.2.0-poc.json poc/page/whatsnew/v0.3.0-poc.json   # then edit: version, date, title, release, summary, issues,
+                                                                        # story (player and host steps), casts, features (one card each)
+make showcase RELEASE=v0.3.0-poc        # a real poc-page run (Incus) -> rec/player.tsv, rec/host.tsv (filtered) -> player.cast, host.cast
+make test                               # poc/test_whatsnew.py: every .cast rebuilt from its source, every file scanned for leaks
+```
+
+The page starts while a listed recording does not exist yet (it is left out), so `make showcase` can run the page of the
+release it records; `make test` requires every listed recording. A recording is never edited by hand: change the run or the filter (`poc/page/whatsnew/showcase.py`) and record again. A text transcript of
+another real run (with UTC times, like `v0.2.0-poc/rec/aws.txt`) goes in `rec/<name>.txt`; `make showcase-build` turns it into
+`<name>-player.cast` and `<name>-host.cast`, listed in the release's `casts` with `"run": "aws"` (or another name). The links must point at this
+repository's release tag; the page refuses to start otherwise. The entry is deployed to the public server (`page-server.sh install`) only
+after the release is published.
+
 ## Pull requests
 
 One template, [`.github/pull_request_template.md`](.github/pull_request_template.md). Every PR has the same
