@@ -54,6 +54,7 @@ suites:
   - {id: poc-admission-auto, script: poc/poc-admission-auto.sh, runtime: [incus]}
   - {id: poc-pool, script: poc/poc-pool.sh, runtime: [incus]}
   - {id: poc-party, script: poc/poc-party.sh, runtime: [incus]}
+  - {id: poc-doom, script: poc/poc-doom.sh, runtime: [incus]}
   - {id: poc-participants-e2e, script: poc/poc-participants-e2e.sh, runtime: [incus]}
   - {id: poc-page, script: poc/poc-page.sh, runtime: [incus]}
   - {id: poc-nat, script: poc/poc-nat.sh, runtime: [incus]}
@@ -178,6 +179,14 @@ features:
     paths: [poc/party.py, poc/test_party.py, poc/poc-party.sh]
     components: [k3s, NetworkPolicy, admission]
     docs: [docs/DESIGN.md, docs/ADMISSION.md, docs/JOIN.md]
+
+  - id: doom
+    description: the Doom demo over a party (issue #75 part B) - alice's Odamex server with Freedoom and bob's automated client play through the party on 10666/UDP; the server log is the witness; no consent or after leave nothing connects; the image has nothing non-free
+    proven_by:
+      - {suite: poc-doom, steps: [DM01-DM16]}
+    paths: [poc/doom/*, poc/poc-doom.sh]
+    components: [k3s, Cilium, NetworkPolicy, Odamex, Freedoom, ffmpeg]
+    docs: [docs/DESIGN.md, docs/JOIN.md, docs/PUBLIC-PAGE.md]
 
   - id: public-page
     description: the public page (phase B2) on a server that holds no credential; a visitor asks, waits, collects a sealed bundle, joins, is expelled; panic closes it; What's new tells each release with recordings of real runs (make showcase)

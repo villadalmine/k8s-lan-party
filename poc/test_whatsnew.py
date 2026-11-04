@@ -4,6 +4,7 @@ them from itself only. No network, no machines.
 - every committed recording is rebuilt from its committed source and must be byte-identical (nobody edited a .cast by hand);
 - every file of poc/page/whatsnew is scanned with the filter's own patterns: one leak (a public IP, a k3s token, a long base64, a claim
   code, a JWT, a key, a fingerprint) fails the test, and a planted leak proves the scan sees it;
+- a game screen (.gif) is a real GIF of at most 5 MiB with no text block that holds a leak, and is served as an image of this page only;
 - the vendored player matches the SHA-256 in poc/page/static/VENDOR.md;
 - /whats-new is served with the page's CSP plus only 'wasm-unsafe-eval', loads nothing from another site, and each release is there.
 """
@@ -81,7 +82,7 @@ class Filter(unittest.TestCase):
 
 class Recordings(unittest.TestCase):
     def test_no_leak_in_any_committed_file(self):
-        files = [str(f) for f in sorted(NEWS.rglob("*")) if f.is_file() and f.suffix in (".cast", ".tsv", ".txt", ".json")]
+        files = [str(f) for f in sorted(NEWS.rglob("*")) if f.is_file() and f.suffix in (".cast", ".tsv", ".txt", ".json", ".gif")]
         self.assertTrue(any(f.endswith(".cast") for f in files))
         self.assertEqual(showcase.scan(files), 0, "a recording holds a secret: run the filter (showcase.py redact) again")
 
@@ -134,11 +135,11 @@ class ExpectedErrors(unittest.TestCase):
         for f in sorted(NEWS.glob("v*/*.cast")):
             lines = screen(f)
             for i, ln in enumerate(lines):
-                if "Forbidden" in ln or "Unable to connect" in ln:
+                if "Forbidden" in ln or "Unable to connect" in ln or "no server answered" in ln:
                     n += 1
                     self.assertTrue(any(x.startswith("# expected") for x in lines[max(0, i - 2):i]),
                                     f"{f.name} line {i}: {ln[:60]!r} has no '# expected' note in the 2 lines before it")
-        self.assertGreaterEqual(n, 7)   # 1 + 3 Forbidden, 1 + 2 Unable to connect in v0.2.0-poc
+        self.assertGreaterEqual(n, 7)   # 1 + 3 Forbidden, 1 + 2 Unable to connect in v0.2.0-poc (and the denials of v0.3.0-poc)
 
     def test_notes_only_add_lines(self):
         rows = showcase.read_tsv(str(NEWS / "v0.2.0-poc" / "rec" / "aws-player.tsv"))
@@ -152,6 +153,60 @@ class ExpectedErrors(unittest.TestCase):
         out = showcase.annotate(rows, self.ANN)
         self.assertEqual([x[2] for x in out], ["before", e[0][2], "... (5 lines of the expelled node's k3s retrying)", "after"])
         self.assertEqual(showcase.annotate(rows[:5], self.ANN), rows[:5])   # 4 lines: kept as they are
+
+
+def gif_with(comment: str) -> bytes:
+    """A minimal 1x1 GIF89a with a comment extension (what a tool or a viewer can read besides the pixels)."""
+    c = comment.encode()
+    return (b"GIF89a\x01\x00\x01\x00\x80\x00\x00\x00\x00\x00\xff\xff\xff,\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02D\x01\x00"
+            b"!\xfe" + bytes([len(c)]) + c + b"\x00;")
+
+
+class Media(unittest.TestCase):
+    def test_every_game_screen_is_a_small_real_gif_with_no_leak(self):
+        gifs = sorted(NEWS.glob("v*/*.gif"))
+        for g in gifs:
+            b = g.read_bytes()
+            self.assertIn(b[:6], (b"GIF87a", b"GIF89a"), g.name)
+            self.assertLessEqual(len(b), news.GIF_MAX, g.name)
+            self.assertEqual(showcase.scan([str(g)]), 0, g.name)
+        listed = {(r["version"], m["file"]) for r in news.load(NEWS) for m in r.get("media", [])}
+        self.assertEqual(listed, {(g.parent.name, g.name) for g in gifs}, "a GIF no release lists, or a listed one that is missing")
+
+    def test_a_leak_in_a_gif_is_seen_and_a_clean_one_is_not(self):
+        d = Path(tempfile.mkdtemp(prefix="wn-"))
+        try:
+            for what, line in LEAKS.items():
+                (d / "bad.gif").write_bytes(gif_with(line))
+                with contextlib.redirect_stdout(io.StringIO()) as out:
+                    self.assertEqual(showcase.scan([str(d / "bad.gif")]), 1, what)
+                self.assertIn("LEAK", out.getvalue())
+            (d / "ok.gif").write_bytes(gif_with("Created with ffmpeg, 10.77.0.2 is the mesh"))
+            self.assertEqual(showcase.scan([str(d / "ok.gif")]), 0)
+        finally:
+            shutil.rmtree(d)
+
+    def test_a_bad_media_entry_stops_the_page(self):
+        d = Path(tempfile.mkdtemp(prefix="wn-"))
+        try:
+            good = {"version": "v9.9.9", "date": "2026-01-01", "title": "t", "summary": "s", "issues": [1],
+                    "release": f"{news.REPO}/releases/tag/v9.9.9"}
+            m = {"file": "m.gif", "title": "t", "alt": "a"}
+            (d / "v9.9.9").mkdir()
+            (d / "v9.9.9" / "m.gif").write_bytes(gif_with("x"))
+            (d / "v9.9.9" / "big.gif").write_bytes(b"GIF89a" + b"\0" * news.GIF_MAX)
+            (d / "v9.9.9" / "fake.gif").write_bytes(b"<html>")
+            for bad, key in (({**m, "file": "../m.gif"}, "is not a name"), ({**m, "file": "m.mp4"}, "is not a name"), ({**m, "file": "big.gif"}, "big.gif"),
+                             ({**m, "file": "fake.gif"}, "fake.gif"), ({**m, "file": "missing.gif"}, "missing.gif"),
+                             ({k: v for k, v in m.items() if k != "alt"}, "alt"), ({**m, "caption": 3}, "caption")):
+                (d / "v9.9.9.json").write_text(json.dumps({**good, "media": [bad]}))
+                with self.assertRaises(news.NewsError, msg=str(bad)) as e:
+                    news.load(d)
+                self.assertIn(key, str(e.exception))
+            (d / "v9.9.9.json").write_text(json.dumps({**good, "media": [m]}))
+            self.assertEqual(len(news.load(d)[0]["media"]), 1)   # the positive control
+        finally:
+            shutil.rmtree(d)
 
 
 class Releases(unittest.TestCase):
@@ -256,6 +311,19 @@ class Served(unittest.TestCase):
             if i + 1 < len(rs):
                 self.assertIn(f'href="/whats-new/{rs[i + 1]["version"]}"', text)   # the older one
         self.assertIn(f'<section id="{rs[0]["version"]}">', index)            # the newest one in full on the index
+
+    def test_game_screens_are_served_as_images_of_this_server_only(self):
+        for r in news.load(NEWS):
+            page = self.get(f"/whats-new/{r['version']}")
+            for m in r.get("media", []):
+                s, h, body = self.get(f"/whats-new/{r['version']}/{m['file']}")
+                self.assertEqual((s, h["Content-Type"], body), (200, "image/gif", (NEWS / r["version"] / m["file"]).read_bytes()))
+                self.assertIn(f'<img class=shot src="/whats-new/{r["version"]}/{m["file"]}"', page[2].decode())
+            self.assertNotIn("media-src", page[1]["Content-Security-Policy"])   # an image needs img-src 'self', which the page has already
+            self.assertIn("img-src 'self';", page[1]["Content-Security-Policy"])
+            for src in re.findall(r'<img[^>]*src="?([^" >]+)', page[2].decode()):
+                self.assertTrue(src.startswith("/"), f"loads {src} from another site")
+        self.assertEqual(self.get("/whats-new/v0.3.0-poc/../../page.py")[0], 404)
 
     def test_only_known_versions_route(self):
         for p in ("/whats-new/v9.9.9-poc", "/whats-new/v0.2.0-poc/", "/whats-new/v0.2.0-poc.json", "/whats-new/../page.py",

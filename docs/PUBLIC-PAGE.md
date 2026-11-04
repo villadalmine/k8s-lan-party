@@ -56,7 +56,7 @@ sequenceDiagram
 
 The pieces, all in `poc/page/`, Python standard library only: `page.py` (the page), `puller.py` (your host's side), `seal.py` (key checks and the
 sealed envelope: X25519 + HKDF-SHA256 + AES-256-CTR + HMAC-SHA256, through `openssl`), `visit.py` (the visitor's side), `page-server.sh` (install it
-on a server), `news.py` (What's new: checks the release files and builds that page), `whatsnew/` (one JSON per release and its `.cast`
+on a server), `news.py` (What's new: checks the release files and builds that page), `whatsnew/` (one JSON per release and its `.cast` and `.gif`
 recordings; their filtered sources in `whatsnew/<version>/rec/` are never deployed, and `whatsnew/showcase.py` makes the recordings), `static/`
 (three scripts: the browser's proof of work, What's new and the vendored asciinema player; two stylesheets: the page's and the player's;
 `VENDOR.md` pins the player), `deploy/` (the systemd units and the Caddy site).
@@ -172,6 +172,13 @@ per feature of the release (what, why, the command) and the history of every rel
   say how long they really were). A text transcript (the AWS run of 2026-11-03, `rec/aws.txt`, already masked by hand when it was taken) goes
   through the same filter. `poc/test_whatsnew.py` rebuilds every `.cast` from its source and fails on one byte of difference, and scans
   every file with the filter's patterns: one leak fails it.
+- **A game screen is a GIF, not a video:** a release may list `"media"` (file, title, alt, caption) in its JSON: a `.gif` made by the run itself
+  (`make showcase-doom`: the automated Doom client's virtual screen, captured by ffmpeg inside the pod, 320x200, 48 colours, under 5 MiB). It is an
+  `<img>` of this page's own server, so it needs `img-src 'self'`, which the CSP already has: no `media-src`, no new source, no new route
+  family (`/whats-new/<version>/<file>.gif`, exact keys like the casts). `news.py` refuses a name that is not `<name>.gif`, a file that is not a
+  GIF or is over 5 MiB, and a listed file that does not exist; `poc/test_whatsnew.py` scans the text blocks of every GIF with the filter's patterns,
+  proves the scan sees a planted leak, and checks the headers and that the `<img>` loads from `/` only. The pixels are the game only (the player's
+  name and the map): the run shows no console and no address (the test cannot read pixels, the recording step does not draw anything else).
 - **Nothing from another site:** the player is asciinema-player 3.17.0, served from `/static/` (its SHA-256 in `poc/page/static/VENDOR.md`,
   checked by the test). It runs a terminal emulator compiled to WebAssembly, so `/whats-new` sends the page's CSP with
   `'wasm-unsafe-eval'` added to `script-src` (it lets the browser compile WebAssembly, not evaluate JavaScript); every other route keeps the CSP

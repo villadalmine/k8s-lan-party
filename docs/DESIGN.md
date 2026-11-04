@@ -630,7 +630,40 @@ that name. Disabling the mode keeps the consents (status `off`) and removes ever
 participant guard and RBAC: a party gives network reach on declared ports, never API access to the other namespace. Golden rule 1 still
 applies: a shareable pod on a friend's node is visible to that friend, party or not.
 
-Proven by `make poc-party` (PY01-PY17) on Incus VMs with both CNIs the game supports: flannel (k3s's own NetworkPolicy controller, the default) and Cilium (`CNI=cilium`); the Doom demo over a party is part B of issue #75.
+Proven by `make poc-party` (PY01-PY17) on Incus VMs with both CNIs the game supports: flannel (k3s's own NetworkPolicy controller, the default) and Cilium (`CNI=cilium`); the Doom demo over a party is section 14.3.
+
+### 14.3 The Doom demo: a real match over a party (issue #75, part B)
+
+A party is only worth having if something real crosses it, so the demo is a game of Doom between two friends, with no extra component in the
+design: alice's namespace runs an [Odamex](https://odamex.net) server (GPL-2.0-or-later, 12.3.0) on `10666/UDP` with [Freedoom](https://freedoom.github.io)
+(BSD-3-Clause, 0.13.0, `freedoom2.wad`) as its game data; bob's namespace runs an automated Odamex client that connects through the party, moves
+and shoots for about 45 seconds and quits. Nothing non-free is shipped: no `doom.wad`, no `doom2.wad`. `10666/UDP` is `party_ports`' default, so
+the demo needs nothing opened that part A did not already allow.
+
+```bash
+sudo edge-mesh party invite bob        # alice (her consent: nothing opens yet)
+sudo edge-mesh party accept alice      # bob (the next tick opens 10666/UDP, both ways)
+sudo edge-mesh kubectl exec doom-client -- client.sh doom.play-alice.svc.cluster.local 10666 45 bob     # bob's client plays
+```
+
+**What proves it, and where.** The proof is on the server, not on the client's say-so: alice's server log names the player (`bob`) and the
+client's address, and the client's own log says it received the map. `make poc-doom` (DM01-DM13) shows both, and the two that matter as much:
+without the party (no consent, one consent) and again after `leave`, the same client reaches no server (nothing in alice's log, the client gives up
+after its timeout). It runs on Incus VMs with `CNI=cilium`, the demo's CNI, and on flannel.
+
+**How the pieces fit the rules.** The server pod is private (not `edge-mesh/sensitivity=shareable`), so it runs only on alice's node, and the client
+only on bob's: the match crosses two nodes, over Nebula, through the party's NetworkPolicy pair and nothing else. Both pods pass Pod Security
+`restricted` (non-root `65534`, no capabilities) and fit the player quota (500m CPU, 512 MiB). There is no registry: the image is built once by
+`poc/doom/build.sh` (Debian 13 pinned by digest, the Odamex and Freedoom downloads pinned by SHA-256, `poc/doom/doom.env`) and loaded into the two
+nodes with `k3s ctr images import`, so a joined stranger's node pulls nothing from anywhere and the demo does not depend on a public image.
+
+**What it does not claim.** Odamex over a LAN-like path is the easy case for a netcode that tolerates latency; this shows the party carries real
+UDP game traffic, not that a match over the internet through a relay is good (that is the relay's budget, section 15.1). The player is a script:
+it proves connection, map, movement and shooting, not skill. A party closes **new** flows at once, but a UDP flow that was already open keeps its conntrack entry for a while (Cilium and flannel
+alike): a client that came back from the same local port right after `leave` would still get through for a moment. The suite gives each session its
+own local port (`odamex -port`), which is also what a real player's second session does not need to care about; it does not claim to cut a match
+in progress when a party ends, only that nothing new connects. "Frags": with one human in a co-op game the server's `(N KILLS, M DEATHS)` line says
+0 kills (it counts players); the witness is the join, the stay and the leave with their times.
 
 ## 15. What the operator needs (and where traffic goes)
 

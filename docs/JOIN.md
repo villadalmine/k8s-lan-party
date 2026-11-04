@@ -187,6 +187,28 @@ no access to the friend's namespace with kubectl, your private pods still run on
 party also ends when either of you is kicked or a lease ends, when the host ends it (`mesh host party end alice bob`), or when the host turns
 parties off. The consent is a ConfigMap `party-<friend>` in your namespace: it counts against your quota of ConfigMaps. Proved by `make poc-party`.
 
+### A game to play: Doom (an example, [DESIGN.md 14.3](DESIGN.md))
+
+`poc/doom/` has a Doom server and an automated player for exactly this: [Odamex](https://odamex.net) (GPL-2.0-or-later) with
+[Freedoom](https://freedoom.github.io) (BSD-3-Clause), the free game data, on `10666/UDP`, the port a party opens by default. The host builds the image
+once (`poc/doom/build.sh`; versions and checksums pinned in `poc/doom/doom.env`) and it goes into your node, so nothing is pulled. alice runs the
+server, bob the client, and **neither works until both of you agreed**:
+
+```bash
+# alice: a server in your namespace (Pod Security "restricted": the pod runs as 65534 and never pulls the image; $IMAGE is the name build.sh printed)
+poc/doom/pod.sh server "$IMAGE" | sudo edge-mesh kubectl apply -f -
+sudo edge-mesh kubectl expose pod doom-server --name doom --port 10666 --protocol UDP
+sudo edge-mesh party invite bob                       # and bob: sudo edge-mesh party accept alice  (the next tick opens 10666/UDP)
+# bob: a client pod (idle), then it plays 40 s through the party and quits
+poc/doom/pod.sh client "$IMAGE" | sudo edge-mesh kubectl apply -f -
+sudo edge-mesh kubectl exec doom-client -- client.sh doom.play-alice.svc.cluster.local 10666 40 bob
+# alice: her server's log says who connected, joined and left, and when
+sudo edge-mesh kubectl exec doom-server -- grep -E 'connected|joined|disconnected' /tmp/server.log
+```
+
+Before the party (or after `edge-mesh party leave`) the client prints `no server answered` and alice's log has no player: that is the party working,
+not a failure. The manifests and the whole run are `poc/poc-doom.sh` (DM01-DM16); `make poc-doom` does it on Incus VMs.
+
 ## Leaving
 
 Ask the host to `kick` you (your token stops working, they blocklist your certificate, remove the node and delete `play-<name>` with

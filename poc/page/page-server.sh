@@ -97,7 +97,7 @@ install_page() {
   cp "$PAGE/page.py" "$PAGE/news.py" "$PAGE/seal.py" "$POC/pool.py" "$POC/admission.py" "$PAGE/page.yaml" "$t/opt/"
   cp "$PAGE"/static/*.js "$PAGE"/static/*.css "$t/opt/static/"
   # What's new: each release's JSON and its recordings (never the sources under rec/)
-  ( cd "$PAGE" && find whatsnew -maxdepth 2 \( -name 'v*.json' -o -name '*.cast' \) -print0 | tar cf - --null -T - ) | tar xf - -C "$t/opt"
+  ( cd "$PAGE" && find whatsnew -maxdepth 2 \( -name 'v*.json' -o -name '*.cast' -o -name '*.gif' \) -print0 | tar cf - --null -T - ) | tar xf - -C "$t/opt"
   cp "$PAGE/deploy/k8s-lan-party-page.service" "$t/"
   local tls_line=""; [ "$TLS" = internal ] && tls_line="tls internal"
   sed -e "s#^page.example.org {#$SITE {#" -e "s|# @TLS@|$tls_line|" "$PAGE/deploy/k8s-lan-party-page.caddy" >"$t/site.caddy"
@@ -213,7 +213,7 @@ done
 n=0; b=0; for c in \$(python3 -I -c 'import glob, json
 for f in sorted(glob.glob("/opt/k8s-lan-party-page/whatsnew/v*.json")):
     r = json.load(open(f))
-    for c in r.get("casts", []): print(r["version"] + "/" + c["file"])'); do
+    for c in r.get("casts", []) + r.get("media", []): print(r["version"] + "/" + c["file"])'); do
   # a listed recording not made yet (make showcase records the release it serves) is left out by the page: said, not a failure
   [ -f "/opt/k8s-lan-party-page/whatsnew/\$c" ] || { echo "skip: /whats-new/\$c is listed but not recorded yet"; continue; }
   s=\$(curl -sk --connect-to ::127.0.0.1: -o /dev/null -w '%{http_code}' "$url/whats-new/\$c"); n=\$((n+1))

@@ -780,6 +780,8 @@ def make_server(page: Page, listen: str) -> Server:
         static[path] = (body.encode(), "text/html; charset=utf-8", {"Content-Security-Policy": news.CSP})
     for path, body in news.casts(HERE / "whatsnew", releases).items():
         static[path] = (body, "application/x-asciicast; charset=utf-8")
+    for path, body in news.media(HERE / "whatsnew", releases).items():   # game screens: images of this server only
+        static[path] = (body, "image/gif")
     handler = type("PageHandler", (Handler,), {"page": page, "static": static})
     c = page.cfg
     return Server((host, int(port)), handler, c["max_threads"], c["request_total_seconds"], c["max_per_origin"], tuple(c["trusted_proxies"]))

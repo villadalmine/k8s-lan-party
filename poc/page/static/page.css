@@ -20,6 +20,7 @@ main.wide { max-width: 78rem; }
 .sides { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 34rem), 1fr)); gap: 1.2rem; }
 .side ol { padding-left: 1.3rem; }
 figure { margin: .8rem 0; min-width: 0; }
+img.shot { max-width: 100%; height: auto; image-rendering: pixelated; border-radius: 4px; }
 figcaption { color: var(--muted); font-size: .9rem; margin-top: .3rem; }
 .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 17rem), 1fr)); gap: 1rem; }
 .card { border: 1px solid var(--line); border-top: 4px solid var(--accent); padding: .2rem .9rem .6rem; }
