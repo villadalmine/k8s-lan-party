@@ -142,7 +142,7 @@ One template, [`.github/pull_request_template.md`](.github/pull_request_template
 required sections: **What and why · Kind · Scope · Provenance · Evidence · Authorship · How to test it from a
 clean clone · Risk and rollback · Depends on**. `scripts/check_pr.py` runs on every PR (job `pr-format`) and
 fails when one is missing, the title is not a Conventional Commit, the provenance is undeclared, a commit has
-no sign-off, or (except on a push) the description does not cite a green CI run on the head.
+no sign-off, or (except on a push, or while it still says `CI: pending`) the description does not cite a green CI run on the head.
 
 **Where it ran.** Under *Evidence*, `### Where it ran` links the green CI run on the PR's **current head
 commit**, and `### Known gaps` says what that evidence does not cover. The flow, with no red check at any step:
@@ -156,8 +156,29 @@ commit**, and `### Known gaps` says what that evidence does not cover. The flow,
    green run of `verify.yml` on the exact head, asked to the GitHub API; if that run is queued or running, it
    waits (up to 30 min).
 
-Every action other than a push (an edit, a label, anything new) is strict, so **paste the line before adding or
-removing a label**; a label on a stale link makes `pr-format` red until the next edit. `pr-format` lives in its
+Every action other than a push (an edit, a label, anything new) is strict **once the description cites a run**:
+a link that is not a green `verify.yml` run of the exact head fails, also on a label change. The one exception
+is the documented intermediate state (issue #79): while `### Where it ran` still says `- CI: pending` and links
+no run, an `edited`, `labeled` or `unlabeled` run only warns. That is what lets `gh pr create --label a,b,c`
+(one `labeled` run per label, before any run exists) and the pending body leave no failed `pr-format` on the
+head: a failed run stays in `check-runs?filter=all` and our merge rule is "no failure on the head with
+`filter=all`", so each one used to cost an empty commit. **Create the PR with its labels, then do the single
+edit that replaces `pending` with the green run.** A body with an empty link, `none`, or a link next to
+`pending` is not pending and stays strict.
+
+**What stops a pending merge: the `evidence` check.** `pr-format` cannot, because a required check that reports
+neutral or success while pending counts as passing. So a second check run, `evidence`, is written with the Checks
+API by `scripts/evidence.py` (job `evidence-writer` of `pr-format.yml`; `evidence.yml` with `pull_request_target`
+for fork PRs, whose token cannot write checks, and which never checks out or runs anything of the PR). It is
+`in_progress` while no run is cited (`CI: pending`, empty, `none`): a required check that has not completed
+blocks the merge and leaves no failure in `check-runs?filter=all`. It becomes `success` when the description cites
+a green `verify` run of the exact head, and `failure` only for a link that is not. There is one `evidence` check
+run per head and every event updates that same run, so a failure is replaced by the later success. Making it a
+required check is a ruleset change the maintainer applies after merging
+([`docs/runbooks/github-evidence-requerido.md`](docs/runbooks/github-evidence-requerido.md)); until then the
+merge rule is manual: the `evidence` check of the head must be `success` and `filter=all` clean.
+
+`pr-format` lives in its
 own workflow (`pr-format.yml`), and `verify.yml` runs only on pushes, so an edit or a label never creates a
 skipped `verify` check run that would hide a red one (GitHub counts `skipped` as passing, and takes the newest
 check run of each name). A new push makes the old link stale on purpose: paste the new line after its `verify`

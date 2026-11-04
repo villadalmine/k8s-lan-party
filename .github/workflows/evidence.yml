@@ -1,0 +1,37 @@
+name: Evidence (fork PRs)
+
+# The `evidence` check for pull requests from forks (issue #79). Under `pull_request` a fork's GITHUB_TOKEN is read-only
+# and cannot create check runs, so this uses `pull_request_target`, which runs with write access, in the base repository.
+# Why that is safe (the usual pull_request_target rules):
+#   - the workflow and scripts/evidence.py come from the BASE branch (default checkout of pull_request_target), never from
+#     the PR, so the PR cannot change what runs with the token;
+#   - nothing of the PR is checked out, built or executed: the job reads the PR's title/body and head SHA through the API and
+#     writes one check run. The description is data: it is only parsed for run links (a regex), never evaluated or put in a shell;
+#   - the token is the job's, with only checks: write, actions: read, pull-requests: read, contents: read; no secrets are used.
+# Same-repository PRs are covered by the evidence-writer job of pr-format.yml, so they do not run twice.
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, edited, labeled, unlabeled]
+
+permissions:
+  contents: read
+
+jobs:
+  evidence-writer-fork:
+    if: github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: read
+      checks: write
+    steps:
+      - uses: actions/checkout@v4   # the base branch: pull_request_target checks out the base, not the PR
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Write the evidence check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/evidence.py --repo "${{ github.repository }}" --pr "${{ github.event.pull_request.number }}"

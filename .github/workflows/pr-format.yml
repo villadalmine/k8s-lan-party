@@ -72,3 +72,27 @@ jobs:
         run: |
           python3 scripts/check_pr.py --verify-runs cited-runs.txt \
             --repo "${{ github.repository }}" --head "$HEAD_SHA" --action "$ACTION"
+
+  # The `evidence` check (issue #79): in_progress while the description is "CI: pending" (blocks the merge once
+  # `evidence` is a required check, leaves no failure), success when it cites a green verify run of the exact
+  # head, failure only for a bad link. scripts/evidence.py updates ONE check run per head. The job is named
+  # evidence-writer so it never shares the name of the check it writes. Same-repository PRs only: a fork's
+  # token cannot write checks under pull_request, evidence.yml (pull_request_target) covers those.
+  evidence-writer:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: read
+      checks: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Write the evidence check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/evidence.py --repo "${{ github.repository }}" --pr "${{ github.event.pull_request.number }}"

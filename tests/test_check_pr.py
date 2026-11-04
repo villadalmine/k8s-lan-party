@@ -135,6 +135,62 @@ class CheckPr(unittest.TestCase):
         no_heading = GOOD.replace("### Where it ran\n", "")
         self.assertTrue(any("Where it ran" in p for p in check_pr.check("docs: x", no_heading, strict=False)))
 
+    # --- issue #79: a pending body is advisory on labeled/edited; a wrong link stays strict ----------
+
+    PENDING_BODY = GOOD.replace("- CI: https://github.com/villadalmine/k8s-lan-party/actions/runs/123", "- CI: pending")
+
+    def _event_run(self, action, body, *extra):
+        """main() on a real pull_request event payload (labeled carries `label`, edited carries `changes`)."""
+        import json, tempfile
+        payload = {"action": action, "number": 79, "pull_request": {
+            "number": 79, "title": "ci: x", "body": body, "user": {"login": "me"}, "labels": [{"name": "ci"}],
+            "head": {"sha": "abc"}}}
+        payload.update({"label": {"name": "ci"}} if "label" in action else {"changes": {"body": {"from": ""}}})
+        with tempfile.TemporaryDirectory() as tmp:
+            event, runs = Path(tmp) / "event.json", Path(tmp) / "runs.txt"
+            event.write_text(json.dumps(payload), encoding="utf-8")
+            code, out = self._main("--event", str(event), "--runs-file", str(runs), *extra)
+            return code, out, runs.read_text(encoding="utf-8")
+
+    def test_pending_body_is_advisory_on_every_action(self):
+        self.assertTrue(check_pr.pending_citation(self.PENDING_BODY))
+        for action in ("labeled", "unlabeled", "edited"):
+            code, out, runs = self._event_run(action, self.PENDING_BODY)
+            self.assertEqual(code, 0, (action, out))
+            self.assertIn("::warning::'Where it ran' is still 'CI: pending'", out)
+            self.assertEqual(runs, "")  # nothing for the networked step to check
+
+    def test_bad_or_missing_citation_stays_strict_on_labeled_and_edited(self):
+        link = "- CI: https://github.com/villadalmine/k8s-lan-party/actions/runs/123"
+        bodies = {"empty link": GOOD.replace(link, "- CI: "), "none": GOOD.replace(link, "- CI: none"),
+                  "pending elsewhere": GOOD.replace(link, "- CI: none\n- Local: pending"),
+                  "pending and a link": GOOD.replace(link, "- CI: pending " + link[6:]),
+                  "no heading": self.PENDING_BODY.replace("### Where it ran\n", "")}
+        for name, body in bodies.items():
+            for action in ("labeled", "unlabeled", "edited"):
+                code = self._event_run(action, body)[0]
+                self.assertEqual(code, 1 if name != "pending and a link" else 0, (name, action))
+        # a cited run is handed to the API step, which judges it (green, this head) strictly
+        code, out, runs = self._event_run("labeled", GOOD)
+        self.assertEqual((code, runs), (0, "villadalmine/k8s-lan-party 123\n"))
+        self.assertFalse(check_pr.pending_citation(bodies["pending and a link"]))
+
+    def test_the_api_step_has_nothing_to_judge_for_a_pending_body(self):
+        """pr-format.yml runs step 2 whenever cited-runs.txt exists, and a pending body leaves it empty."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            runs = Path(tmp) / "runs.txt"
+            runs.write_text("", encoding="utf-8")
+            for action in ("labeled", "edited"):
+                code, _ = self._main("--verify-runs", str(runs), "--repo", "villadalmine/k8s-lan-party",
+                                     "--head", "abc", "--action", action)
+                self.assertEqual(code, 0, action)
+
+    def test_pending_body_still_fails_the_other_checks(self):
+        code, out, _ = self._event_run("labeled", self.PENDING_BODY.replace("- Scope: security", "- Scope: huge"))
+        self.assertEqual(code, 1)
+        self.assertIn("Scope", out)
+
     @staticmethod
     def _fetch(*job_states, head="abc"):
         """A fake `gh api`; each jobs call returns the next verify (status, conclusion), the last repeats."""
