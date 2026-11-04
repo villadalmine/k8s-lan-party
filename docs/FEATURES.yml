@@ -17,9 +17,9 @@
 meta:
   tipo: catalogo
   id: k8s-lan-party-features
-  version: 0.1.0
+  version: 0.2.0
   fecha_alta: 2026-11-03
-  fecha_ultimo_cambio: 2026-11-03
+  fecha_ultimo_cambio: 2026-11-04
   categoria: plataforma
   dueno_agente: casa-orquestador
   pieza: k8s-lan-party
@@ -37,7 +37,7 @@ meta:
 cluster_paths: [poc/lib.sh, poc/pool-lease.sh, poc/up.sh, poc/down.sh, poc/vm/up.sh, poc/vm/lib-vm.sh, poc/vm/down.sh, poc/issue.sh, poc/revoke.sh, poc/cilium.sh,
   poc/gateway.sh, poc/install-placement.sh, poc/lighthouse-vps.sh, poc/spire-args.sh, poc/game-env.sh, poc/edge-mesh, poc/mesh, poc/kc,
   poc/stack.env, poc/*.yaml, poc/placement/*, poc/gateway/*, poc/admission.py, poc/pool.py, poc/nodes_sweep.py, poc/node_password.py,
-  poc/participant.py, poc/participants.py, poc/page/*, examples/aws/*.tf, examples/aws/*.tftpl, examples/aws/leftovers.sh]
+  poc/participant.py, poc/participants.py, poc/party.py, poc/page/*, examples/aws/*.tf, examples/aws/*.tftpl, examples/aws/leftovers.sh]
 
 suites:
   - {id: poc-participants, script: poc/poc-participants.sh, runtime: [none]}
@@ -53,6 +53,7 @@ suites:
   - {id: poc-admission, script: poc/poc-admission.sh, runtime: [incus]}
   - {id: poc-admission-auto, script: poc/poc-admission-auto.sh, runtime: [incus]}
   - {id: poc-pool, script: poc/poc-pool.sh, runtime: [incus]}
+  - {id: poc-party, script: poc/poc-party.sh, runtime: [incus]}
   - {id: poc-participants-e2e, script: poc/poc-participants-e2e.sh, runtime: [incus]}
   - {id: poc-page, script: poc/poc-page.sh, runtime: [incus]}
   - {id: poc-nat, script: poc/poc-nat.sh, runtime: [incus]}
@@ -169,6 +170,14 @@ features:
     paths: [poc/pool.py, poc/pool.yaml, poc/participant.py, poc/participant-policy.yaml, poc/admission.py]
     components: [admission, k3s, Kyverno]
     docs: [docs/ADMISSION.md, docs/JOIN.md]
+
+  - id: party
+    description: LAN party mode (issue #75) - two players who both agreed reach each other's namespace on the party's ports only; a third does not; leave, off, end, kick and lease end close it
+    proven_by:
+      - {suite: poc-party, steps: [PY01-PY17]}
+    paths: [poc/party.py, poc/test_party.py, poc/poc-party.sh]
+    components: [k3s, NetworkPolicy, admission]
+    docs: [docs/DESIGN.md, docs/ADMISSION.md, docs/JOIN.md]
 
   - id: public-page
     description: the public page (phase B2) on a server that holds no credential; a visitor asks, waits, collects a sealed bundle, joins, is expelled; panic closes it; What's new tells each release with recordings of real runs (make showcase)

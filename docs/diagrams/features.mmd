@@ -10,6 +10,7 @@ flowchart LR
     s_poc_admission["poc-admission"]
     s_poc_admission_auto["poc-admission-auto"]
     s_poc_pool["poc-pool"]
+    s_poc_party["poc-party"]
     s_poc_page["poc-page"]
     s_poc_lighthouse["poc-lighthouse"]
     s_poc_nat["poc-nat"]
@@ -33,6 +34,7 @@ flowchart LR
     f_admission_manual["admission-manual"]
     f_admission_auto["admission-auto"]
     f_pool["pool"]
+    f_party["party"]
     f_public_page["public-page"]
     f_lighthouse_external["lighthouse-external"]
     f_revoke["revoke"]
@@ -63,6 +65,7 @@ flowchart LR
     c_admission_policy["admission policy"]
     c_admission["admission"]
     c_Kyverno["Kyverno"]
+    c_NetworkPolicy["NetworkPolicy"]
     c_page["page"]
     c_Caddy["Caddy"]
     c_lighthouse["lighthouse"]
@@ -104,6 +107,9 @@ flowchart LR
     p_poc_pool_py["poc/pool.py"]
     p_poc_participant_py["poc/participant.py"]
     p_poc_participant_policy_yaml["poc/participant-policy.yaml"]
+    p_poc_party_py["poc/party.py"]
+    p_poc_test_party_py["poc/test_party.py"]
+    p_poc_poc_party_sh["poc/poc-party.sh"]
     p_poc_page__["poc/page/*"]
     p_poc_poc_page_sh["poc/poc-page.sh"]
     p_poc_lighthouse_vps_sh["poc/lighthouse-vps.sh"]
@@ -227,6 +233,13 @@ flowchart LR
   f_pool -.-> p_poc_participant_py
   f_pool -.-> p_poc_participant_policy_yaml
   f_pool -.-> p_poc_admission_py
+  s_poc_party -->|"PY01-PY17"| f_party
+  f_party --> c_k3s
+  f_party --> c_NetworkPolicy
+  f_party --> c_admission
+  f_party -.-> p_poc_party_py
+  f_party -.-> p_poc_test_party_py
+  f_party -.-> p_poc_poc_party_sh
   s_poc_page -->|"G01-G26"| f_public_page
   f_public_page --> c_page
   f_public_page --> c_Caddy

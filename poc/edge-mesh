@@ -7,6 +7,10 @@
 #                                               10 Nebula is down (row 6)        11 the API's certificate does not match the bundle (row 7)
 #                                               12 401: the token ended with the lease (row 8)   13 403: outside your namespace (row 9)
 #                                               14 exceeded quota (row 11)
+#   edge-mesh party invite|accept <player> [--ports 10666/UDP,...]   LAN party mode (DESIGN.md 14.2): your consent to play with <player>,
+#                                               a ConfigMap party-<player> in your namespace; the host opens the party once BOTH agreed
+#   edge-mesh party leave [<player>]            withdraw your consent (all of them without a name): the host closes the party
+#   edge-mesh party list                        your consents and what the host says of each (active, waiting, refused, off)
 # The bundle holds: ca.crt host.crt host.key config.yml join.env (K3S_URL, K3S_TOKEN, NODE_NAME, NODE_IP, TRUST) and kubeconfig (the user's).
 set -eu
 cmd="${1:-}"; bundle="${2:-}"; accept="${3:-}"
@@ -94,5 +98,21 @@ case "$cmd" in
       echo "edge-mesh: forbidden (403): you may only work in your namespace $ns" >&2; exit 13
     fi
     exit "$rc" ;;
-  *) echo "usage: edge-mesh join <bundle-dir> --accept-golden-rule | edge-mesh kubectl <arguments>"; exit 2 ;;
+  party)
+    verb="${2:-}"; peer="${3:-}"; ports=""; [ "${4:-}" != --ports ] || ports="${5:-}"
+    case "$verb" in
+      invite|accept)
+        printf '%s' "$peer" | grep -Eqx '[a-z][a-z0-9-]{1,19}' || { echo "usage: edge-mesh party invite|accept <player> [--ports 10666/UDP,8080/TCP]"; exit 2; }
+        [ -z "$ports" ] || printf '%s' "$ports" | grep -Eqx '[0-9]{1,5}/(TCP|UDP)(,[0-9]{1,5}/(TCP|UDP))*' || { echo "--ports: a list like 10666/UDP,8080/TCP"; exit 2; }
+        printf 'apiVersion: v1\nkind: ConfigMap\nmetadata: {name: party-%s, labels: {edge-mesh/party-consent: "yes"}}\ndata: {peer: "%s", ports: "%s"}\n' \
+          "$peer" "$peer" "$ports" | "$0" kubectl apply -f - >/dev/null || exit $?
+        echo "party with $peer: your consent is recorded; it opens once $peer agrees too (the host's next tick); see: edge-mesh party list" ;;
+      leave)
+        if [ -n "$peer" ]; then "$0" kubectl delete configmap "party-$peer" --ignore-not-found >/dev/null || exit $?
+        else "$0" kubectl delete configmaps -l edge-mesh/party-consent >/dev/null || exit $?; fi
+        echo "left: the host closes the party at its next tick" ;;
+      list) "$0" kubectl get configmaps -l edge-mesh/party-consent -o 'custom-columns=PEER:.data.peer,PORTS:.data.ports,STATUS:.metadata.annotations.edge-mesh/party-status' ;;
+      *) echo "usage: edge-mesh party invite|accept <player> [--ports P/TCP,...] | leave [<player>] | list"; exit 2 ;;
+    esac ;;
+  *) echo "usage: edge-mesh join <bundle-dir> --accept-golden-rule | edge-mesh kubectl <arguments> | edge-mesh party ..."; exit 2 ;;
 esac

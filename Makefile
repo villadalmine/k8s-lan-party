@@ -9,7 +9,7 @@ PR_TITLE ?=
 ONLY     ?=
 NAME     ?=
 
-.PHONY: regression features-check diagrams poc-lighthouse poc-cilium help labels-check test verify-ci pr-check install-hooks uninstall-hooks poc-join poc-host poc-weakness poc-down poc-ca poc-placement poc-kind poc-vm poc-revoke poc-admission poc-admission-auto poc-participants poc-participants-e2e poc-nat poc-bgp poc-golden poc-pool poc-page showcase showcase-build
+.PHONY: regression features-check diagrams poc-lighthouse poc-cilium help labels-check test verify-ci pr-check install-hooks uninstall-hooks poc-join poc-host poc-weakness poc-down poc-ca poc-placement poc-kind poc-vm poc-revoke poc-admission poc-admission-auto poc-participants poc-participants-e2e poc-nat poc-bgp poc-golden poc-pool poc-party poc-page showcase showcase-build
 
 help:
 	@grep -E '^[a-z-]+:.*##' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-14s %s\n", $$1, $$2}'
@@ -91,6 +91,9 @@ poc-admission-auto: ## the automatic pool (phase B1, docs/ADMISSION.md): one tic
 
 poc-pool: ## issues #9 and #11: a namespace and a kubeconfig per player (RBAC, quota, the error matrix rows 6-9 and 11), the idle kick, the lease end removes node, namespace and token; needs Incus
 	poc/poc-pool.sh
+
+poc-party: ## issue #75 part A: LAN party mode - two players who both agreed reach each other's namespace on the party's ports only; leave, off, end, kick and lease end close it; needs Incus
+	poc/poc-party.sh
 
 poc-participants: ## join by signed PR (issue #12), offline: cosign against a LOCAL TEST CA, the PR gate, issuing, encrypted delivery, removal; needs python3 with pyyaml and cryptography
 	poc/poc-participants.sh

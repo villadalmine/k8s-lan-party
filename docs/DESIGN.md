@@ -1,9 +1,9 @@
 ---
 tipo: doc
 id: k8s-lan-party-design
-version: 0.5.1
+version: 0.6.0
 fecha_alta: 2026-10-16
-fecha_ultimo_cambio: 2026-10-28
+fecha_ultimo_cambio: 2026-11-04
 categoria: plataforma
 dueno_agente: casa-orquestador
 pieza: k8s-lan-party
@@ -554,7 +554,7 @@ kubeconfig's `server:` is that IP and its CA is pinned.
   Pod Security `restricted` is enforced, the Role also reads its quota, limits and events and may exec into its own pods, and nothing else (no
   secrets at all, no RBAC, no tokens). The token stops working at the lease end twice over: its expiry, and the ServiceAccount the reaper deletes.
   What applies to a player's pods is what `mesh host init` and `invite` install, Kyverno or not: Pod Security, the quota, a NetworkPolicy (the
-  namespace's pods reach each other and the cluster DNS, nothing else; nothing from another namespace reaches them) and the participant guard (`poc/participant-policy.yaml`): a pod without `edge-mesh/sensitivity=shareable` is private and is pinned to the player's own node (a MutatingAdmissionPolicy binds it by node NAME with a nodeAffinity on `metadata.name`, which no kubelet can choose, unlike a label such as `kubernetes.io/hostname` that a stranger's kubelet may set on its own node; the player's own nodeAffinity is replaced, and the guard refuses a private pod bound otherwise); a shareable pod may run on any player's node (golden rule 1: that node's owner can see it), never on the control plane.
+  namespace's pods reach each other and the cluster DNS, nothing else; nothing from another namespace reaches them, except a party both players agreed to, section 14.2) and the participant guard (`poc/participant-policy.yaml`): a pod without `edge-mesh/sensitivity=shareable` is private and is pinned to the player's own node (a MutatingAdmissionPolicy binds it by node NAME with a nodeAffinity on `metadata.name`, which no kubelet can choose, unlike a label such as `kubernetes.io/hostname` that a stranger's kubelet may set on its own node; the player's own nodeAffinity is replaced, and the guard refuses a private pod bound otherwise); a shareable pod may run on any player's node (golden rule 1: that node's owner can see it), never on the control plane.
   Golden rule 2 is relative here: "own" is the player's own node, so the host's absolute `trust=own` placement (section 4, `poc/placement/`)
   skips the players' namespaces. Trust taints on players' nodes (`TAINT=yes`) are not supported with the pool yet.
 - **Persistent participants (signed-PR flow):** OIDC (Keycloak or Dex, still open) through kubelogin; groups map to RBAC:
@@ -598,6 +598,39 @@ One test per row, deterministic. **Step 1** means the local PoC tests it now; **
 | 18 | The control plane is down | running pods continue; kubectl fails with `connection refused` on the Nebula IP (a friendlier message is planned for the kubeconfig wrapper) | step 1c: W06 |
 | 19 | OIDC login fails (browser, wrong group) for persistent users | message from kubelogin; check your group | later (step 7) |
 | 20 | Flapping on a lossy link | no eviction storm once the tolerances are tuned (section 16) | partial: W02 (a lossy link still transfers), W03 and W05 (a hard drop and a tuned eviction) are measured; a test that flaps the link and counts evictions is later |
+
+### 14.2 LAN party mode: two players, by mutual consent (issue #75, part A)
+
+Section 14 isolates every player's namespace, which is right for strangers. A LAN party also needs the opposite: two friends who **both**
+agree reach each other's namespace, on the ports a game needs, and nobody else does.
+
+**How a player consents.** A player holds a kubeconfig for `play-<name>` and nothing else, so consent is an object they can already write
+there: a ConfigMap `party-<peer>` labelled `edge-mesh/party-consent`, with `peer` and optionally `ports` (`edge-mesh party invite|accept
+<peer> [--ports 10666/UDP]`; `leave` deletes it; `list` shows it with the host's verdict). Invite and accept are the same act, named for who
+goes first. The host reconciles (`poc/party.py`, run by every admission tick, every kick and `mesh host party reconcile`): when `play-a`
+names b and `play-b` names a, both namespaces are live and both leases (the bundles' certificates) still run, it labels each namespace
+`party.edge-mesh/<other>=yes` and installs in each a NetworkPolicy `party-<other>`: ingress from and egress to the other namespace, on the
+ports both consents share within `party_ports` of pool.yaml (`parties: 0` turns the mode off). Nothing else opens: not the other ports, not
+a third namespace.
+
+**Why this and not the alternatives.** A consent nobody but its author can write is what makes it consent; RBAC already gives exactly that
+(players write ConfigMaps only in their own namespace), so no new right, CRD, controller or signature scheme is added. A host command
+"signed by both" would need keys per player and a channel to carry two signatures to the host; a CRD needs a controller and RBAC of its own.
+The host stays the only writer of what grants access (the NetworkPolicy and the namespace label): players have no right on either, so a
+player can withdraw consent but never widen a party. The ConfigMap counts against the namespace's quota (`quota_configmaps`), so a player
+cannot flood it.
+
+**How a party ends.** One side `leave`s, the host runs `mesh host party end <a> <b>`, a kick (reap, the idle kick, panic) or a lease end,
+or `parties: 0`. A party that was active and stops qualifying deletes both consents: to play again both agree again. The host stamps the
+peer's namespace UID on a consent the first time it sees it, so an invitation never passes to the next player who gets the same name; and
+the policy selects the peer namespace by name **and** by the label the host set, so a policy left behind gives nothing to a new namespace of
+that name. Disabling the mode keeps the consents (status `off`) and removes every policy and label.
+
+**What it does not change.** Placement (a private pod still runs only on its owner's node; golden rule 2), the quota, Pod Security, the
+participant guard and RBAC: a party gives network reach on declared ports, never API access to the other namespace. Golden rule 1 still
+applies: a shareable pod on a friend's node is visible to that friend, party or not.
+
+Proven by `make poc-party` (PY01-PY17) on Incus VMs with both CNIs the game supports: flannel (k3s's own NetworkPolicy controller, the default) and Cilium (`CNI=cilium`); the Doom demo over a party is part B of issue #75.
 
 ## 15. What the operator needs (and where traffic goes)
 

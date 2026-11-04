@@ -34,3 +34,7 @@ limit_default_storage_mib: 256
 limit_max_cpu_millis: 500       # the most one container may ask for
 limit_max_memory_mib: 512
 limit_max_storage_mib: 1024
+# LAN party mode (issue #75, DESIGN.md 14.2): two players who BOTH agreed (edge-mesh party invite / accept) reach each other's namespace,
+# on these ports only and nobody else; placement, quota and RBAC do not change. The tick and every kick reconcile it (poc/party.py).
+parties: 1                  # 0 = off: no party opens and the next tick closes every open one (the consents are kept, status "off")
+party_ports: [10666/UDP]    # what a party may open (a consent may name fewer; both must share one); 10666/UDP: Odamex, part B's Doom

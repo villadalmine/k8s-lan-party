@@ -1,9 +1,9 @@
 ---
 tipo: runbook
 id: k8s-lan-party-join
-version: 0.3.0
+version: 0.4.0
 fecha_alta: 2026-10-21
-fecha_ultimo_cambio: 2026-10-28
+fecha_ultimo_cambio: 2026-11-04
 categoria: plataforma
 dueno_agente: casa-orquestador
 pieza: k8s-lan-party
@@ -155,7 +155,7 @@ limits. What you may not: secrets (none at all), nodes, other namespaces, RBAC, 
 a node (`nodeName`) or tolerating the control plane's taint. **Your pods are private unless you label them** `edge-mesh/sensitivity=shareable`:
 a private pod runs on your own node only (it is pinned there; aimed at another node it is refused). A shareable pod may run on any player's node,
 whose owner can see it (golden rule 1). Your pods reach each other and the cluster DNS, nothing else, and no other player's pod reaches yours
-(a NetworkPolicy). Pods must pass Pod Security **restricted** (non-root, no privilege escalation,
+(a NetworkPolicy), unless you and that player both agree to a party (below). Pods must pass Pod Security **restricted** (non-root, no privilege escalation,
 `capabilities: {drop: [ALL]}`, `seccompProfile: RuntimeDefault`); a container without limits gets the namespace's defaults. Another kubeconfig:
 `KUBECONFIG=/path edge-mesh kubectl ...`.
 
@@ -169,6 +169,23 @@ whose owner can see it (golden rule 1). Your pods reach each other and the clust
 | other | a policy (Pod Security, the participant guard) or anything else | kubectl's own message and exit code | read the message: it names the rule |
 
 All six were triggered for real by `make poc-pool` (PL10-PL16, PL21, PL23) on Incus VMs; `poc/test_edge_mesh.py` checks the mapping with a stub.
+
+## Play with a friend: a party [dell]
+
+To reach a friend's namespace (a game server in one, clients in the other) **both** of you agree; nobody else gets in (DESIGN.md 14.2):
+
+```bash
+sudo edge-mesh party invite bob                     # alice: "party with bob: your consent is recorded"
+sudo edge-mesh party accept alice                   # bob: the host's next tick (about a minute) opens it
+sudo edge-mesh party list                           # PEER, PORTS, STATUS: active: ports 10666/UDP | waiting for bob to accept | refused: ... | off: ...
+sudo edge-mesh party leave                          # either of you: the party closes at the next tick; to play again both agree again
+```
+
+Your pods then reach the friend's pods (by Service name, `srv.play-bob.svc.cluster.local`) and theirs reach yours, **only on the game's ports**
+(the host's list, `party_ports` in pool.yaml; `--ports 10666/UDP` names fewer, and both of you must share one). Everything else stays as above:
+no access to the friend's namespace with kubectl, your private pods still run only on your node, and a third player reaches neither of you. The
+party also ends when either of you is kicked or a lease ends, when the host ends it (`mesh host party end alice bob`), or when the host turns
+parties off. The consent is a ConfigMap `party-<friend>` in your namespace: it counts against your quota of ConfigMaps. Proved by `make poc-party`.
 
 ## Leaving
 
