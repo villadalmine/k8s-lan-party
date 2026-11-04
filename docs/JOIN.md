@@ -191,7 +191,7 @@ parties off. The consent is a ConfigMap `party-<friend>` in your namespace: it c
 
 `poc/doom/` has a Doom server and an automated player for exactly this: [Odamex](https://odamex.net) (GPL-2.0-or-later) with
 [FreeDM](https://freedoom.github.io) (the deathmatch game of the Freedoom project, BSD-3-Clause), on `10666/UDP`, the port a party opens by default. The
-host builds the image once (`poc/doom/build.sh`; versions and checksums pinned in `poc/doom/doom.env`) and it goes into your node, so nothing is pulled.
+host builds the image once (`poc/doom/build.sh`; versions and checksums pinned in `poc/doom/doom.env`) and gives you the tarball it prints (`emesh-doom-<version>-<hash>.tar`); you put it into your own node with `sudo k3s ctr -n k8s.io images import doom.tar` (the suite does it for each player: `poc-doom.sh` DM05), so the pods never pull it (`imagePullPolicy: Never`).
 One of you runs the server, the others join as clients, and **nobody reaches it until the host's owner and each friend agreed** (below, `romero`
 runs the server, `carmack` and `petersen` play):
 

@@ -95,7 +95,7 @@ poc-pool: ## issues #9 and #11: a namespace and a kubeconfig per player (RBAC, q
 poc-party: ## issue #75 part A: LAN party mode - two players who both agreed reach each other's namespace on the party's ports only; leave, off, end, kick and lease end close it; needs Incus
 	poc/poc-party.sh
 
-poc-doom: ## issue #75 part B: a Doom match over a party - alice's Odamex server (Freedoom) and bob's automated client through the party on 10666/UDP, the server log as the witness, nothing connects without consent or after leave; needs Incus (builds the image once with podman, docker or a throwaway VM)
+poc-doom: ## issue #75 part B: a Doom deathmatch of three over two parties - romero's Odamex server (FreeDM) and the robots of carmack and petersen on 10666/UDP, the server log as the witness, nothing connects without consent, after leave, or for a third player while another is in a party; needs Incus (builds the image once with podman, docker or a throwaway VM)
 	poc/poc-doom.sh
 
 poc-participants: ## join by signed PR (issue #12), offline: cosign against a LOCAL TEST CA, the PR gate, issuing, encrypted delivery, removal; needs python3 with pyyaml and cryptography
