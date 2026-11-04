@@ -12,15 +12,12 @@ HOSTNAME_ARG="${1:?host}"; PORT="${2:?port}"; SECS="${3:?seconds}"; NAME="${4:-p
 OUT="${OUT:-/tmp/doom}"; WAIT="${CONNECT_WAIT:-20}"; REC="${RECORD:-0}"; RECSECS="${RECORD_SECONDS:-24}"
 export DISPLAY=:99 SDL_AUDIODRIVER=dummy HOME=/tmp
 mkdir -p "$OUT"; rm -f "$OUT"/* /tmp/.odamex/odamex.log   # the game's log is appended to: an old session's lines would look like this one's
-# a new local UDP port for each session: a flow that was open keeps its conntrack entry for a while after a party closes (the policy decides
-# new flows), so a client that came back from the same port would not show the party closed
-LPORT=$(cat /tmp/.doom-port 2>/dev/null || echo 10700); echo $((LPORT + 1)) >/tmp/.doom-port
 IP=$(getent ahostsv4 "$HOSTNAME_ARG" 2>/dev/null | awk '{print $1; exit}'); [ -n "$IP" ] || IP="$HOSTNAME_ARG"
 echo "client $NAME: connecting to $HOSTNAME_ARG:$PORT"
 Xvfb :99 -screen 0 320x200x24 -nolisten tcp >"$OUT/xvfb.log" 2>&1 & XVFB=$!
 sleep 2
 cd /opt/odamex || exit 4
-./odamex -iwad /opt/wad/freedoom2.wad -waddir /opt/wad -width 320 -height 200 -port "$LPORT" +cl_name "$NAME" -connect "$IP:$PORT" >"$OUT/client.out" 2>&1 & GAME=$!
+./odamex -iwad /opt/wad/freedoom2.wad -waddir /opt/wad -width 320 -height 200 +cl_name "$NAME" -connect "$IP:$PORT" >"$OUT/client.out" 2>&1 & GAME=$!
 LOG=/tmp/.odamex/odamex.log
 key() { xdotool keydown "$1"; sleep 0.25; xdotool keyup "$1"; sleep 0.25; }   # a press shorter than a frame is lost
 cleanup() { kill "$GAME" "$XVFB" 2>/dev/null; wait 2>/dev/null; }

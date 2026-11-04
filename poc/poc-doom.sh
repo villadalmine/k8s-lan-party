@@ -104,7 +104,7 @@ one_connect() { [ "$(connects)" -eq 1 ]; }
 leave_closes() { say player "bob leaves the party: the same client, the same server, and nobody answers again"
   out_has "left: the host closes the party" show player "sudo edge-mesh party leave" P bob party leave &&
   out_has "party: alice -> bob: closed: bob left the party" show host "mesh host auto --once" tick &&
-  [ -z "$(k get networkpolicies -A -l edge-mesh/party -o name)" ] && wait_for 90 closed_now && nobody 1; }   # the CNI takes a moment to drop the rules
+  [ -z "$(k get networkpolicies -A -l edge-mesh/party -o name)" ] && closed_now && nobody 1; }   # at once: no waiting, no other port; the same client, the same flow
 idempotent() { out_has "party: unchanged" show host "mesh host party reconcile" "$MESH" host party reconcile && out_has "party: unchanged" "$MESH" host party reconcile &&
   [ -z "$(k get configmaps -A -l edge-mesh/party-consent -o name)" ]; }
 free_only() { # nothing non-free is in the image: Freedoom is the only wad, no doom.wad or doom2.wad anywhere, and both licences are there
