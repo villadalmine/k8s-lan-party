@@ -1,4 +1,4 @@
-# The image of the Doom demo (issue #75 part B): Odamex (GPL-2.0-or-later) with Freedoom (BSD-3-Clause) as its game data, a virtual screen
+# The image of the Doom demo (issue #75 part B): Odamex (GPL-2.0-or-later) with FreeDM (the deathmatch game of the Freedoom project, BSD-3-Clause) as its game data, a virtual screen
 # (Xvfb) and a recorder (ffmpeg) for the automated client. Nothing non-free is in it: no doom.wad, no doom2.wad.
 # Built by poc/doom/build.sh; the versions and checksums are pinned in poc/doom/doom.env (looked up live on 2026-11-04). Runs as a non-root user
 # (65534), so it passes Pod Security "restricted".
@@ -6,8 +6,8 @@ ARG DEBIAN_IMAGE
 FROM ${DEBIAN_IMAGE} AS build
 ARG ODAMEX_VERSION
 ARG ODAMEX_SHA256
-ARG FREEDOOM_VERSION
-ARG FREEDOOM_SHA256
+ARG FREEDM_VERSION
+ARG FREEDM_SHA256
 RUN apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
       ca-certificates curl unzip build-essential cmake ninja-build pkg-config \
       libsdl2-dev libsdl2-mixer-dev libdwarf-dev libpng-dev libcurl4-openssl-dev zlib1g-dev libzstd-dev >/dev/null
@@ -23,9 +23,9 @@ RUN cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_CLIENT=1 -DB
 RUN mkdir -p /opt/odamex /opt/wad /opt/licenses \
  && cp build/client/odamex build/server/odasrv build/client/odamex.wad /opt/odamex/ \
  && cp LICENSE /opt/licenses/odamex-LICENSE-GPL-2.0
-RUN curl -fsSL -o freedoom.zip "https://github.com/freedoom/freedoom/releases/download/v${FREEDOOM_VERSION}/freedoom-${FREEDOOM_VERSION}.zip" \
- && echo "${FREEDOOM_SHA256}  freedoom.zip" | sha256sum -c - && unzip -q freedoom.zip \
- && cp freedoom-${FREEDOOM_VERSION}/freedoom2.wad /opt/wad/ && cp freedoom-${FREEDOOM_VERSION}/COPYING.txt /opt/licenses/freedoom-COPYING-BSD-3-Clause.txt
+RUN curl -fsSL -o freedm.zip "https://github.com/freedoom/freedoom/releases/download/v${FREEDM_VERSION}/freedm-${FREEDM_VERSION}.zip" \
+ && echo "${FREEDM_SHA256}  freedm.zip" | sha256sum -c - && unzip -q freedm.zip \
+ && cp freedm-${FREEDM_VERSION}/freedm.wad /opt/wad/ && cp freedm-${FREEDM_VERSION}/COPYING.txt /opt/licenses/freedoom-COPYING-BSD-3-Clause.txt
 
 FROM ${DEBIAN_IMAGE}
 RUN apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \

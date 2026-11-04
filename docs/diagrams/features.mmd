@@ -69,7 +69,7 @@ flowchart LR
     c_Kyverno["Kyverno"]
     c_NetworkPolicy["NetworkPolicy"]
     c_Odamex["Odamex"]
-    c_Freedoom["Freedoom"]
+    c_FreeDM["FreeDM"]
     c_ffmpeg["ffmpeg"]
     c_page["page"]
     c_Caddy["Caddy"]
@@ -247,12 +247,12 @@ flowchart LR
   f_party -.-> p_poc_party_py
   f_party -.-> p_poc_test_party_py
   f_party -.-> p_poc_poc_party_sh
-  s_poc_doom -->|"DM01-DM16"| f_doom
+  s_poc_doom -->|"DM01-DM20"| f_doom
   f_doom --> c_k3s
   f_doom --> c_Cilium
   f_doom --> c_NetworkPolicy
   f_doom --> c_Odamex
-  f_doom --> c_Freedoom
+  f_doom --> c_FreeDM
   f_doom --> c_ffmpeg
   f_doom -.-> p_poc_doom__
   f_doom -.-> p_poc_poc_doom_sh

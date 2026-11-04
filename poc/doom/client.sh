@@ -17,7 +17,7 @@ echo "client $NAME: connecting to $HOSTNAME_ARG:$PORT"
 Xvfb :99 -screen 0 320x200x24 -nolisten tcp >"$OUT/xvfb.log" 2>&1 & XVFB=$!
 sleep 2
 cd /opt/odamex || exit 4
-./odamex -iwad /opt/wad/freedoom2.wad -waddir /opt/wad -width 320 -height 200 +cl_name "$NAME" -connect "$IP:$PORT" >"$OUT/client.out" 2>&1 & GAME=$!
+./odamex -iwad /opt/wad/freedm.wad -waddir /opt/wad -width 320 -height 200 +cl_name "$NAME" -connect "$IP:$PORT" >"$OUT/client.out" 2>&1 & GAME=$!
 LOG=/tmp/.odamex/odamex.log
 key() { xdotool keydown "$1"; sleep 0.25; xdotool keyup "$1"; sleep 0.25; }   # a press shorter than a frame is lost
 cleanup() { kill "$GAME" "$XVFB" 2>/dev/null; wait 2>/dev/null; }
@@ -31,15 +31,16 @@ sleep 1
 key grave; xdotool type --delay 100 "join"; sleep 0.3; key Return; key grave   # leave spectator mode, close the console
 sleep 1
 echo "client $NAME: in the game, playing ${SECS} s"
-if [ "$REC" = 1 ]; then
-  ffmpeg -loglevel error -y -draw_mouse 0 -f x11grab -framerate 8 -video_size 320x200 -t "$RECSECS" -i :99 \
-    -vf "split[a][b];[a]palettegen=max_colors=48:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=4" "$OUT/match.gif" 2>"$OUT/ffmpeg.log" & REC_PID=$!
+if [ "$REC" = 1 ]; then   # RECORD_AFTER seconds into the game, RECORD_SECONDS of the screen (a late start catches the others who joined)
+  ( sleep "${RECORD_AFTER:-0}"; exec ffmpeg -loglevel error -y -draw_mouse 0 -f x11grab -framerate 6 -video_size 320x200 -t "$RECSECS" -i :99 \
+    -vf "split[a][b];[a]palettegen=max_colors=40:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=4" "$OUT/match.gif" 2>"$OUT/ffmpeg.log" ) & REC_PID=$!
 fi
-end=$(( $(date +%s) + SECS )); turn=Right; fwd=1.6; turn_s=0.7
-[ "${PATTERN:-a}" != b ] || { turn=Left; fwd=2.3; turn_s=0.5; }   # a second player moves differently, so two of them cross
-while [ "$(date +%s)" -lt "$end" ]; do   # run forward shooting, turn, alternate sides: deterministic moves, the other player decides the rest
-  xdotool keydown ctrl keydown Up; sleep "$fwd"; xdotool keyup Up; xdotool keydown "$turn"; sleep "$turn_s"; xdotool keyup "$turn" keyup ctrl
-  [ "$turn" = Right ] && turn=Left || turn=Right
+end=$(( $(date +%s) + SECS ))
+case "${PATTERN:-a}" in   # each player spins firing, then runs a little: fixed patterns (no model), different for each, so they cross
+  a) turn=Right; turn_s=2.5; fwd=0.8 ;; b) turn=Left; turn_s=2.0; fwd=1.2 ;; *) turn=Right; turn_s=1.5; fwd=1.5 ;;
+esac
+while [ "$(date +%s)" -lt "$end" ]; do
+  xdotool keydown ctrl keydown "$turn"; sleep "$turn_s"; xdotool keyup "$turn"; xdotool keydown Up; sleep "$fwd"; xdotool keyup Up keyup ctrl
 done
 [ -z "${REC_PID:-}" ] || wait "$REC_PID"
 key grave; xdotool type --delay 100 "quit"; sleep 0.3; key Return

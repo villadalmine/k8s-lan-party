@@ -634,32 +634,41 @@ Proven by `make poc-party` (PY01-PY17) on Incus VMs with both CNIs the game supp
 
 ### 14.3 The Doom demo: a real match over a party (issue #75, part B)
 
-A party is only worth having if something real crosses it, so the demo is a game of Doom between two friends, with no extra component in the
-design: alice's namespace runs an [Odamex](https://odamex.net) server (GPL-2.0-or-later, 12.3.0) on `10666/UDP` with [Freedoom](https://freedoom.github.io)
-(BSD-3-Clause, 0.13.0, `freedoom2.wad`) as its game data; it is a deathmatch (`sv_gametype 1`; checked in Odamex's `doomstat.h`: `GM_DM`). Alice's own robot, a second automated client in her namespace, plays her server first (no party needed: it is her own namespace); bob's robot, in his namespace, connects through the party, moves and shoots for about 40 seconds and quits. The two robots move by different fixed patterns (xdotool scripts, no model), so they cross. Nothing non-free is shipped: no `doom.wad`, no `doom2.wad`. `10666/UDP` is `party_ports`' default, so
-the demo needs nothing opened that part A did not already allow.
+A party is only worth having if something real crosses it, so the demo is a game of Doom among three friends, with no extra component in the
+design. The players carry the names of id Software's Doom creators, as a tribute (the game is FreeDM, not id's Doom): `romero`'s namespace runs an
+[Odamex](https://odamex.net) deathmatch server (GPL-2.0-or-later, 12.3.0; `sv_gametype 1`, checked in Odamex's `doomstat.h`: `GM_DM`) on `10666/UDP` with
+[FreeDM](https://freedoom.github.io) (the deathmatch game of the Freedoom project, BSD-3-Clause, 0.13.0, `freedm.wad`, its small map `MAP15`) as its game data.
+`romero`'s own robot, an automated client in his namespace, plays first (no party needed: it is his own namespace); `carmack`'s robot, in his namespace,
+joins through a party and keeps playing; `petersen`'s robot is refused until `romero` invites her and she accepts, and then she joins too. The robots move
+by different fixed patterns (xdotool scripts, no model), so they cross. Nothing non-free is shipped: no `doom.wad`, no `doom2.wad`. `10666/UDP` is
+`party_ports`' default, so the demo needs nothing opened that part A did not already allow.
 
 ```bash
-sudo edge-mesh party invite bob        # alice (her consent: nothing opens yet)
-sudo edge-mesh party accept alice      # bob (the next tick opens 10666/UDP, both ways)
-sudo edge-mesh kubectl exec doom-client -- client.sh doom.play-alice.svc.cluster.local 10666 45 bob     # bob's client plays
+sudo edge-mesh party invite carmack      # romero (his consent: nothing opens yet)
+sudo edge-mesh party accept romero       # carmack (the next tick opens 10666/UDP, both ways)
+sudo edge-mesh kubectl exec doom-client -- client.sh doom.play-romero.svc.cluster.local 10666 45 carmack   # carmack's robot plays
 ```
 
-**What proves it, and where.** The proof is on the server, not on the client's say-so: alice's server log names the player (`bob`) and the
-client's address, and the client's own log says it received the map. `make poc-doom` (DM01-DM16) shows both, and the two that matter as much:
-without the party (no consent, one consent) and again after `leave`, the same client reaches no server (nothing in alice's log, the client gives up
-after its timeout). It runs on Incus VMs with `CNI=cilium`, the demo's CNI, and on flannel.
+**What proves it, and where.** The proof is on the server, not on the clients' say-so: `romero`'s server log names each player when they connect, join the
+game and leave, with their frags and deaths, and each robot's own log says it received the map. `make poc-doom` (DM01-DM20) shows both, and the denials
+that matter as much: without a party, with one consent, after `leave`, and **for `petersen` while `carmack` is playing** (a party is a pair: his
+yes opens nothing for her), the robot reaches no server and `romero`'s log has no line for it. Once `romero` and `petersen` are a second pair,
+`carmack` and `petersen` still do not reach each other (a UDP echo pod in every namespace shows who reaches whom, both ways, without joining the game).
+It runs on Incus VMs with `CNI=cilium`, the demo's CNI. A namespace in two parties at once (two ConfigMaps, two NetworkPolicies, a namespace label for each) needed no change in `party.py`.
 
-**How the pieces fit the rules.** The server pod is private (not `edge-mesh/sensitivity=shareable`), so it runs only on alice's node, and the client
-only on bob's: the match crosses two nodes, over Nebula, through the party's NetworkPolicy pair and nothing else. Both pods pass Pod Security
-`restricted` (non-root `65534`, no capabilities) and fit the player quota (500m CPU, 512 MiB). There is no registry: the image is built once by
-`poc/doom/build.sh` (Debian 13 pinned by digest, the Odamex and Freedoom downloads pinned by SHA-256, `poc/doom/doom.env`) and loaded into the two
-nodes with `k3s ctr images import`, so a joined stranger's node pulls nothing from anywhere and the demo does not depend on a public image.
+**How the pieces fit the rules.** The server pod is private (not `edge-mesh/sensitivity=shareable`), so it runs only on `romero`'s node, and each robot
+only on its owner's: the match crosses three nodes, over Nebula, through the parties' NetworkPolicy pairs and nothing else. The pods pass Pod Security
+`restricted` (non-root `65534`, no capabilities) and fit the player quota (`romero`'s namespace: server, robot and echo, 900m CPU and 768 MiB of limits). There is no registry: the image is built once by
+`poc/doom/build.sh` (Debian 13 pinned by digest, the Odamex and FreeDM downloads pinned by SHA-256, `poc/doom/doom.env`) and loaded into the nodes
+with `k3s ctr images import`, so a joined stranger's node pulls nothing from anywhere and the demo does not depend on a public image (only the echo
+pod, `agnhost`, is pulled, as in `make poc-party`).
 
 **What it does not claim.** Odamex over a LAN-like path is the easy case for a netcode that tolerates latency; this shows the party carries real
-UDP game traffic, not that a match over the internet through a relay is good (that is the relay's budget, section 15.1). The player is a script:
-it proves connection, map, movement and shooting, not skill. It does not claim to cut a match in progress when a party ends: DM14 proves that a client starting after `leave` (the same client, the same local port) gets no answer, not what happens to a game being played at that moment (not tested). The server's line `<name> disconnected. (N FRAGS, M DEATHS)` is each player's
-frags and deaths; the suite requires both lines, the joins and the stay, not a number of frags (two scripted robots may or may not meet).
+UDP game traffic, not that a match over the internet through a relay is good (that is the relay's budget, section 15.1). The players are scripts:
+they prove connection, map, movement and shooting, not skill. A match in progress when a party ends is not tested: DM18 proves that a robot
+starting after `leave` (the same robot, the same local port) gets no answer. The server's line `<name> disconnected. (N FRAGS, M DEATHS)` is each
+player's frags and deaths; the suite requires the lines, the joins and the stay, **not a number of frags** (scripted robots may or may not meet,
+so it cannot be a condition of PASS).
 
 ## 15. What the operator needs (and where traffic goes)
 

@@ -6,7 +6,7 @@
      "note": "expected after the lease: the namespace is gone, the visitor's API calls time out, Nebula refuses its revoked cert"},
     {"match": "Unable to connect to the server", "after": "lease (ended|end|expired)", "note": "expected: the lease ended, the tunnel is gone"},
     {"match": "\\(Forbidden\\)|forbidden \\(403\\)", "note": "expected: 403 — a guest only sees its own corner"},
-    {"match": "client \\w+: no server answered", "note": "expected: the party is not open (no consent, one side only, or bob left), so the NetworkPolicy drops the UDP and nobody answers"}
+    {"match": "client \\w+: no server answered", "note": "expected: the party is not open (no consent, one side only, a third player, or the friend left), so the NetworkPolicy drops the UDP and nobody answers"}
   ],
   "collapse": [
     {"match": "^E\\d{4} \\d{2}:\\d{2}:\\d{2}\\.\\d+ +\\d+ \\S+\\.go:\\d+\\]", "min": 4, "keep": 1,

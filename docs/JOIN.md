@@ -190,24 +190,26 @@ parties off. The consent is a ConfigMap `party-<friend>` in your namespace: it c
 ### A game to play: Doom (an example, [DESIGN.md 14.3](DESIGN.md))
 
 `poc/doom/` has a Doom server and an automated player for exactly this: [Odamex](https://odamex.net) (GPL-2.0-or-later) with
-[Freedoom](https://freedoom.github.io) (BSD-3-Clause), the free game data, on `10666/UDP`, the port a party opens by default. The host builds the image
-once (`poc/doom/build.sh`; versions and checksums pinned in `poc/doom/doom.env`) and it goes into your node, so nothing is pulled. alice runs the
-server, bob the client, and **neither works until both of you agreed**:
+[FreeDM](https://freedoom.github.io) (the deathmatch game of the Freedoom project, BSD-3-Clause), on `10666/UDP`, the port a party opens by default. The
+host builds the image once (`poc/doom/build.sh`; versions and checksums pinned in `poc/doom/doom.env`) and it goes into your node, so nothing is pulled.
+One of you runs the server, the others join as clients, and **nobody reaches it until the host's owner and each friend agreed** (below, `romero`
+runs the server, `carmack` and `petersen` play):
 
 ```bash
-# alice: a server in your namespace (Pod Security "restricted": the pod runs as 65534 and never pulls the image; $IMAGE is the name build.sh printed)
+# romero: a server in your namespace (Pod Security "restricted": the pod runs as 65534 and never pulls the image; $IMAGE is the name build.sh printed)
 poc/doom/pod.sh server "$IMAGE" | sudo edge-mesh kubectl apply -f -
 sudo edge-mesh kubectl expose pod doom-server --name doom --port 10666 --protocol UDP
-sudo edge-mesh party invite bob                       # and bob: sudo edge-mesh party accept alice  (the next tick opens 10666/UDP)
-# bob: a client pod (idle), then it plays 40 s through the party and quits
+sudo edge-mesh party invite carmack       # and carmack: sudo edge-mesh party accept romero  (the next tick opens 10666/UDP)
+sudo edge-mesh party invite petersen      # a second pair; carmack and petersen still do not reach each other
+# carmack (and petersen): a robot pod (idle), then it plays through the party and quits
 poc/doom/pod.sh client "$IMAGE" | sudo edge-mesh kubectl apply -f -
-sudo edge-mesh kubectl exec doom-client -- client.sh doom.play-alice.svc.cluster.local 10666 40 bob
-# alice: her server's log says who connected, joined and left, and when
+sudo edge-mesh kubectl exec doom-client -- client.sh doom.play-romero.svc.cluster.local 10666 40 carmack
+# romero: his server's log says who connected, joined and left, and when, with frags and deaths
 sudo edge-mesh kubectl exec doom-server -- grep -E 'connected|joined|disconnected' /tmp/server.log
 ```
 
-Before the party (or after `edge-mesh party leave`) the client prints `no server answered` and alice's log has no player: that is the party working,
-not a failure. It is a deathmatch: alice's own robot (`poc/doom/pod.sh client "$IMAGE" doom-bot`, in her namespace) and bob's play, and the server log has each player's kills and deaths. The manifests and the whole run are `poc/poc-doom.sh` (DM01-DM16); `make poc-doom` does it on Incus VMs.
+Before the party (or after `edge-mesh party leave`) the robot prints `no server answered` and the log has no line for it: that is the party working,
+not a failure. It is a deathmatch: romero's own robot (`poc/doom/pod.sh client "$IMAGE" doom-bot`, in his namespace) plays too. The whole run is `poc/poc-doom.sh` (DM01-DM20); `make poc-doom` does it on Incus VMs.
 
 ## Leaving
 

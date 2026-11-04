@@ -8,10 +8,10 @@ set -eu
 D="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; POC="$(dirname "$D")"
 . "$POC/stack.env"; . "$D/doom.env"
 CACHE="${EMESH_CACHE:-$POC/.cache}/doom"; mkdir -p "$CACHE"
-HASH=$(cat "$D/Containerfile" "$D/server.sh" "$D/client.sh" | { cat; echo "$DOOM_DEBIAN_IMAGE $DOOM_ODAMEX_VERSION $DOOM_ODAMEX_SHA256 $DOOM_FREEDOOM_VERSION $DOOM_FREEDOOM_SHA256"; } | sha256sum | cut -c1-12)
+HASH=$(cat "$D/Containerfile" "$D/server.sh" "$D/client.sh" | { cat; echo "$DOOM_DEBIAN_IMAGE $DOOM_ODAMEX_VERSION $DOOM_ODAMEX_SHA256 $DOOM_FREEDM_VERSION $DOOM_FREEDM_SHA256"; } | sha256sum | cut -c1-12)
 IMAGE="localhost/emesh-doom:$DOOM_ODAMEX_VERSION-$HASH"; TAR="$CACHE/emesh-doom-$DOOM_ODAMEX_VERSION-$HASH.tar"
 ARGS=(--build-arg "DEBIAN_IMAGE=$DOOM_DEBIAN_IMAGE" --build-arg "ODAMEX_VERSION=$DOOM_ODAMEX_VERSION" --build-arg "ODAMEX_SHA256=$DOOM_ODAMEX_SHA256"
-      --build-arg "FREEDOOM_VERSION=$DOOM_FREEDOOM_VERSION" --build-arg "FREEDOOM_SHA256=$DOOM_FREEDOOM_SHA256")
+      --build-arg "FREEDM_VERSION=$DOOM_FREEDM_VERSION" --build-arg "FREEDM_SHA256=$DOOM_FREEDM_SHA256")
 if [ ! -s "$TAR" ]; then
   if command -v podman >/dev/null 2>&1; then CE=podman; elif command -v docker >/dev/null 2>&1; then CE=docker; else CE=; fi
   if [ -n "$CE" ]; then

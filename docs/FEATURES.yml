@@ -181,11 +181,11 @@ features:
     docs: [docs/DESIGN.md, docs/ADMISSION.md, docs/JOIN.md]
 
   - id: doom
-    description: the Doom demo over a party (issue #75 part B) - alice's Odamex server with Freedoom and bob's automated client play through the party on 10666/UDP; the server log is the witness; no consent or after leave nothing connects; the image has nothing non-free
+    description: the Doom deathmatch over parties (issue #75 part B) - romero's Odamex server with FreeDM and the robots of carmack and petersen play through two parties on 10666/UDP; the server log is the witness; no consent, after leave, or a third player with another's party connects nothing; the image has nothing non-free
     proven_by:
-      - {suite: poc-doom, steps: [DM01-DM16]}
+      - {suite: poc-doom, steps: [DM01-DM20]}
     paths: [poc/doom/*, poc/poc-doom.sh]
-    components: [k3s, Cilium, NetworkPolicy, Odamex, Freedoom, ffmpeg]
+    components: [k3s, Cilium, NetworkPolicy, Odamex, FreeDM, ffmpeg]
     docs: [docs/DESIGN.md, docs/JOIN.md, docs/PUBLIC-PAGE.md]
 
   - id: public-page
