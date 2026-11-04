@@ -1,0 +1,36 @@
+0.000	note	two friends ask for a place; one tick of the host admits both
+0.054	cmd	mesh host auto --once
+2.225	out	burned 0
+7.650	out	issued alice
+7.650	out	bundle: .regression/state/poc-doom/bundles/alice  (send it privately; it holds the player's key and a join token that works until the node registers or 8 min pass)
+7.650	out	namespace: play-alice  (the bundle's kubeconfig works there only, until 1800s from now)
+12.848	out	issued bob
+12.848	out	bundle: .regression/state/poc-doom/bundles/bob  (send it privately; it holds the player's key and a join token that works until the node registers or 8 min pass)
+12.848	out	namespace: play-bob  (the bundle's kubeconfig works there only, until 1800s from now)
+12.914	out	tick: auto on | expelled 0 | approved 2 | slots 2/2 used | 0 in the list (0 eligible now)
+298.206	note	the host's tick: both consents, both namespaces live, so it opens the party
+298.685	cmd	mesh host auto --once
+302.241	out	burned 0
+302.261	out	tick: auto on | expelled 0 | approved 0 | slots 2/2 used | 0 in the list (0 eligible now)
+306.742	out	party: alice -> bob: active: ports 10666/UDP
+306.742	out	party: bob -> alice: active: ports 10666/UDP
+307.204	cmd	mesh host party
+308.442	out	PLAYER               PEER                 STATUS
+308.442	out	alice                bob                  active: ports 10666/UDP
+308.442	out	bob                  alice                active: ports 10666/UDP
+433.378	note	alice's server is the witness: who connected, joined and left, and when
+433.426	cmd	kubectl exec -n play-alice doom-server -- grep -E 'Masters|MAP01|connected|joined|disconnected' /tmp/server.log
+433.827	out	[17:58:09] Masters will not be contacted because sv_usemasters is 0
+433.827	out	[17:58:09] --- MAP01: "Hydroelectric Plant" ---
+433.827	out	[18:00:02] alice has connected.
+433.827	out	[18:00:05] alice joined the game.
+433.827	out	[18:00:12] bob has connected.
+433.827	out	[18:00:15] bob joined the game.
+433.827	out	[18:00:59] bob disconnected. (0 FRAGS, 0 DEATHS)
+433.827	out	[18:01:28] alice disconnected. (0 FRAGS, 0 DEATHS)
+435.716	cmd	mesh host auto --once
+439.189	out	burned 0
+439.205	out	tick: auto on | expelled 0 | approved 0 | slots 2/2 used | 0 in the list (0 eligible now)
+442.253	out	party: alice -> bob: closed: bob left the party
+464.502	cmd	mesh host party reconcile
+465.620	out	party: unchanged

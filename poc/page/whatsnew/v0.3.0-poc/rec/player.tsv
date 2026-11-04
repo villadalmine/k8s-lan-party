@@ -1,0 +1,49 @@
+0.000	note	alice: a Doom server (Odamex, Freedoom) in her namespace, on a UDP Service
+0.048	cmd	sudo edge-mesh kubectl get pods,svc
+0.317	out	NAME              READY   STATUS    RESTARTS   AGE
+0.317	out	pod/doom-probe    1/1     Running   0          11s
+0.317	out	pod/doom-server   1/1     Running   0          12s
+0.317	out	
+0.317	out	NAME                 TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)     AGE
+0.317	out	service/doom         ClusterIP   10.43.100.36    <none>        10666/UDP   12s
+0.317	out	service/doom-probe   ClusterIP   10.43.140.184   <none>        10666/UDP   11s
+4.251	note	bob: a client pod in his own namespace (a virtual screen, a recorder, a script that plays)
+4.300	cmd	sudo edge-mesh kubectl get pods
+4.573	out	NAME          READY   STATUS    RESTARTS   AGE
+4.573	out	doom-client   1/1     Running   0          2s
+4.670	note	alice runs the server in her namespace; bob's client tries it. Nobody has agreed to anything yet
+8.256	cmd	sudo edge-mesh kubectl exec doom-client -- client.sh doom.play-alice.svc.cluster.local 10666 10 bob
+8.652	out	client bob: connecting to doom.play-alice.svc.cluster.local:10666
+25.818	out	client bob: no server answered at doom.play-alice.svc.cluster.local:10666 in 15 s
+25.955	out	command terminated with exit code 3
+26.527	note	alice invites bob: her consent alone opens nothing
+26.577	cmd	sudo edge-mesh party invite bob
+26.905	out	party with bob: your consent is recorded; it opens once bob agrees too (the host's next tick); see: edge-mesh party list
+33.031	cmd	sudo edge-mesh party list
+33.253	out	PEER   PORTS   STATUS
+33.253	out	bob            waiting for bob to accept
+36.835	cmd	sudo edge-mesh kubectl exec doom-client -- client.sh doom.play-alice.svc.cluster.local 10666 10 bob
+37.244	out	client bob: connecting to doom.play-alice.svc.cluster.local:10666
+54.437	out	client bob: no server answered at doom.play-alice.svc.cluster.local:10666 in 15 s
+54.556	out	command terminated with exit code 3
+55.486	note	bob accepts: now both agreed
+55.581	cmd	sudo edge-mesh party accept alice
+55.947	out	party with alice: your consent is recorded; it opens once alice agrees too (the host's next tick); see: edge-mesh party list
+64.172	cmd	sudo edge-mesh party list
+64.450	out	PEER    PORTS   STATUS
+64.450	out	alice           active: ports 10666/UDP
+98.060	note	alice's robot joins her own server first (it is in her namespace: no party needed)
+108.216	cmd	sudo edge-mesh kubectl exec doom-client -- client.sh doom.play-alice.svc.cluster.local 10666 40 bob
+108.529	out	client bob: connecting to doom.play-alice.svc.cluster.local:10666
+113.645	out	client bob: server: k8s-lan-party doom
+113.645	out	client bob: map MAP01 "Hydroelectric Plant"
+117.957	out	client bob: in the game, playing 40 s
+161.108	out	client bob: left the game after 40 s
+161.121	out	client bob: match.gif 2162761 bytes
+192.708	note	bob leaves the party: the same client, the same server, and nobody answers again
+192.757	cmd	sudo edge-mesh party leave
+192.993	out	left: the host closes the party at its next tick
+203.502	cmd	sudo edge-mesh kubectl exec doom-client -- client.sh doom.play-alice.svc.cluster.local 10666 10 bob
+203.924	out	client bob: connecting to doom.play-alice.svc.cluster.local:10666
+221.115	out	client bob: no server answered at doom.play-alice.svc.cluster.local:10666 in 15 s
+221.223	out	command terminated with exit code 3
