@@ -204,6 +204,16 @@ echo "\$h" | grep -qi '^strict-transport-security:' && echo "\$h" | grep -qi "^c
 w=\$(curl -skI --connect-to ::127.0.0.1: "$url/whats-new" | tr -d '\r')
 echo "\$w" | head -1 | grep -q ' 200' && echo "\$w" | grep -qi "^content-security-policy: default-src 'none'; script-src 'self' 'wasm-unsafe-eval';" &&
   ok "What's new answers; its CSP adds only WebAssembly for the player" || no "What's new does not answer, or its CSP is not the page's"
+n=0; b=0; for c in \$(python3 -I -c 'import glob, json
+for f in sorted(glob.glob("/opt/k8s-lan-party-page/whatsnew/v*.json")):
+    r = json.load(open(f))
+    for c in r.get("casts", []): print(r["version"] + "/" + c["file"])'); do
+  # a listed recording not made yet (make showcase records the release it serves) is left out by the page: said, not a failure
+  [ -f "/opt/k8s-lan-party-page/whatsnew/\$c" ] || { echo "skip: /whats-new/\$c is listed but not recorded yet"; continue; }
+  s=\$(curl -sk --connect-to ::127.0.0.1: -o /dev/null -w '%{http_code}' "$url/whats-new/\$c"); n=\$((n+1))
+  [ "\$s" = 200 ] || { no "What's new: the recording /whats-new/\$c answers \$s"; b=1; }
+done
+[ "\$b" = 1 ] || ok "What's new: the \$n recordings of the installed releases answer 200"
 d=/var/lib/private/k8s-lan-party-page
 [ "\$(stat -c %a \$d 2>/dev/null)" = 700 ] && ok "state directory 0700" || no "state directory mode: \$(stat -c %a \$d 2>/dev/null)"
 if grep -rlE 'PRIVATE KEY|K10[0-9a-f]{20}' \$d /opt/k8s-lan-party-page /etc/k8s-lan-party-page >/dev/null 2>&1; then no "a private key or a join token on disk"; else ok "no private key and no join token in the page's files"; fi

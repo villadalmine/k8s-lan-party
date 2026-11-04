@@ -56,7 +56,10 @@ sequenceDiagram
 
 The pieces, all in `poc/page/`, Python standard library only: `page.py` (the page), `puller.py` (your host's side), `seal.py` (key checks and the
 sealed envelope: X25519 + HKDF-SHA256 + AES-256-CTR + HMAC-SHA256, through `openssl`), `visit.py` (the visitor's side), `page-server.sh` (install it
-on a server), `static/` (one stylesheet, one script for the browser's proof of work), `deploy/` (the systemd units and the Caddy site).
+on a server), `news.py` (What's new: checks the release files and builds that page), `whatsnew/` (one JSON per release and its `.cast`
+recordings; their filtered sources in `whatsnew/<version>/rec/` are never deployed, and `whatsnew/showcase.py` makes the recordings), `static/`
+(three scripts: the browser's proof of work, What's new and the vendored asciinema player; two stylesheets: the page's and the player's;
+`VENDOR.md` pins the player), `deploy/` (the systemd units and the Caddy site).
 
 ## Requirements
 

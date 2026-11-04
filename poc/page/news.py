@@ -25,6 +25,14 @@ class NewsError(ValueError):
     pass
 
 
+def _text(f: Path, obj: dict, key: str, where: str = "", optional: bool = False) -> None:
+    """A key the HTML prints: a non-empty string (an optional one may be missing), or NewsError naming the file and the key."""
+    if optional and key not in obj:
+        return
+    if not isinstance(obj.get(key), str) or not obj[key].strip():
+        raise NewsError(f"{f.name}: {where}{key!r} must be a non-empty string")
+
+
 def load(d: Path, strict: bool = True) -> list[dict]:
     """Every release file, newest first, checked: a bad one stops the page from starting (and make test fails). strict=False (the
     page): a listed recording not made yet is left out, so the page of `make showcase` can run before its own recordings exist."""
@@ -38,13 +46,30 @@ def load(d: Path, strict: bool = True) -> list[dict]:
             raise NewsError(f"{f.name}: release must be {REPO}/releases/tag/{v}")
         if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", r.get("date", "")) or not all(isinstance(i, int) for i in r.get("issues", [])):
             raise NewsError(f"{f.name}: date is YYYY-MM-DD, issues are numbers")
+        for k in ("title", "summary"):
+            _text(f, r, k)
+        _text(f, r, "aws_title", optional=True)
+        for side, s in (r.get("story") or {}).items():
+            if side not in ("player", "host") or not isinstance(s, dict):
+                raise NewsError(f"{f.name}: story: {side!r} must be player or host, with title and steps")
+            _text(f, s, "title", f"story.{side}: ")
+            if not isinstance(s.get("steps"), list) or not all(isinstance(x, str) and x.strip() for x in s["steps"]):
+                raise NewsError(f"{f.name}: story.{side}: 'steps' must be a list of non-empty strings")
         for c in r.get("casts", []):
+            for k in ("file", "title"):
+                _text(f, c, k, "cast: ")
+            for k in ("caption", "run"):
+                _text(f, c, k, "cast: ", optional=True)
+            if c.get("side") not in ("player", "host"):
+                raise NewsError(f"{f.name}: cast {c.get('file')!r}: 'side' must be player or host")
             if not NAME_RE.fullmatch(c.get("file", "")):
                 raise NewsError(f"{f.name}: cast {c.get('file')!r} is not a name like player.cast")
             if strict and not (d / v / c["file"]).is_file():
                 raise NewsError(f"{f.name}: cast {c['file']!r} is not a file in whatsnew/{v}/ (make showcase RELEASE={v})")
         r["casts"] = [c for c in r.get("casts", []) if (d / v / c["file"]).is_file()]
         for c in r.get("features", []):
+            for k in ("name", "what", "why", "command"):
+                _text(f, c, k, f"feature {c.get('name')!r}: ")
             if not all(isinstance(i, int) for i in c.get("issues", [])):
                 raise NewsError(f"{f.name}: feature {c.get('name')!r}: issues are numbers")
         out.append(r)

@@ -133,11 +133,35 @@ class Releases(unittest.TestCase):
         try:
             good = {"version": "v9.9.9", "date": "2026-01-01", "title": "t", "summary": "s", "issues": [1],
                     "release": f"{news.REPO}/releases/tag/v9.9.9"}
+            (d / "v9.9.9").mkdir()
+            (d / "v9.9.9" / "p.cast").write_text("{}\n")
+            cast = {"file": "p.cast", "title": "t", "side": "player"}
+            feat = {"name": "n", "what": "w", "why": "y", "command": "c"}
             for bad in ({"release": "https://evil.example/releases/tag/v9.9.9"}, {"version": "v9"}, {"issues": ["1"]},
-                        {"casts": [{"file": "../x.cast", "title": "x"}]}, {"casts": [{"file": "missing.cast", "title": "x"}]}):
+                        {"casts": [{**cast, "file": "../x.cast"}]}, {"casts": [{**cast, "file": "missing.cast"}]}):
                 (d / "v9.9.9.json").write_text(json.dumps({**good, **bad}))
                 with self.assertRaises(news.NewsError, msg=str(bad)):
                     news.load(d)
+            # every key the HTML prints: missing or not a string stops the page, and the error names the file and the key
+            cases = [({}, "title", None), ({}, "summary", None), ({"aws_title": 3}, "aws_title", None)]
+            cases += [({"casts": [{k: v for k, v in cast.items() if k != key}]}, key, None) for key in ("title", "side")]
+            cases += [({"casts": [{**cast, "side": "both"}]}, "side", None), ({"casts": [{**cast, "run": ""}]}, "run", None),
+                      ({"casts": [{**cast, "caption": ["x"]}]}, "caption", None)]
+            cases += [({"features": [{k: v for k, v in feat.items() if k != key}]}, key, None) for key in feat]
+            cases += [({"story": {"player": {"steps": ["a"]}}}, "title", None), ({"story": {"host": {"title": "t", "steps": [1]}}}, "steps", None),
+                      ({"story": {"judge": {"title": "t", "steps": []}}}, "judge", None)]
+            for extra, key, _ in cases:
+                rel = {**good, **extra}
+                if key in ("title", "summary") and not extra:
+                    rel.pop(key)
+                (d / "v9.9.9.json").write_text(json.dumps(rel))
+                with self.assertRaises(news.NewsError, msg=f"{key}: {extra}") as e:
+                    news.load(d)
+                self.assertIn("v9.9.9.json", str(e.exception))
+                self.assertIn(key, str(e.exception))
+            (d / "v9.9.9.json").write_text(json.dumps({**good, "casts": [cast], "features": [feat],
+                                                       "story": {"player": {"title": "t", "steps": ["a"]}}}))
+            self.assertEqual(len(news.load(d)), 1)   # the positive control: the same file with every key is accepted
         finally:
             shutil.rmtree(d)
 
