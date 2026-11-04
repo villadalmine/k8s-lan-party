@@ -74,6 +74,16 @@ for net in $NETS; do case " $NEVER " in *" $net "*)
 finish_project() { # the run (or down) is over: the project goes if this run created it, then the marker
   [ "$(mark created)" != yes ] || incus project delete "$INCUS_PROJECT" >/dev/null 2>&1; rm -f "$MARK"
 }
+save_logs() { # save_logs <id> <runtime> <state dir>: keep the suite's logs (poc.log, golden.log...) in runs/ before its state goes;
+  # a line that could carry a credential (a join token, a private key, a kubeconfig's CA) is replaced, never copied
+  local f; mkdir -p "$REG/runs"
+  for f in "$3"/*.log; do
+    [ -f "$f" ] || continue
+    sed -E 's/.*(K3S_TOKEN=|::server:|PRIVATE KEY|certificate-authority-data).*/[line removed by make regression: it may hold a credential]/' \
+      "$f" >"$REG/runs/$1@$2.$(basename "$f")"
+  done; return 0
+}
+if [ "${1:-}" = save-logs ]; then save_logs "$2" "$3" "$4"; exit 0; fi
 if [ "${1:-}" = down ]; then
   owned || exit 2
   sweep all && finish_project; rm -rf "$REG/state"; echo "regression down"; exit 0
@@ -166,6 +176,11 @@ run_suite() { # run_suite <id> <runtime> <script> <state> <game>: stdin is /dev/
 }
 cleanup() { # cleanup <id> <runtime> <state>: what the suite may have left (a timeout, a KEEP for the next suite is handled by that one)
   case "$KEEPFOR" in *" $1 "*) return 0 ;; esac
+  # the logs first (down.sh deletes the state): a suite that ran in the docker VM keeps its state there
+  if [ -n "$DOCKER_VM" ] && { [ "$2" = docker ] || [ "$2" = kind ]; }; then
+    mkdir -p "$3"; dvm -- sh -c "cd /root/state/$1 2>/dev/null && tar cf - *.log 2>/dev/null" </dev/null | tar xf - -C "$3" 2>/dev/null
+  fi
+  save_logs "$1" "$2" "$3"
   case "$2" in
     incus) [ "$1" != poc-nat ] || EMESH_STATE="$3" "$POC/poc-nat.sh" down </dev/null >/dev/null 2>&1
       RUNTIME=incus EMESH_STATE="$3" "$POC/vm/down.sh" </dev/null >/dev/null 2>&1; sweep </dev/null ;;

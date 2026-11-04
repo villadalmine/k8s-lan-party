@@ -6,6 +6,8 @@ set -eu
 export RUNTIME=incus
 . "$(dirname "$0")/../lib.sh"
 . "$POC/vm/lib-vm.sh"
+. "$POC/pool-lease.sh"
+LEASE="$(lease_seconds)s" || exit 2   # before any machine: a public certificate lives the pool's lease (golden rule 8, G8.2)
 
 CNI="${CNI:-flannel}"; export CNI TAINT="${TAINT:-no}"
 fetch
@@ -41,8 +43,8 @@ k label node cp node-restriction.kubernetes.io/trust=own --overwrite >/dev/null
 # from here on, a node's trust (labels node-restriction.kubernetes.io/*, the trust taint) changes only with the host's admin credential (node-trust-freeze.yaml)
 k apply -f - <"$POC/node-trust-freeze.yaml" >/dev/null
 [ "${HOST_ONLY:-0}" = 1 ] && { echo "host up"; exit 0; }
-for p in "n1 $N1_NEB friends" "n2 $N2_NEB public"; do
-  set -- $p; "$POC/issue.sh" "$1" "$2" "$3" 24h; push_bundle "$1"
+for p in "n1 $N1_NEB friends 24h" "n2 $N2_NEB public $LEASE"; do
+  set -- $p; "$POC/issue.sh" "$1" "$2" "$3" "$4"; push_bundle "$1"
   incus exec "emesh-$1" -- edge-mesh join /bundle --accept-golden-rule
 done
 wait_for 180 sh -c "incus exec emesh-cp -- k3s kubectl get node n1 n2 >/dev/null 2>&1"

@@ -88,6 +88,7 @@ flowchart LR
     p_poc_lib_sh["poc/lib.sh"]
     p_poc_issue_sh["poc/issue.sh"]
     p_poc_stack_env["poc/stack.env"]
+    p_poc_pool_lease_sh["poc/pool-lease.sh"]
     p_poc_labs__["poc/labs/*"]
     p_poc_poc_join_sh["poc/poc-join.sh"]
     p_poc_mesh["poc/mesh"]
@@ -150,6 +151,7 @@ flowchart LR
   f_join -.-> p_poc_lib_sh
   f_join -.-> p_poc_issue_sh
   f_join -.-> p_poc_stack_env
+  f_join -.-> p_poc_pool_lease_sh
   s_poc_join -->|"J09-J12"| f_study_lab
   f_study_lab --> c_k3s
   f_study_lab --> c_study_lab

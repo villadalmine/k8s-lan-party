@@ -88,6 +88,8 @@ Ubuntu VM with Docker and kind (`poc/vm/docker-vm.sh`, versions pinned in `poc/s
 want of a runtime; the VM goes with the project. The run writes one table,
 suite and feature x result with the commit and the date, into [`docs/POC-STATUS.md`](docs/POC-STATUS.md); the same commit on the same host
 and UTC day gives the same table (exit 1 when a suite that ran has no `RESULT PASS`). Paste it (or its failing rows) under *Evidence*.
+The logs of every suite stay in `poc/.regression/runs/<suite>@<runtime>.<name>.log` (golden's as `poc-vm@incus.golden.log`, as it
+checks poc-vm's game), with any line that may hold a credential replaced.
 
 **What `pr-format` asks for (`scripts/check_pr.py`).** It maps the PR's changed paths to the features of `docs/FEATURES.yml` (their `paths`;
 a workflow can be one, e.g. `.github/workflows/participants.yml` belongs to `participants`):
