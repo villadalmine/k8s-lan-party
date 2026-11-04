@@ -1,9 +1,9 @@
 ---
 tipo: runbook
 id: k8s-lan-party-admission
-version: 0.3.0
+version: 0.4.0
 fecha_alta: 2026-10-27
-fecha_ultimo_cambio: 2026-10-28
+fecha_ultimo_cambio: 2026-11-04
 categoria: plataforma
 dueno_agente: casa-orquestador
 pieza: k8s-lan-party
@@ -425,6 +425,21 @@ All of these, each the maintainer's explicit decision:
 - [ ] issue #16: the go-public checklist in [DEMO.md](DEMO.md);
 - [x] issue #11: quotas, LimitRange, the idle kick and the rate limit for the pool (2026-10-28, `make poc-pool`); the page itself is B2.
 
+## Parties between players (issue #75, part A)
+
+Two admitted players who both agree reach each other's namespace on the ports of `party_ports` (DESIGN.md 14.2; the players' side is in
+[JOIN.md](JOIN.md), "Play with a friend"). Admission does not change: a party gives no place, no lease time and no trust. The host's side:
+
+```bash
+./mesh host party                      # every consent and its state: active, waiting, refused, off
+./mesh host party reconcile            # what the tick does: open what both agreed to, close the rest; "party: unchanged" when nothing changes
+./mesh host party end alice bob        # end one: both consents deleted, the NetworkPolicies and labels removed
+```
+
+The automatic tick (`auto --once`) reconciles after its own work, and every `kick` (reap, the idle kick, panic, a hand kick) reconciles right
+after removing the namespace, so a party never outlives a lease. A party's state is in the cluster only (the consents and the policies), not in
+`admission/`: the tick's state, events and metrics are unchanged. `parties: 0` in pool.yaml closes every party at the next tick.
+
 ## Parameters
 
 All in [`poc/pool.yaml`](../poc/pool.yaml) except the token lifetime (an environment variable).
@@ -453,3 +468,6 @@ All in [`poc/pool.yaml`](../poc/pool.yaml) except the token lifetime (an environ
 | `ADMISSION_NOTIFY_IP` (environment) | unset | `1` appends the identity to the summary the hook gets (B1) | host |
 | `ADM_LEASE`, `ADM_COOLDOWN` (environment, test only) | 1200, 60 | the shortened lease and cooldown of `make poc-admission-auto` (its idle kick is off: its players run nothing on purpose) | test |
 | `POOL_LEASE`, `POOL_IDLE`, `POOL_COOLDOWN` (environment, test only) | 900, 240, 60 | the shortened lease, idle time and cooldown of `make poc-pool` | test |
+| `parties` | 1 | 1 = two players who both agree may open a party (DESIGN.md 14.2); 0 = off: none opens and the next tick closes the open ones | maintainer |
+| `party_ports` | `[10666/UDP]` | the only ports a party may open (`<port>/TCP` or `/UDP`); a consent may name fewer, both consents must share one; 10666/UDP is Odamex, part B's demo | maintainer |
+| `POOL_LEASE` (environment, test only) | 1500 | the lease of `make poc-party` (its suite sets `slots: 3`, `idle_kick_seconds: 0`, `party_ports: [8080/TCP]`) | test |

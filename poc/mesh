@@ -28,16 +28,27 @@
 #   mesh host bundle <name>                the approved bundle as admission/outbox/<name>.tar.gz (0600) and the one-line join command
 #   mesh host admission-metrics            Prometheus textfile metrics (no identities)
 #   events: admission/events.jsonl; ADMISSION_NOTIFY_CMD="<command>" is called with <type> <summary> for each one (no shell)
+# LAN party mode (issue #75, DESIGN.md 14.2): two players who both agreed reach each other's namespace on the party's ports (pool.yaml)
+#   mesh host party [list]                 every consent and its state (active, waiting, refused, off), after a reconcile
+#   mesh host party reconcile              open the parties both sides agreed to, close the rest (the tick and every kick run it too)
+#   mesh host party end <a> <b>            end a party: both consents deleted, the NetworkPolicies removed
+#   mesh party invite|accept <peer> [--ports P/UDP,...] --as <player>   (local simulation, like play) the player's own
+#   mesh party leave [<peer>] | list --as <player>                      `edge-mesh party ...`, run on that player's machine
 # The CA key lives in .state/ca/ca.key: back it up; if you lose it you must re-issue every player.
 set -eu
 . "$(dirname "$0")/game-env.sh"
 . "$(dirname "$0")/lib.sh"
-usage() { sed -n '2,31p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
+usage() { sed -n '2,37p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
 [ $# -ge 1 ] || usage
 
 next_ip() { # first free Nebula IP from .5 up (1 lighthouse, 2 control plane, 3 and 4 are the PoC players), in the subnet of LH_NEB (stack.env,
   # the same one MESH_CIDR is derived from: cilium-node-guard.yaml refuses a CiliumNode InternalIP outside it)
   local net=${LH_NEB%.*} i=5; while [ -d "$STATE/bundles/ip-$i" ] || grep -qs "NODE_IP=$net.$i\$" "$STATE"/bundles/*/join.env; do i=$((i+1)); done; echo "$net.$i"
+}
+
+party_sync() { # the host's half of a party: open what both agreed to, close the rest (poc/party.py); prints only what changed
+  python3 "$POC/party.py" reconcile --quiet --config "${POOL_CONFIG:-$POC/pool.yaml}" --bundles "$STATE/bundles" \
+    --nebula-cert "$CACHE/nebula-cert" --kc "$POC/kc" "$@"
 }
 
 case "$1 ${2:-}" in
@@ -100,7 +111,9 @@ case "$1 ${2:-}" in
     k drain "$name" --ignore-daemonsets --delete-emptydir-data --force --timeout=30s >/dev/null 2>&1 || true
     "$POC/revoke.sh" "$name"
     machine_rm "$name"
-    participant_down "$name" || { echo "kick $name: the namespace play-$name is not gone yet (still terminating, or the API did not answer): run it again"; exit 4; } ;;
+    rc=0; participant_down "$name" || rc=$?
+    party_sync 2>/dev/null || true   # a party with this player ends now, not at the next tick
+    [ "$rc" = 0 ] || { echo "kick $name: the namespace play-$name is not gone yet (still terminating, or the API did not answer): run it again"; exit 4; } ;;
   "host activity")
     # active (exit 0): the player's Node is Ready and has a workload; "idle: <why>" (exit 1); the API did not answer (exit 2). The tick's idle kick.
     name="${3:-}"; [ -n "$name" ] || usage
@@ -123,7 +136,21 @@ case "$1 ${2:-}" in
   "host down") "$POC/down.sh" ;;
   "host request"|"host waitlist"|"host approve"|"host reject"|"host leases"|"host reap"|"host admission-status"|"host auto"|"host panic"|"host bundle"|"host admission-metrics")
     sub="$2"; shift 2; case "$sub" in admission-status) sub=status ;; admission-metrics) sub=metrics ;; esac
-    exec python3 "$POC/admission.py" --state "$STATE/admission" --config "${POOL_CONFIG:-$POC/pool.yaml}" --mesh "$POC/mesh" "$sub" "$@" ;;
+    rc=0; python3 "$POC/admission.py" --state "$STATE/admission" --config "${POOL_CONFIG:-$POC/pool.yaml}" --mesh "$POC/mesh" "$sub" "$@" || rc=$?
+    # the tick also reconciles the parties (a consent made since the last one, a lease that ended); its own result is the tick's
+    if [ "$sub ${1:-}" = "auto --once" ]; then party_sync 2>/dev/null || true; fi
+    exit "$rc" ;;
+  "host party")
+    sub="${3:-list}"; shift; shift; [ $# -eq 0 ] || shift
+    case "$sub" in list|reconcile|end) ;; *) usage ;; esac
+    python3 "$POC/party.py" "$sub" "$@" --config "${POOL_CONFIG:-$POC/pool.yaml}" --bundles "$STATE/bundles" \
+      --nebula-cert "$CACHE/nebula-cert" --kc "$POC/kc" ;;
+  "party invite"|"party accept"|"party leave"|"party list")
+    verb="$2"; shift 2; as=""; args=""
+    while [ $# -gt 0 ]; do case "$1" in --as) as="${2:-}"; shift 2 ;; *) args="$args $1"; shift ;; esac; done
+    [ -d "$STATE/bundles/$as" ] && [ -n "$as" ] || { echo "mesh party $verb ... --as <player>: a player of this game"; exit 2; }
+    # shellcheck disable=SC2086 # the arguments are a name and a port list, checked again by edge-mesh
+    dx "$as" edge-mesh party "$verb" $args ;;
   "play "*)
     name="$2"; [ -d "$STATE/bundles/$name" ] || { echo "no bundle for $name: run mesh host invite $name"; exit 3; }
     ip=$(grep ^NODE_IP= "$STATE/bundles/$name/join.env" | cut -d= -f2); last=${ip##*.}

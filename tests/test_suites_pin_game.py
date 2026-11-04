@@ -25,6 +25,7 @@ BASH = shutil.which("bash")
 PINNED = {
     "poc-join.sh": ("flannel", "no", None),   # both runtimes are proved (POC-STATUS: Dell Incus VMs and Docker)
     "poc-pool.sh": ("flannel", "no", "incus"),
+    "poc-party.sh": ("flannel", "no", "incus"),
 }
 
 
