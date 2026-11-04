@@ -47,9 +47,10 @@ pod_yaml() { # pod_yaml <name> <agnhost args> [extra spec lines] [extra labels]:
   printf '  securityContext: {runAsNonRoot: true, runAsUser: 65534, seccompProfile: {type: RuntimeDefault}}\n%s' "${3:-}"
   printf '  containers:\n  - {name: c, image: %s, args: [%s], securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}}}\n' "$AGNHOST_IMAGE" "$2"; }
 
+host_init() { "$MESH" host init && { [ "$CNI" != cilium ] || "$POC/cilium.sh"; }; }   # a Cilium game also runs cilium.sh (HOST-YOUR-OWN.md)
 admitted() { "$MESH" host request alice --ip 198.51.100.10 && "$MESH" host request bob --ip 198.51.100.20 &&
   "$MESH" host request carol --ip 198.51.100.30 && "$MESH" host auto on && out_has "approved 3 | slots 3/3 used" tick; }
-joined() { "$MESH" play alice && "$MESH" play bob && wait_for 240 ready alice && wait_for 240 ready bob &&
+joined() { "$MESH" play alice && "$MESH" play bob && wait_for 420 ready alice && wait_for 420 ready bob &&
   incus file push -q "$STATE/bundles/carol/kubeconfig" emesh-cp/root/carol.kubeconfig; }
 servers() { # srv (8080, the party's port) and alt (9090, not declared) with their Services and a client, in each namespace
   local who home="" lab="" aff
@@ -97,7 +98,7 @@ lease_closes() { # alice and carol: active; at the lease end the reconcile alone
   out_has "closed: a lease ended" "$MESH" host party reconcile && no_party && k get namespace play-alice play-carol; }
 all_gone() { out_has "expelled 2" tick && no_party && out_has "party: unchanged" "$MESH" host party reconcile; }
 
-step PY01 "mesh host init: lighthouse and control plane" "$MESH" host init
+step PY01 "mesh host init: lighthouse and control plane (and Cilium with CNI=cilium)" host_init
 step PY02 "alice, bob and carol ask; one tick admits the three" admitted
 step PY03 "alice and bob join and are Ready; carol uses her kubeconfig from the control plane" joined
 step PY04 "each namespace: a server on 8080 (the party's port), one on 9090, a client; each client reaches its own two" servers

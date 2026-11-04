@@ -630,7 +630,7 @@ that name. Disabling the mode keeps the consents (status `off`) and removes ever
 participant guard and RBAC: a party gives network reach on declared ports, never API access to the other namespace. Golden rule 1 still
 applies: a shareable pod on a friend's node is visible to that friend, party or not.
 
-Proven by `make poc-party` (PY01-PY17); the Doom demo over a party is part B of issue #75.
+Proven by `make poc-party` (PY01-PY17) on Incus VMs with both CNIs the game supports: flannel (k3s's own NetworkPolicy controller, the default) and Cilium (`CNI=cilium`); the Doom demo over a party is part B of issue #75.
 
 ## 15. What the operator needs (and where traffic goes)
 

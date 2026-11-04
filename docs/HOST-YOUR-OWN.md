@@ -1,9 +1,9 @@
 ---
 tipo: runbook
 id: k8s-lan-party-host-your-own
-version: 0.5.0
+version: 0.6.0
 fecha_alta: 2026-10-21
-fecha_ultimo_cambio: 2026-10-28
+fecha_ultimo_cambio: 2026-11-04
 categoria: plataforma
 dueno_agente: casa-orquestador
 pieza: k8s-lan-party
@@ -162,6 +162,9 @@ each, a pause of 1 h and at most 2 leases a day per person); [ADMISSION.md](ADMI
 ./mesh host admission-status            # one line: slots 1/2 used | 0 in the list | next to end: alice in 59m40s
 ./mesh host reap                        # expel every lease that ended (kick + blocklist) and free its place; again: "reaped 0"
 ./mesh host reject bob --reason "..."   # take a request off the list
+./mesh host party                       # LAN party mode (DESIGN.md 14.2): every consent between players and its state (active, waiting, refused, off)
+./mesh host party reconcile             # open what both players agreed to, close the rest (the tick and every kick run it too)
+./mesh host party end alice bob         # end a party: both consents deleted, its NetworkPolicies removed; `parties: 0` in pool.yaml turns the mode off
 ```
 
 Run `reap` from a timer **every minute** (the crontab line of section 2): it frees the place of an hour that ended even when you are away, and it is
