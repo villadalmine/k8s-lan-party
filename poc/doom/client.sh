@@ -11,7 +11,7 @@ fi
 HOSTNAME_ARG="${1:?host}"; PORT="${2:?port}"; SECS="${3:?seconds}"; NAME="${4:-player}"
 OUT="${OUT:-/tmp/doom}"; WAIT="${CONNECT_WAIT:-20}"; REC="${RECORD:-0}"; RECSECS="${RECORD_SECONDS:-24}"
 export DISPLAY=:99 SDL_AUDIODRIVER=dummy HOME=/tmp
-mkdir -p "$OUT"; rm -f "$OUT"/*
+mkdir -p "$OUT"; rm -f "$OUT"/* /tmp/.odamex/odamex.log   # the game's log is appended to: an old session's lines would look like this one's
 # a new local UDP port for each session: a flow that was open keeps its conntrack entry for a while after a party closes (the policy decides
 # new flows), so a client that came back from the same port would not show the party closed
 LPORT=$(cat /tmp/.doom-port 2>/dev/null || echo 10700); echo $((LPORT + 1)) >/tmp/.doom-port
