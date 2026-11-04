@@ -1,4 +1,4 @@
-# PoC status (2026-11-03)
+# PoC status (2026-11-04)
 
 Where the proof of concept stands, what was proven, and what is still open.
 the maintainer's rule for this phase: make it work first, write down every place where security was relaxed, then harden it. Phases A, B and C
@@ -19,15 +19,15 @@ flowchart LR
 | Step (script) | Dell Incus VMs | WSL2 k3s-in-Docker | WSL2 kind |
 | :--- | :--- | :--- | :--- |
 | Join, 17 checks (`poc-join`), now with the narrowed firewall (J13) and the pool CA for `public` nodes. Since issue #59 the suite pins its game (`CNI=flannel TAINT=no`, like `poc-placement` and `poc-vm` pin theirs): a `TAINT=yes` left in the shell (TRY-IT.md recipe 2) tainted n1 and n2, the study lab's pod (it tolerates nothing) found no node and J11/J12 failed | PASS x2 | earlier version PASS; on an Ubuntu 24.04 VM with Docker 29.1.3 (Dell): PASS x2 identical with `TAINT=yes CNI=cilium` exported and once more with a clean shell, same output (2026-11-03, code head 3537d16 of #64); main 9ea8ab2 alone fails J11/J12 with `TAINT=yes` | n/a |
-| `poc-host` 11 / `poc-weakness` 8 | PASS x2 | earlier version PASS | n/a |
+| `poc-host` / `poc-weakness` (11 and 8 checks in these runs; 14 and 8 today, see *Regression*) | PASS x2 | earlier version PASS | n/a |
 | Cilium + WireGuard over Nebula, pod to pod, DNS, MTU, 30 MB md5, firewall check | PASS x2 (23 steps); 24 PASS on 2026-10-26 (1 run) | PASS (1 run, see report) | PASS (SPIRE steps too) |
-| **#8 closed** (`poc-vm`, 34 checks (V103 new), remote nodes tainted as in a real join): `cilium-dbg encrypt status` with every other node a peer and its own published key (V06), the kernel's WireGuard peers are exactly the other nodes' keys (V06b), a remote node's Cilium token cannot rewrite another node's key (V06c, the CiliumNode guard), the CNI drop-in on every node (V06d), the MTU set once (V11), mutual auth: the twin on a node with an identity passes, the twin on a node without one is dropped with "Authentication required", and is let in once its node has an identity again (V98-V102) | PASS (2026-10-28, head 8d772c4: x2 identical, 33 checks). On the head of round 2 (34 checks): run 1 PASS; run 2 failed V101/V102 because the API server could not reach n1's kubelet (`502` on exec) while the Dell was loaded: a transient of the environment, not rerun, not counted as x2 | `poc-cilium` PASS x2 identical (23 steps) on 8d772c4; `poc-kind` 1 run PASS (20 steps) on 8d772c4 (the repeat was stopped for low memory) | `poc-kind`: see Docker column |
+| **#8 closed** (`poc-vm`, 34 checks at the time (V103 new; 36 today, see *Regression*), remote nodes tainted as in a real join): `cilium-dbg encrypt status` with every other node a peer and its own published key (V06), the kernel's WireGuard peers are exactly the other nodes' keys (V06b), a remote node's Cilium token cannot rewrite another node's key (V06c, the CiliumNode guard), the CNI drop-in on every node (V06d), the MTU set once (V11), mutual auth: the twin on a node with an identity passes, the twin on a node without one is dropped with "Authentication required", and is let in once its node has an identity again (V98-V102) | PASS (2026-10-28, head 8d772c4: x2 identical, 33 checks). On the head of round 2 (34 checks): run 1 PASS; run 2 failed V101/V102 because the API server could not reach n1's kubelet (`502` on exec) while the Dell was loaded: a transient of the environment, not rerun, not counted as x2 | `poc-cilium` PASS x2 identical (23 steps) on 8d772c4; `poc-kind` 1 run PASS (20 steps) on 8d772c4 (the repeat was stopped for low memory) | `poc-kind`: see Docker column |
 | **#13** gateway and BGP on own nodes only (`poc-bgp`, 20 checks, 6 of them negative; G09b: no identity but the host can change a node's trust labels, k3s controller credential included): BGP config selects `trust=own`, the pool selects Services; the own node Established, the remote nodes without a BGP instance; a remote node cannot select itself (kubelet credential), its Cilium token writes no BGP object, Node or Service, root on it gets no session from the router; Envoy Gateway and cert-manager on own nodes; the certificate issued from the Gateway; HTTPS from the router verifies against the local CA; an unlabelled LoadBalancer gets no address; no route through a remote node | PASS x2, identical output (2026-10-28), also on the round-2 head with the node trust freeze | n/a | n/a |
 | Encryption on the wire (canary in clear only on `cilium_wg0`, none on `nebula1`) | PASS x2 | PASS | PASS |
 | Mutual auth (SPIRE), non-root, PVC, survives a restart (V92-V97) | PASS 10 of 10 runs after the MSS fix of 2026-10-21 (the earlier flake, 1 of 4 runs failing V92, had a root cause: see below); PASS again on 2026-10-26 with the supervised agent | PASS (1 run, see report) | PASS (3 runs) |
 | **B3** two CAs (`poc-ca`, 13 checks) | PASS x2 | not run | n/a |
 | **Lighthouse on a separate public server** (`poc-lighthouse`, 23 checks): prepare / sign / deploy are idempotent, its key is made on the server, its metrics answer, a player joins through it, `revoke` reaches it; `mesh host refresh` leaves an unchanged machine alone (P12c), brings the API and the node back after a change that restarts Nebula (P12d) and reloads without a restart otherwise (P12e) | PASS (2026-10-27, one run with 21 checks and one with the 23 on the merged tree) | not run | n/a |
-| **C** trust-based placement with Kyverno (`poc-placement`, 30 checks, 14 of them negative, 2 more stay Pending by design) | PASS x2 | PASS (1 run) | n/a |
+| **C** trust-based placement with Kyverno (`poc-placement`, 30 checks in these runs, 31 today with L52b, 14 of them negative, 2 more stay Pending by design) | PASS x2 | PASS (1 run) | n/a |
 | **Admission with manual approval** (`poc-admission`, 31 checks, [ADMISSION.md](ADMISSION.md)): request, approve, join, `reap` burns the join token and a second machine presenting it is refused, a non-cooperative copy of a bundle is refused by the node guard and cut with the lease, another guest's issued name is refused by its node password, a name whose node password k3s dropped leaves the guard, places full, the lease ends, `reap` expels, the next one in line enters, `reap --all` | PASS (2026-10-27: the 31-check version once, in its own Incus project; earlier versions of the suite 7 times) | not run | n/a |
 | **Automatic pool, phase B1** (`poc-admission-auto`, 37 checks, [ADMISSION.md](ADMISSION.md)): `auto on`, one tick approves two and the third waits, the outbox bundle (0600, the same files), both join, a copy of a bundle refused by the node guard, the tick burns the tokens, `expiring` once, one tick expels at the end (no stray Node left) and only then promotes, the copy's tunnel cut, a burned token refused, auto off only warns and expels, the daily cap refuses a third request of one identity, `panic` (idempotent, exit 7 while on, `--clear`), the notify hook got every event in order, the metrics | PASS (2026-10-27: the 37-check version three times in its own Incus project, the last two (node passwords, 8-minute tokens) with identical output; the 36-check version once, project default, before the node guard); PASS again on 2026-10-28 with every invite making a namespace and a kubeconfig and the idle kick switched off for it (one run, own Incus project; `poc-host` 11 and `poc-revoke` 10 PASS the same day, one run each) | not run | n/a |
 | **The pool's cluster side and the player's own access, issues #9 and #11** (`poc-pool`, 30 checks, [ADMISSION.md](ADMISSION.md), [JOIN.md](JOIN.md)): one tick approves two and the third waits; `play-<name>` per player (Pod Security restricted, quota, limits, RBAC, NetworkPolicy, the participant guard); an unlabelled (private) pod pinned to its player's own node, bound to it by name (a stranger labelling his node with the player's name changes nothing), a shareable one allowed on another's; one player's pods cannot reach another's; a kubeconfig whose token is the namespace's ServiceAccount and expires with the bundle's certificate at the end of the lease, with no node credential in it; the kubelet's credential cannot act in the namespace; the error matrix rows 6, 7, 8, 9 and 11 for real through `edge-mesh kubectl` (exit 10 to 14, fixed messages); no secret anywhere, no node, no other namespace, no quota lifted, no RoleBinding, no token, no relabel; a privileged pod, a NodePort, externalIPs and a pod pinned to the control plane refused; a second request from the same address deferred and not admitted with a place free (approve exit 6) and through the cooldown; the rate limit; `X-Forwarded-For` only from the trusted proxy; the idle kick (a node that runs nothing) frees the place for the next one; a lease ended by hand kills its token at once (401 long before its expiry); at the lease end one tick removes node, namespace and token, the certificate is blocklisted and expired; the place is reused; since issue #59 the suite pins `TAINT=no` (the participant's pods tolerate nothing; trust taints are not supported with the pool, DESIGN.md 14) | PASS (2026-10-28 and 2026-10-29, its own Incus project): the final code (30 checks, head `1e86bc4`) passed in full twice, once on each day (a run in between lost two VMs to load on the lab host after PL21b, and PL22-PL24 failed for that reason, not the code); two earlier identical runs of the 29-check version at `d952cca` (PL22-PL24 unchanged since); a first run found two bugs of the suite itself, fixed before them. The two full passes were not diffed against each other. 2026-11-03 (code head 3537d16 of #64, own Incus project, `TAINT=yes CNI=cilium` exported): PASS, 30 checks, one run | not run | n/a |
@@ -38,9 +38,10 @@ flowchart LR
 | **A cloud arm64 VM and a WSL2 distro as players, a control plane behind two NATs, the lighthouse + relay on a cloud VM** (issue #25 mixed run, by hand): the arm64 VM (t4g.small) joined as `friends`, the WSL2 distro as `public`, both Ready through the relay (`(relayed)` in their Nebula logs), `shared-app` pods landed on each by trust, a private pod naming one was refused, `revoke` cut both; everything destroyed, nothing billing | n/a | PASS (2026-10-28, one run) | n/a |
 | **Join refusals** (`tests/test_join_refusal.py`, issue #14): the golden rule not accepted (exit 3), not root (exit 6), root in a plain Docker container without `/dev/net/tun` (exit 4, nothing started), and the positive control (the same container with the device passes that check) | n/a | PASS (WSL2 Docker, 2026-10-28) | CI runs it on every pull request (it fails instead of skipping when CI has no Docker) |
 | **Native WSL2 as a node** (issue #14, by hand, [JOIN.md](JOIN.md) "In WSL2"): a fresh Ubuntu 24.04 distro joined through the relay, Ready in seconds, a pod ran on it, `kubectl exec` reached it, revoke cut it. In a distro with Docker Desktop's integration the kubelet cannot start (its mount table, TROUBLESHOOTING.md): the join now exits 7 and says so (before, it printed `joined`). The join that waits for the Node passed `poc-join` (17) on Incus VMs on 2026-10-28 (one run) | n/a | the distro itself, not Docker: PASS twice (2026-10-28: once against the `poc-nat` lab, once in the mixed run of issue #25); the refusal (exit 7) once | n/a |
-"x2" = two runs whose `diff` is empty. **Last full run, 2026-10-26, Dell Incus VMs, after the agent supervision (one run each, all PASS):** `vm/run-all.sh` = join 17, host 11,
-weakness 8 (W00-W06 and W03b), CAs 13, revoke 10, placement 30 (89 PASS); `vm/poc-vm.sh` (Cilium + WireGuard + SPIRE) 24 PASS; `vm/poc-placement.sh` (Cilium) 30 PASS.
-The earlier pairs of runs were identical; the 2026-10-26 runs have not been repeated, so they are single runs, not "x2".
+"x2" = two runs whose `diff` is empty. Last full run of the step-2 loop (`vm/run-all.sh`, six suites, no table): 2026-10-26, Dell Incus VMs,
+after the agent supervision, one run each, all PASS (join 17, host 11, weakness 8, CAs 13, revoke 10, placement 30; `vm/poc-vm.sh` 24;
+`vm/poc-placement.sh` 30, with the step counts of that day). The full `make regression` of each release is the table under *Regression*
+(v0.2.0: 2026-11-04, 27 runs of 20 suites, all PASS).
 
 ## Regression (`make regression`, issue #62)
 
@@ -53,7 +54,7 @@ them in a VM of the run on a host without Docker; a suite then has one row per r
 UTC day gives the same table.
 
 <!-- regression:begin generated by make regression (poc/regression.sh, scripts/features.py); change docs/FEATURES.yml or the suites, not this table -->
-Commit `8d596c0701ab`, 2026-11-03, runtime for docker|incus suites: docker-vm (docker and kind suites in an Incus VM, docker|incus suites on both); docker no, incus yes, kind no; left behind: nothing.
+Commit `7e191e65f0cd`, 2026-11-04, runtime for docker|incus suites: docker-vm (docker and kind suites in an Incus VM, docker|incus suites on both); docker no, incus yes, kind no; left behind: nothing.
 
 | Suite | Runtime | Result | Steps |
 | :--- | :--- | :--- | :--- |
@@ -62,55 +63,61 @@ Commit `8d596c0701ab`, 2026-11-03, runtime for docker|incus suites: docker-vm (d
 | `poc-kind` | kind | PASS | 20 PASS |
 | `poc-join` | docker | PASS | 17 PASS |
 | `poc-join` | incus | PASS | 17 PASS |
-| `poc-host` | - | NOT RUN | - |
-| `poc-weakness` | - | NOT RUN | - |
-| `poc-ca` | - | NOT RUN | - |
-| `poc-revoke` | - | NOT RUN | - |
-| `poc-placement` | - | NOT RUN | - |
-| `poc-lighthouse` | - | NOT RUN | - |
-| `poc-admission` | - | NOT RUN | - |
-| `poc-admission-auto` | - | NOT RUN | - |
-| `poc-pool` | - | NOT RUN | - |
-| `poc-participants-e2e` | - | NOT RUN | - |
-| `poc-page` | - | NOT RUN | - |
-| `poc-nat` | - | NOT RUN | - |
-| `poc-bgp` | - | NOT RUN | - |
-| `poc-vm` | - | NOT RUN | - |
-| `poc-golden` | - | NOT RUN | - |
+| `poc-host` | docker | PASS | 14 PASS |
+| `poc-host` | incus | PASS | 14 PASS |
+| `poc-weakness` | docker | PASS | 8 PASS |
+| `poc-weakness` | incus | PASS | 8 PASS |
+| `poc-ca` | docker | PASS | 13 PASS |
+| `poc-ca` | incus | PASS | 13 PASS |
+| `poc-revoke` | docker | PASS | 10 PASS |
+| `poc-revoke` | incus | PASS | 10 PASS |
+| `poc-placement` | docker | PASS | 31 PASS |
+| `poc-placement` | incus | PASS | 31 PASS |
+| `poc-lighthouse` | incus | PASS | 23 PASS |
+| `poc-admission` | incus | PASS | 31 PASS |
+| `poc-admission-auto` | incus | PASS | 37 PASS |
+| `poc-pool` | incus | PASS | 30 PASS |
+| `poc-participants-e2e` | incus | PASS | 11 PASS |
+| `poc-page` | incus | PASS | 29 PASS |
+| `poc-nat` | incus | PASS | 26 PASS |
+| `poc-bgp` | incus | PASS | 20 PASS |
+| `poc-vm` | incus | PASS | 36 PASS |
+| `poc-golden` | incus | PASS | 31 PASS, 1 DEP |
 | `poc-down` | docker | done (teardown) | - |
 | `poc-down` | incus | done (teardown) | - |
 
 | Feature | Result | Proven by |
 | :--- | :--- | :--- |
-| `join` | PARTIAL | `poc-join` (docker) J01-J07, J15-J16: PASS; `poc-join` (incus) J01-J07, J15-J16: PASS; `poc-vm` V01, V04: NOT RUN |
+| `join` | PASS | `poc-join` (docker) J01-J07, J15-J16: PASS; `poc-join` (incus) J01-J07, J15-J16: PASS; `poc-vm` V01, V04: PASS |
 | `study-lab` | PASS | `poc-join` (docker) J09-J12: PASS; `poc-join` (incus) J09-J12: PASS |
-| `host-your-own` | NOT RUN | `poc-host` (docker) H01-H09c: NOT RUN; `poc-host` (incus) H01-H09c: NOT RUN |
-| `api-members-only` | NOT RUN | `poc-host` (docker) H02, H02b: NOT RUN; `poc-host` (incus) H02, H02b: NOT RUN; `poc-golden` G6.1-G6.2: NOT RUN |
-| `nebula-firewall` | PARTIAL | `poc-join` (docker) J13: PASS; `poc-join` (incus) J13: PASS; `poc-cilium` C13-C14: PASS; `poc-vm` V14-V15: NOT RUN |
-| `mtu-once` | PARTIAL | `poc-join` (docker) J08: PASS; `poc-join` (incus) J08: PASS; `poc-cilium` C10-C11: PASS; `poc-kind` K10-K11: PASS; `poc-vm` V11-V12: NOT RUN |
-| `join-token-burn` | PARTIAL | `poc-join` (docker) J14: PASS; `poc-join` (incus) J14: PASS; `poc-admission` A09, A11-A13: NOT RUN; `poc-admission-auto` AA15, AA23-AA24: NOT RUN; `poc-golden` G4.1-G4.3: NOT RUN |
-| `node-guard` | NOT RUN | `poc-admission` A15-A18, A30: NOT RUN; `poc-admission-auto` AA13, AA20: NOT RUN |
-| `admission-manual` | NOT RUN | `poc-admission` A01-A08, A10, A14, A19-A29, A31: NOT RUN |
-| `admission-auto` | NOT RUN | `poc-admission-auto` AA01-AA12, AA14, AA16-AA19, AA21-AA22, AA25-AA37: NOT RUN |
-| `pool` | NOT RUN | `poc-pool` PL01-PL25: NOT RUN |
-| `public-page` | NOT RUN | `poc-page` G01-G26: NOT RUN |
-| `lighthouse-external` | NOT RUN | `poc-lighthouse` P01-P15: NOT RUN; `poc-page` G02: NOT RUN; `poc-nat` N02-N03: NOT RUN |
-| `revoke` | PARTIAL | `poc-revoke` (docker) R01-R10: NOT RUN; `poc-revoke` (incus) R01-R10: NOT RUN; `poc-join` (docker) J17: PASS; `poc-join` (incus) J17: PASS; `poc-lighthouse` P16-P17: NOT RUN; `poc-nat` N25-N26: NOT RUN; `poc-golden` G5.1-G5.5: NOT RUN |
-| `two-level-ca` | NOT RUN | `poc-ca` (docker) B01-B13: NOT RUN; `poc-ca` (incus) B01-B13: NOT RUN; `poc-golden` G8.2, G9.1: NOT RUN |
-| `placement` | NOT RUN | `poc-placement` (docker) L01-L45: NOT RUN; `poc-placement` (incus) L01-L45: NOT RUN; `poc-golden` G2.1-G2.7: NOT RUN |
-| `trust-freeze` | NOT RUN | `poc-placement` (docker) L50-L53: NOT RUN; `poc-placement` (incus) L50-L53: NOT RUN; `poc-bgp` G09-G09b: NOT RUN; `poc-golden` G7.2: NOT RUN |
-| `golden-rules` | NOT RUN | `poc-golden` G1.1-G2.7, G3.1-G10.1: NOT RUN |
-| `encrypted-pod-network` | PARTIAL | `poc-cilium` C01-C09, C12, C13b: PASS; `poc-vm` V03-V06b, V07-V09, V10, V13-V13b: NOT RUN; `poc-golden` G3.1-G3.3: NOT RUN |
-| `mutual-auth` | PARTIAL | `poc-cilium` C90-C97: PASS; `poc-vm` V90-V102: NOT RUN; `poc-golden` G3.4: NOT RUN |
-| `cilium-guard` | NOT RUN | `poc-vm` V06c, V09b-V09c: NOT RUN; `poc-golden` G3.5: NOT RUN |
-| `spire-scope` | NOT RUN | `poc-vm` V103: NOT RUN; `poc-golden` G3.6: NOT RUN |
-| `nat-relay` | NOT RUN | `poc-nat` N01, N04-N24: NOT RUN |
-| `bgp-gateway` | NOT RUN | `poc-bgp` G01-G08, G10-G19: NOT RUN; `poc-golden` G7.1: NOT RUN |
-| `down-clean` | NOT RUN | `poc-host` (docker) H10-H11: NOT RUN; `poc-host` (incus) H10-H11: NOT RUN; `poc-lighthouse` P18: NOT RUN; `poc-page` G26b-G27: NOT RUN |
-| `participants` | PARTIAL | `poc-participants` S00-S30: PASS; `poc-participants-e2e` E01-E11: NOT RUN |
-| `weakness` | NOT RUN | `poc-weakness` (docker) W00-W06: NOT RUN; `poc-weakness` (incus) W00-W06: NOT RUN |
+| `host-your-own` | PASS | `poc-host` (docker) H01-H09c: PASS; `poc-host` (incus) H01-H09c: PASS |
+| `api-members-only` | PASS | `poc-host` (docker) H02, H02b: PASS; `poc-host` (incus) H02, H02b: PASS; `poc-golden` G6.1-G6.2: PASS |
+| `nebula-firewall` | PASS | `poc-join` (docker) J13: PASS; `poc-join` (incus) J13: PASS; `poc-cilium` C13-C14: PASS; `poc-vm` V14-V15: PASS |
+| `mtu-once` | PASS | `poc-join` (docker) J08: PASS; `poc-join` (incus) J08: PASS; `poc-cilium` C10-C11: PASS; `poc-kind` K10-K11: PASS; `poc-vm` V11-V12: PASS |
+| `join-token-burn` | PASS | `poc-join` (docker) J14: PASS; `poc-join` (incus) J14: PASS; `poc-admission` A09, A11-A13: PASS; `poc-admission-auto` AA15, AA23-AA24: PASS; `poc-golden` G4.1-G4.3: PASS |
+| `node-guard` | PASS | `poc-admission` A15-A18, A30: PASS; `poc-admission-auto` AA13, AA20: PASS |
+| `admission-manual` | PASS | `poc-admission` A01-A08, A10, A14, A19-A29, A31: PASS |
+| `admission-auto` | PASS | `poc-admission-auto` AA01-AA12, AA14, AA16-AA19, AA21-AA22, AA25-AA37: PASS |
+| `pool` | PASS | `poc-pool` PL01-PL25: PASS |
+| `public-page` | PASS | `poc-page` G01-G26: PASS |
+| `lighthouse-external` | PASS | `poc-lighthouse` P01-P15: PASS; `poc-page` G02: PASS; `poc-nat` N02-N03: PASS |
+| `revoke` | PASS | `poc-revoke` (docker) R01-R10: PASS; `poc-revoke` (incus) R01-R10: PASS; `poc-join` (docker) J17: PASS; `poc-join` (incus) J17: PASS; `poc-lighthouse` P16-P17: PASS; `poc-nat` N25-N26: PASS; `poc-golden` G5.1-G5.5: PASS |
+| `two-level-ca` | PASS | `poc-ca` (docker) B01-B13: PASS; `poc-ca` (incus) B01-B13: PASS; `poc-golden` G8.2, G9.1: PASS |
+| `placement` | PASS | `poc-placement` (docker) L01-L45: PASS; `poc-placement` (incus) L01-L45: PASS; `poc-golden` G2.1-G2.7: PASS |
+| `trust-freeze` | PASS | `poc-placement` (docker) L50-L53: PASS; `poc-placement` (incus) L50-L53: PASS; `poc-bgp` G09-G09b: PASS; `poc-golden` G7.2: PASS |
+| `golden-rules` | PASS | `poc-golden` G1.1-G2.7, G3.1-G10.1: PASS |
+| `encrypted-pod-network` | PASS | `poc-cilium` C01-C09, C12, C13b: PASS; `poc-vm` V03-V06b, V07-V09, V10, V13-V13b: PASS; `poc-golden` G3.1-G3.3: PASS |
+| `mutual-auth` | PASS | `poc-cilium` C90-C97: PASS; `poc-vm` V90-V102: PASS; `poc-golden` G3.4: PASS |
+| `cilium-guard` | PASS | `poc-vm` V06c, V09b-V09c: PASS; `poc-golden` G3.5: PASS |
+| `spire-scope` | PASS | `poc-vm` V103: PASS; `poc-golden` G3.6: PASS |
+| `nat-relay` | PASS | `poc-nat` N01, N04-N24: PASS |
+| `bgp-gateway` | PASS | `poc-bgp` G01-G08, G10-G19: PASS; `poc-golden` G7.1: PASS |
+| `down-clean` | PASS | `poc-host` (docker) H10-H11: PASS; `poc-host` (incus) H10-H11: PASS; `poc-lighthouse` P18: PASS; `poc-page` G26b-G27: PASS |
+| `participants` | PASS | `poc-participants` S00-S30: PASS; `poc-participants-e2e` E01-E11: PASS |
+| `weakness` | PASS | `poc-weakness` (docker) W00-W06: PASS; `poc-weakness` (incus) W00-W06: PASS |
 | `kind` | PASS | `poc-kind` K01-K97: PASS |
-| `vm` | NOT RUN | `poc-vm` V01-V02, V04b, V06d: NOT RUN |
+| `vm` | PASS | `poc-vm` V01-V02, V04b, V06d: PASS |
+| `demo-aws` | NOT RUN(aws) | `poc-golden` G1.1-G2.7, G3.1-G10.1: NOT RUN(aws) |
 <!-- regression:end -->
 
 ## Golden path conformance (`make poc-golden`, issue #23)
