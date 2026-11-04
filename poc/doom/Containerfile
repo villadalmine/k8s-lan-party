@@ -1,0 +1,40 @@
+# The image of the Doom demo (issue #75 part B): Odamex (GPL-2.0-or-later) with FreeDM (the deathmatch game of the Freedoom project, BSD-3-Clause) as its game data, a virtual screen
+# (Xvfb) and a recorder (ffmpeg) for the automated client. Nothing non-free is in it: no doom.wad, no doom2.wad.
+# Built by poc/doom/build.sh; the versions and checksums are pinned in poc/doom/doom.env (looked up live on 2026-11-04). Runs as a non-root user
+# (65534), so it passes Pod Security "restricted".
+ARG DEBIAN_IMAGE
+FROM ${DEBIAN_IMAGE} AS build
+ARG ODAMEX_VERSION
+ARG ODAMEX_SHA256
+ARG FREEDM_VERSION
+ARG FREEDM_SHA256
+RUN apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
+      ca-certificates curl unzip build-essential cmake ninja-build pkg-config \
+      libsdl2-dev libsdl2-mixer-dev libdwarf-dev libpng-dev libcurl4-openssl-dev zlib1g-dev libzstd-dev >/dev/null
+WORKDIR /src
+RUN curl -fsSL -o odamex.tgz "https://github.com/odamex/odamex/releases/download/${ODAMEX_VERSION}/odamex-src-${ODAMEX_VERSION}.tar.gz" \
+ && echo "${ODAMEX_SHA256}  odamex.tgz" | sha256sum -c - && tar xzf odamex.tgz --strip-components=1 && rm odamex.tgz
+# cpptrace (Odamex's crash reports) would clone libdwarf from git at build time: use Debian's, found by pkg-config, instead
+RUN sed -i 's/^option(CPPTRACE_FIND_LIBDWARF_WITH_PKGCONFIG "" OFF)/option(CPPTRACE_FIND_LIBDWARF_WITH_PKGCONFIG "" ON)/' libraries/cpptrace/cmake/OptionVariables.cmake \
+ && grep -q 'LIBDWARF_WITH_PKGCONFIG "" ON' libraries/cpptrace/cmake/OptionVariables.cmake
+RUN cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_CLIENT=1 -DBUILD_SERVER=1 -DBUILD_LAUNCHER=0 -DBUILD_TESTS=0 \
+      -DBUILD_MASTER=0 -DUSE_EXTERNAL_LIBDWARF=1 -DUSE_MINIUPNP=0 -DENABLE_PORTMIDI=0 -DODAMEX_NO_GITVER=1 -DCMAKE_C_FLAGS=-w -DCMAKE_CXX_FLAGS=-w >/dev/null \
+ && cmake --build build >/dev/null
+RUN mkdir -p /opt/odamex /opt/wad /opt/licenses \
+ && cp build/client/odamex build/server/odasrv build/client/odamex.wad /opt/odamex/ \
+ && cp LICENSE /opt/licenses/odamex-LICENSE-GPL-2.0
+RUN curl -fsSL -o freedm.zip "https://github.com/freedoom/freedoom/releases/download/v${FREEDM_VERSION}/freedm-${FREEDM_VERSION}.zip" \
+ && echo "${FREEDM_SHA256}  freedm.zip" | sha256sum -c - && unzip -q freedm.zip \
+ && cp freedm-${FREEDM_VERSION}/freedm.wad /opt/wad/ && cp freedm-${FREEDM_VERSION}/COPYING.txt /opt/licenses/freedoom-COPYING-BSD-3-Clause.txt
+
+FROM ${DEBIAN_IMAGE}
+RUN apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
+      libsdl2-2.0-0 libsdl2-mixer-2.0-0 libpng16-16t64 libcurl4t64 zlib1g libzstd1 libdwarf1 libstdc++6 \
+      xvfb xauth xdotool ffmpeg ca-certificates >/dev/null && rm -rf /var/lib/apt/lists/*
+COPY --from=build /opt/odamex /opt/odamex
+COPY --from=build /opt/wad /opt/wad
+COPY --from=build /opt/licenses /opt/licenses
+COPY server.sh client.sh /usr/local/bin/
+RUN chmod 755 /usr/local/bin/server.sh /usr/local/bin/client.sh
+ENV HOME=/tmp
+USER 65534:65534

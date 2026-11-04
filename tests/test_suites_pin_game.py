@@ -75,6 +75,11 @@ class SuitesPinGame(unittest.TestCase):
         self.assertEqual(self.seen("poc-party.sh"), "CNI=flannel TAINT=no RUNTIME=incus")
         self.assertEqual(self.seen("poc-party.sh", TAINT="yes", CNI="cilium", RUNTIME="docker"), "CNI=cilium TAINT=no RUNTIME=incus")
 
+    def test_poc_doom_pins_taint_and_runs_cilium_unless_the_caller_picks_flannel(self) -> None:
+        # the Doom demo's CNI is Cilium (the demo's own); CNI=flannel also runs; TAINT is always no
+        self.assertEqual(self.seen("poc-doom.sh"), "CNI=cilium TAINT=no RUNTIME=incus")
+        self.assertEqual(self.seen("poc-doom.sh", TAINT="yes", CNI="flannel", RUNTIME="docker"), "CNI=flannel TAINT=no RUNTIME=incus")
+
     def test_poc_join_keeps_the_callers_runtime(self) -> None:
         self.assertEqual(self.seen("poc-join.sh", TAINT="yes", RUNTIME="incus"), "CNI=flannel TAINT=no RUNTIME=incus")
 

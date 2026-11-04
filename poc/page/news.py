@@ -3,6 +3,7 @@ release in poc/page/whatsnew/, its recordings next to it. Built once when the pa
 
     whatsnew/<version>.json        version, date, title, release, summary, issues; the newest ones also story, casts, features
     whatsnew/<version>/<name>.cast the recordings (poc/page/whatsnew/showcase.py, from real runs only)
+    whatsnew/<version>/<name>.gif  a game screen captured from a real run ("media": file, title, caption, alt; at most 5 MiB, a real GIF)
     whatsnew/<version>/rec/        their filtered sources; never installed on the server, never served
 The page loads with strict=False (a recording that `make showcase` has not made yet is left out); poc/test_whatsnew.py with strict=True.
 """
@@ -16,6 +17,8 @@ from pathlib import Path
 REPO = "https://github.com/villadalmine/k8s-lan-party"
 VERSION_RE = re.compile(r"v\d+\.\d+\.\d+(-[a-z0-9]+)?")
 NAME_RE = re.compile(r"[a-z0-9][a-z0-9-]{0,40}\.cast")
+GIF_RE = re.compile(r"[a-z0-9][a-z0-9-]{0,40}\.gif")   # a screen recording, served as an image (CSP img-src 'self'; no new source)
+GIF_MAX = 5 * 1024 * 1024
 # the player runs a terminal emulator compiled to WebAssembly: only this page lets the browser compile it (no eval of JavaScript)
 CSP = ("default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; connect-src 'self'; img-src 'self'; "
        "form-action 'none'; frame-ancestors 'none'; base-uri 'none'")
@@ -67,6 +70,19 @@ def load(d: Path, strict: bool = True) -> list[dict]:
             if strict and not (d / v / c["file"]).is_file():
                 raise NewsError(f"{f.name}: cast {c['file']!r} is not a file in whatsnew/{v}/ (make showcase RELEASE={v})")
         r["casts"] = [c for c in r.get("casts", []) if (d / v / c["file"]).is_file()]
+        for m in r.get("media", []):
+            for k in ("file", "title", "alt"):
+                _text(f, m, k, "media: ")
+            _text(f, m, "caption", "media: ", optional=True)
+            if not GIF_RE.fullmatch(m.get("file", "")):
+                raise NewsError(f"{f.name}: media {m.get('file')!r} is not a name like match.gif")
+            if (d / v / m["file"]).is_file():
+                b = (d / v / m["file"]).read_bytes()
+                if len(b) > GIF_MAX or b[:6] not in (b"GIF87a", b"GIF89a"):
+                    raise NewsError(f"{f.name}: media {m['file']!r} must be a GIF of at most {GIF_MAX} bytes")
+            elif strict:
+                raise NewsError(f"{f.name}: media {m['file']!r} is not a file in whatsnew/{v}/")
+        r["media"] = [m for m in r.get("media", []) if (d / v / m["file"]).is_file()]
         for c in r.get("features", []):
             for k in ("name", "what", "why", "command"):
                 _text(f, c, k, f"feature {c.get('name')!r}: ")
@@ -85,6 +101,11 @@ def casts(d: Path, releases: list[dict]) -> dict[str, bytes]:
             for r in releases for c in r.get("casts", [])}
 
 
+def media(d: Path, releases: list[dict]) -> dict[str, bytes]:
+    return {f"/whats-new/{r['version']}/{m['file']}": (d / r["version"] / m["file"]).read_bytes()
+            for r in releases for m in r.get("media", [])}
+
+
 def _issues(nums) -> str:
     return " ".join(f'<a href="{REPO}/issues/{n}">#{n}</a>' for n in nums)
 
@@ -94,6 +115,12 @@ def _cast(r: dict, c: dict) -> str:
     return (f'<figure><div class=cast data-cast="/whats-new/{e(r["version"])}/{e(c["file"])}"></div>'
             f'<figcaption><b>{e(c["title"])}</b> {e(c.get("caption", ""))} '
             f'<a href="/whats-new/{e(r["version"])}/{e(c["file"])}">.cast</a></figcaption></figure>')
+
+
+def _media(r: dict, m: dict) -> str:
+    e = html.escape
+    return (f'<figure><img class=shot src="/whats-new/{e(r["version"])}/{e(m["file"])}" alt="{e(m["alt"])}" loading=lazy>'
+            f'<figcaption><b>{e(m["title"])}</b> {e(m.get("caption", ""))}</figcaption></figure>')
 
 
 def _release(r: dict, by: dict) -> str:
@@ -110,6 +137,8 @@ def _release(r: dict, by: dict) -> str:
             screens = "".join(_cast(r, c) for c in r.get("casts", []) if c.get("side") == side and not c.get("run"))
             parts.append(f'<div class=side><h3>{e(s.get("title", side))}</h3><ol>{steps}</ol>{screens}</div>')
         parts.append("</div>")
+    if r.get("media"):
+        parts.append("<h3>The match</h3>" + "".join(_media(r, m) for m in r["media"]))
     aws = [c for c in r.get("casts", []) if c.get("run")]
     if aws:
         parts.append(f'<h3>{e(r.get("aws_title", "The same game on a real cloud"))}</h3><div class=sides>'

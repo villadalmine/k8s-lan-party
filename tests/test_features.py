@@ -24,7 +24,7 @@ class Catalog(unittest.TestCase):
 
     def test_every_makefile_suite_is_listed_in_the_order_it_runs(self):
         make = features.makefile_suites()
-        self.assertEqual(len(make), 21)
+        self.assertEqual(len(make), 22)
         self.assertEqual(sorted(make), sorted(s["id"] for s in CAT["suites"]))
         self.assertEqual(CAT["suites"][-1]["role"], "teardown")
 

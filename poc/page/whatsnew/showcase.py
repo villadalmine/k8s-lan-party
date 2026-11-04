@@ -7,7 +7,7 @@
     showcase.py from-text TXT DIR           a text transcript with UTC times (the AWS run) -> DIR/<stem>-player.tsv and DIR/<stem>-host.tsv
     showcase.py cast TSV CAST TITLE         TSV -> an asciicast v2 file; same TSV, same bytes
     showcase.py build DIR                   DIR/rec/<stem>.txt -> TSV, then every DIR/rec/<name>.tsv -> DIR/<name>.cast (titles: DIR.json)
-    showcase.py scan FILE...                exit 1 and name the line when a file holds what the filter removes (a leak)
+    showcase.py scan FILE...                exit 1 and name the line when a file holds what the filter removes (a leak); a .gif: its text blocks
 
 A TSV line is "<seconds>\\t<kind>\\t<text>", kind cmd | out | note. Nothing here is edited by hand: `make showcase` records a real
 `poc-page` run and builds the casts; tests in poc/test_whatsnew.py rebuild them and scan every committed file.
@@ -211,9 +211,20 @@ def build(d: str) -> None:
         print(f"cast: {rel / name}")
 
 
+def gif_text(path: str) -> list[str]:
+    """What a viewer or a tool can read in a GIF besides its pixels: every run of printable characters (comments, application blocks)."""
+    return [m.decode() for m in re.findall(rb"[\x20-\x7e]{6,}", Path(path).read_bytes())]
+
+
 def scan(files: list[str]) -> int:
     bad = 0
     for f in files:
+        if f.endswith(".gif"):
+            for n, text in enumerate(gif_text(f), 1):
+                for what in leaks(text):
+                    print(f"LEAK {f}:{n}: {what}")
+                    bad += 1
+            continue
         for n, ln in enumerate(Path(f).read_text().splitlines(), 1):
             text = ln
             if f.endswith(".cast") and n > 1:

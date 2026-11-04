@@ -1,0 +1,107 @@
+{
+  "version": "v0.3.0-poc",
+  "date": "2026-11-04",
+  "title": "two friends agree to share, and then a Doom deathmatch for three",
+  "release": "https://github.com/villadalmine/k8s-lan-party/releases/tag/v0.3.0-poc",
+  "summary": "LAN party mode. Until now every player was a stranger to every other: your namespace was a closed room. Now two friends can both say yes, and only then do their rooms open to each other, on the one port a game needs and nothing else. To show that something real crosses it, the release ships a Doom deathmatch of three: romero runs an Odamex server with FreeDM in his namespace; carmack's robot joins through a party; petersen's robot is refused while carmack plays (his yes is not hers), until romero invites her and she accepts. carmack and petersen never reach each other: a party is a pair. romero's server log is the witness: the three connected, joined, stayed and left, each with frags and deaths. The robots are scripts, so the number of frags is not a test (it can be zero). Players named after id Software's Doom creators, as a tribute; the game is Freedoom (BSD), not id's Doom.",
+  "issues": [
+    75,
+    76
+  ],
+  "story": {
+    "player": {
+      "title": "Players: romero, carmack and petersen, three friends",
+      "steps": [
+        "All three got a place the usual way and have a namespace of their own. Nothing of romero's reaches carmack or petersen, and nothing of theirs reaches him.",
+        "romero runs a Doom deathmatch server in his namespace: Odamex with FreeDM, the free deathmatch game of the Freedoom project, on one UDP port.",
+        "carmack's and petersen's robots, pods in their own namespaces, try it. Nobody answers: each line marked '# expected' is the fence, not a failure.",
+        "romero invites carmack. One yes is not a party: the robot still gets nothing.",
+        "carmack accepts. Both said yes, and the host's next tick opens the one port the game needs, both ways.",
+        "romero's own robot is already playing; carmack's joins through the party and keeps playing. The GIF below is his screen.",
+        "While carmack plays, petersen's robot tries again: nothing. A party between two friends opens nothing for a third.",
+        "romero invites petersen and she accepts: a second pair opens, and she joins. carmack and petersen still do not reach each other.",
+        "carmack leaves his party: his robot gets nothing again, and petersen's party stays open."
+      ]
+    },
+    "host": {
+      "title": "The host who runs the pool",
+      "steps": [
+        "The tick admits the three friends. The host never joins their game.",
+        "When the second yes arrives, the tick opens the party: only that port, only between those two namespaces; and again for the second pair.",
+        "romero's server log is the witness: who connected, who joined the game, how long each stayed, with frags and deaths on one line.",
+        "A reconcile run twice says unchanged. When carmack leaves, the next tick closes his party and nothing of it is left behind."
+      ]
+    }
+  },
+  "casts": [
+    {
+      "file": "player.cast",
+      "side": "player",
+      "title": "The friends' screens",
+      "caption": "a real make showcase-doom run (poc-doom) in Incus VMs with Cilium. The 'no server answered' lines are the point (no yes, one yes, a third player while another is in a party, after leaving) and each one is marked '# expected'."
+    },
+    {
+      "file": "host.cast",
+      "side": "host",
+      "title": "The host's screen",
+      "caption": "the tick that admits them, the two parties that open, and romero's server log: the three connected, joined the game, stayed, left, each with frags and deaths. No errors here."
+    }
+  ],
+  "media": [
+    {
+      "file": "match.gif",
+      "title": "carmack's screen during the match",
+      "alt": "A first-person view of a small FreeDM deathmatch map: a marine with a pistol among corridors, with the health, ammo and frags bar of Doom at the bottom.",
+      "caption": "captured by the automated robot under a virtual screen (Xvfb + ffmpeg) late in the match, when the others have joined: 320x200, 30 seconds."
+    }
+  ],
+  "features": [
+    {
+      "name": "A party needs both",
+      "what": "edge-mesh party invite and accept: each friend writes a consent in their own namespace; the host opens a pair of NetworkPolicies only when both exist, on the ports both named within the host's list, and nobody else.",
+      "why": "You can say yes to a friend without opening your room to strangers, and nobody can say it for you.",
+      "command": "sudo edge-mesh party invite carmack\nsudo edge-mesh party accept romero\nmake poc-party   # PY01-PY17",
+      "issues": [
+        75,
+        76
+      ]
+    },
+    {
+      "name": "A Doom deathmatch over two parties",
+      "what": "romero's Odamex server (FreeDM, 10666/UDP) and the robots of carmack and petersen play through two parties, across three nodes over Nebula, on Cilium. The server log, not the clients, is the proof; before a party, after leave, and for a third player while another is in a party, nothing connects; carmack and petersen never reach each other.",
+      "why": "A party is only worth having if something real crosses it, and a game is the plainest test of UDP over the mesh.",
+      "command": "make poc-doom      # DM01-DM20\nmake showcase-doom RELEASE=v0.3.0-poc",
+      "issues": [
+        75
+      ]
+    },
+    {
+      "name": "Nothing non-free, nothing pulled",
+      "what": "The image has Odamex (GPL-2.0-or-later) and FreeDM (BSD-3-Clause, from the Freedoom project) only: no doom.wad, no doom2.wad, both licences inside. It is built once from a Debian base pinned by digest and sources pinned by SHA-256, and loaded into the nodes: no registry, no pull.",
+      "why": "A joined stranger's node pulls nothing from anywhere, and the demo cannot ship what it has no right to.",
+      "command": "poc/doom/build.sh\nmake poc-doom   # DM05, DM20",
+      "issues": [
+        75
+      ]
+    },
+    {
+      "name": "A server that stays between friends",
+      "what": "The Doom server does not announce itself to the public master servers (sv_usemasters 0); its address stays inside the party.",
+      "why": "A game server that phones the internet would tell the world where it runs.",
+      "command": "sudo edge-mesh kubectl exec doom-server -- grep Masters /tmp/server.log",
+      "issues": [
+        75
+      ]
+    },
+    {
+      "name": "Game screens on this page",
+      "what": "A release can show a GIF of a real run next to its terminal recordings. It is an image of this server only, so the page's CSP did not change, and the test that scans every recording for leaks scans the GIF too.",
+      "why": "Some things are easier to believe when you see them.",
+      "command": "make showcase-doom RELEASE=v0.3.0-poc\npython3 -m unittest poc.test_whatsnew",
+      "issues": [
+        63,
+        75
+      ]
+    }
+  ]
+}

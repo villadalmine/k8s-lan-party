@@ -16,3 +16,4 @@ examples/aws/*.tfstate
 examples/aws/*.tfstate.*
 examples/aws/*.tfvars
 examples/aws/.terraform.tfstate.lock.info
+poc/.showcase-doom/
