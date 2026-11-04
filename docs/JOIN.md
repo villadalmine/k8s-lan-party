@@ -207,7 +207,7 @@ sudo edge-mesh kubectl exec doom-server -- grep -E 'connected|joined|disconnecte
 ```
 
 Before the party (or after `edge-mesh party leave`) the client prints `no server answered` and alice's log has no player: that is the party working,
-not a failure. The manifests and the whole run are `poc/poc-doom.sh` (DM01-DM16); `make poc-doom` does it on Incus VMs.
+not a failure. It is a deathmatch: alice's own robot (`poc/doom/pod.sh client "$IMAGE" doom-bot`, in her namespace) and bob's play, and the server log has each player's kills and deaths. The manifests and the whole run are `poc/poc-doom.sh` (DM01-DM16); `make poc-doom` does it on Incus VMs.
 
 ## Leaving
 

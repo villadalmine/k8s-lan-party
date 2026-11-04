@@ -636,8 +636,7 @@ Proven by `make poc-party` (PY01-PY17) on Incus VMs with both CNIs the game supp
 
 A party is only worth having if something real crosses it, so the demo is a game of Doom between two friends, with no extra component in the
 design: alice's namespace runs an [Odamex](https://odamex.net) server (GPL-2.0-or-later, 12.3.0) on `10666/UDP` with [Freedoom](https://freedoom.github.io)
-(BSD-3-Clause, 0.13.0, `freedoom2.wad`) as its game data; bob's namespace runs an automated Odamex client that connects through the party, moves
-and shoots for about 45 seconds and quits. Nothing non-free is shipped: no `doom.wad`, no `doom2.wad`. `10666/UDP` is `party_ports`' default, so
+(BSD-3-Clause, 0.13.0, `freedoom2.wad`) as its game data; it is a deathmatch (`sv_gametype 1`; checked in Odamex's `doomstat.h`: `GM_DM`). Alice's own robot, a second automated client in her namespace, plays her server first (no party needed: it is her own namespace); bob's robot, in his namespace, connects through the party, moves and shoots for about 40 seconds and quits. The two robots move by different fixed patterns (xdotool scripts, no model), so they cross. Nothing non-free is shipped: no `doom.wad`, no `doom2.wad`. `10666/UDP` is `party_ports`' default, so
 the demo needs nothing opened that part A did not already allow.
 
 ```bash
@@ -647,7 +646,7 @@ sudo edge-mesh kubectl exec doom-client -- client.sh doom.play-alice.svc.cluster
 ```
 
 **What proves it, and where.** The proof is on the server, not on the client's say-so: alice's server log names the player (`bob`) and the
-client's address, and the client's own log says it received the map. `make poc-doom` (DM01-DM13) shows both, and the two that matter as much:
+client's address, and the client's own log says it received the map. `make poc-doom` (DM01-DM16) shows both, and the two that matter as much:
 without the party (no consent, one consent) and again after `leave`, the same client reaches no server (nothing in alice's log, the client gives up
 after its timeout). It runs on Incus VMs with `CNI=cilium`, the demo's CNI, and on flannel.
 
@@ -659,11 +658,8 @@ nodes with `k3s ctr images import`, so a joined stranger's node pulls nothing fr
 
 **What it does not claim.** Odamex over a LAN-like path is the easy case for a netcode that tolerates latency; this shows the party carries real
 UDP game traffic, not that a match over the internet through a relay is good (that is the relay's budget, section 15.1). The player is a script:
-it proves connection, map, movement and shooting, not skill. A party closes **new** flows at once, but a UDP flow that was already open keeps its conntrack entry for a while (Cilium and flannel
-alike): a client that came back from the same local port right after `leave` would still get through for a moment. The suite gives each session its
-own local port (`odamex -port`), which is also what a real player's second session does not need to care about; it does not claim to cut a match
-in progress when a party ends, only that nothing new connects. "Frags": with one human in a co-op game the server's `(N KILLS, M DEATHS)` line says
-0 kills (it counts players); the witness is the join, the stay and the leave with their times.
+it proves connection, map, movement and shooting, not skill. It does not claim to cut a match in progress when a party ends: DM14 proves that a client starting after `leave` (the same client, the same local port) gets no answer, not what happens to a game being played at that moment (not tested). The server's line `<name> disconnected. (N KILLS, M DEATHS)` is each player's
+frags and deaths; the suite requires both lines, the joins and the stay, not a number of frags (two scripted robots may or may not meet).
 
 ## 15. What the operator needs (and where traffic goes)
 

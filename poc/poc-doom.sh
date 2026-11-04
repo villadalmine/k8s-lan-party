@@ -41,7 +41,7 @@ probe() { K bob exec doom-client -- client.sh --probe "$PROBE" 10666; }   # is a
 open_now() { probe; }
 closed_now() { local rc; probe; rc=$?; [ "$rc" -eq 3 ]; }   # exactly 3: no answer; any other failure is not a closed party
 server_log() { K alice exec doom-server -- cat /tmp/server.log; }
-connects() { server_log | grep -c ' has connected\.'; }
+connects() { server_log | grep -c "^\[[0-9:]*\] ${1:-bob} has connected\."; }   # connections of one player (bob by default)
 
 host_init() { "$MESH" host init && { [ "$CNI" != cilium ] || "$POC/cilium.sh"; }; }
 image() { # the image, once (cached by the hash of its inputs), and its name
@@ -62,11 +62,12 @@ server_up() { # alice's server and its UDP Service; Ready; the log says the map 
   wait_for 60 srv_init &&
   server_log | grep -q 'Masters will not be contacted because sv_usemasters is 0' && server_log | grep -q 'MAP01' &&
   say player "alice: a Doom server (Odamex, Freedoom) in her namespace, on a UDP Service" && show player "sudo edge-mesh kubectl get pods,svc" K alice get pods,svc; }
-client_up() { "$POC/doom/pod.sh" client "$IMG" | K bob apply -f - && K bob wait --for=condition=Ready pod/doom-client --timeout=240s &&
+client_up() { "$POC/doom/pod.sh" client "$IMG" doom-bot | K alice apply -f - && K alice wait --for=condition=Ready pod/doom-bot --timeout=240s &&
+  "$POC/doom/pod.sh" client "$IMG" | K bob apply -f - && K bob wait --for=condition=Ready pod/doom-client --timeout=240s &&
   say player "bob: a client pod in his own namespace (a virtual screen, a recorder, a script that plays)" && show player "sudo edge-mesh kubectl get pods" K bob get pods; }
 nobody() { # the client reaches no server (exit 3: nobody answered) and alice's server log has no player: $1 = how many connects it may hold
   local o rc; o=$(show player "$CLIENT 10 bob" K bob exec doom-client -- env CONNECT_WAIT=15 client.sh "$SVC" 10666 10 bob 2>&1); rc=$?; echo "$o"; echo "exit $rc"
-  [ "$rc" -eq 3 ] && echo "$o" | grep -q 'no server answered' && [ "$(connects)" -eq "$1" ]; }
+  [ "$rc" -eq 3 ] && echo "$o" | grep -q 'no server answered' && [ "$(connects bob)" -eq "$1" ]; }
 no_consent() { say player "alice runs the server in her namespace; bob's client tries it. Nobody has agreed to anything yet"; closed_now && nobody 0; }
 one_side() { say player "alice invites bob: her consent alone opens nothing"
   out_has "your consent is recorded" show player "sudo edge-mesh party invite bob" P alice party invite bob && tick &&
@@ -77,11 +78,15 @@ open_party() { say player "bob accepts: now both agreed"; say host "the host's t
   out_has "party: alice -> bob: active: ports 10666/UDP" show host "mesh host auto --once" tick &&
   out_has "active: ports 10666/UDP" show player "sudo edge-mesh party list" P bob party list &&
   out_has "active: ports 10666/UDP" show host "mesh host party" "$MESH" host party list && wait_for 90 open_now; }
-match() { # the match: bob's client joins through the party, plays $PLAY s and quits; it saw the map, and its screen is a GIF
-  local o; o=$(play "$PLAY" 1 2>&1); echo "$o"
+match() { # a deathmatch: alice's robot plays on her own server (no party needed), then bob's joins through the party; bob's screen is a GIF
+  local o bot="$STATE/alice-bot.out"
+  say player "alice's robot joins her own server first (it is in her namespace: no party needed)"
+  incus exec emesh-alice -- edge-mesh kubectl exec doom-bot -- env PATTERN=b CONNECT_WAIT=40 client.sh doom 10666 $((PLAY + 40)) alice >"$bot" 2>&1 &
+  BOT=$!; wait_for 60 sh -c "grep -q 'in the game' '$bot'" || return 1
+  o=$(play "$PLAY" 1 2>&1); echo "$o"
   echo "$o" | grep -q 'client bob: map MAP01' && echo "$o" | grep -q 'client bob: in the game' && echo "$o" | grep -q 'left the game' || return 1
   K bob exec doom-client -- cat /tmp/doom/match.gif >"$OUTD/match.gif" && [ "$(head -c 6 "$OUTD/match.gif")" = GIF89a ] && [ "$(wc -c <"$OUTD/match.gif")" -lt 5000000 ] &&
-    echo "match.gif: $(wc -c <"$OUTD/match.gif") bytes"; }
+    echo "match.gif: $(wc -c <"$OUTD/match.gif") bytes" && wait "$BOT"; }
 server_saw() { # alice's server, not the client, is the witness: bob connected, joined the game, stayed, left, with his frags and deaths
   local log; log=$(server_log) || return 1
   say host "alice's server is the witness: who connected, joined and left, and when"
@@ -94,13 +99,16 @@ log, play = sys.argv[1], int(sys.argv[2])
 def at(pat):
     m = re.search(r"\[(\d\d):(\d\d):(\d\d)\] " + pat, log)
     return m and int(m[1]) * 3600 + int(m[2]) * 60 + int(m[3])
-c, j, d = at(r"bob has connected\."), at(r"bob joined the game\."), at(r"bob disconnected\. \(\d+ KILLS, \d+ DEATHS\)")
-ok = None not in (c, j, d) and c <= j < d and d - j >= play - 5
-print(f"server: bob joined and stayed {d - j if None not in (c, j, d) else '?'} s (played {play} s)")
+ok = True
+for who in ("alice", "bob"):
+    c, j, d = at(who + r" has connected\."), at(who + r" joined the game\."), at(who + r" disconnected\. \(\d+ KILLS, \d+ DEATHS\)")
+    good = None not in (c, j, d) and c <= j < d and d - j >= (play - 5 if who == "bob" else 1)
+    print(f"server: {who} joined and stayed {d - j if None not in (c, j, d) else '?'} s")
+    ok = ok and good
 sys.exit(0 if ok else 1)
 PY
 }
-one_connect() { [ "$(connects)" -eq 1 ]; }
+one_connect() { [ "$(connects bob)" -eq 1 ] && [ "$(connects alice)" -eq 1 ] && [ "$(server_log | grep -c ' has connected\.')" -eq 2 ]; }   # exactly the two: nobody else
 leave_closes() { say player "bob leaves the party: the same client, the same server, and nobody answers again"
   out_has "left: the host closes the party" show player "sudo edge-mesh party leave" P bob party leave &&
   out_has "party: alice -> bob: closed: bob left the party" show host "mesh host auto --once" tick &&
@@ -118,20 +126,20 @@ step DM03 "alice and bob ask; one tick admits both" admitted
 step DM04 "alice and bob join and are Ready" joined
 step DM05 "the image is loaded into both nodes (no registry, nothing pulled)" loaded
 step DM06 "alice: the server (a pod, a UDP Service on 10666) is up on Freedoom MAP01 and not announced to the public master servers" server_up
-step DM07 "bob: the automated client (Xvfb, ffmpeg, xdotool) is Ready in his namespace" client_up
+step DM07 "the robots: alice's (doom-bot) and bob's (doom-client) are Ready, each in its own namespace" client_up
 step DM08 "no consent: the client gets no answer from alice's server, and her log has no player" no_consent
 step DM09 "alice invites: one consent is not a party; the client still gets no answer and the log has no player" one_side
 step DM10 "bob accepts: the tick opens 10666/UDP between them" open_party
-step DM11 "the match: bob's client joins through the party, sees MAP01, runs and shoots for the time, quits; its screen is a GIF" match
-step DM12 "the server is the witness: bob connected, joined, stayed and left, with his frags and deaths on one line" server_saw
-step DM13 "the server saw exactly one connection (bob's)" one_connect
+step DM11 "the deathmatch: alice's robot plays her server, bob's joins through the party, sees MAP01, runs and shoots, quits; bob's screen is a GIF" match
+step DM12 "the server is the witness: alice and bob connected, joined, stayed and left, each with kills and deaths on one line" server_saw
+step DM13 "the server saw exactly two connections, alice's and bob's, and nobody else" one_connect
 step DM14 "bob leaves: the tick closes the party; the same client gets no answer again and the log has no new player" leave_closes
 step DM15 "reconcile twice says unchanged; no consent and no policy is left" idempotent
 step DM16 "nothing non-free is in the image: Freedoom only, no doom.wad or doom2.wad, both licences present" free_only
 
-if [ "${KEEP:-0}" != 1 ]; then "$POC/vm/down.sh" >/dev/null 2>&1; fi
-[ -z "$SC" ] || [ "$FAILS" -ne 0 ] || { cp "$OUTD/match.gif" "$SC/match.gif"; for s in player host; do   # only a run that passed becomes a recording
+[ -z "$SC" ] || [ "$FAILS" -ne 0 ] || { cp "$OUTD/match.gif" "$SC/match.gif"; for s in player host; do   # only a run that passed becomes a recording (the GIF first: down removes the state)
   python3 "$SCP" redact "$SC/$s.raw" "$SC/$s.tsv" --strip "$POC/" --strip "${POC%/*}/" || FAILS=$((FAILS+1)); done; }
+if [ "${KEEP:-0}" != 1 ]; then "$POC/vm/down.sh" >/dev/null 2>&1; fi
 echo "----"
 if [ "$FAILS" -eq 0 ]; then echo "RESULT PASS"; else echo "RESULT FAIL ($FAILS)"; fi
 [ "$FAILS" -eq 0 ]

@@ -35,9 +35,10 @@ if [ "$REC" = 1 ]; then
   ffmpeg -loglevel error -y -draw_mouse 0 -f x11grab -framerate 8 -video_size 320x200 -t "$RECSECS" -i :99 \
     -vf "split[a][b];[a]palettegen=max_colors=48:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=4" "$OUT/match.gif" 2>"$OUT/ffmpeg.log" & REC_PID=$!
 fi
-end=$(( $(date +%s) + SECS )); turn=Right
-while [ "$(date +%s)" -lt "$end" ]; do   # run forward shooting, turn, alternate sides: deterministic moves, the monsters decide the rest
-  xdotool keydown ctrl keydown Up; sleep 1.6; xdotool keyup Up; xdotool keydown "$turn"; sleep 0.7; xdotool keyup "$turn" keyup ctrl
+end=$(( $(date +%s) + SECS )); turn=Right; fwd=1.6; turn_s=0.7
+[ "${PATTERN:-a}" != b ] || { turn=Left; fwd=2.3; turn_s=0.5; }   # a second player moves differently, so two of them cross
+while [ "$(date +%s)" -lt "$end" ]; do   # run forward shooting, turn, alternate sides: deterministic moves, the other player decides the rest
+  xdotool keydown ctrl keydown Up; sleep "$fwd"; xdotool keyup Up; xdotool keydown "$turn"; sleep "$turn_s"; xdotool keyup "$turn" keyup ctrl
   [ "$turn" = Right ] && turn=Left || turn=Right
 done
 [ -z "${REC_PID:-}" ] || wait "$REC_PID"
