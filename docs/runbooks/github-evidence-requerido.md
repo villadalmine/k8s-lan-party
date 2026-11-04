@@ -40,10 +40,12 @@ mkdir -p ~/backups && gh api repos/villadalmine/k8s-lan-party/rulesets/25951412 
 gh api repos/villadalmine/k8s-lan-party/rulesets/25951412 \
   | jq '{name, target, enforcement, conditions, bypass_actors,
          rules: (.rules | map(if .type == "required_status_checks"
-                 then .parameters.required_status_checks += [{"context": "evidence"}] else . end)
+                 then .parameters.required_status_checks += [{"context": "evidence", "integration_id": 15368}] else . end)
                  | map(del(.id)))}' > ~/backups/k8s-lan-party-ruleset-main-nuevo.json
 jq '.rules[] | select(.type=="required_status_checks") | .parameters.required_status_checks' ~/backups/k8s-lan-party-ruleset-main-nuevo.json
 ```
+
+`integration_id` 15368 is GitHub Actions: only that app may satisfy `evidence`, so another installed App cannot paint it green.
 
 Expected: `verify`, `pr-format` and `evidence`. Apply:
 
@@ -67,5 +69,5 @@ gh api -X PUT repos/villadalmine/k8s-lan-party/rulesets/25951412 --input ~/backu
 
 ## Step 4: keep the code in sync
 
-Add `{"context": "evidence"}` to `required_status_checks` in `.github/rulesets/main.json` by a pull request, so the file stays the
+Add `{"context": "evidence", "integration_id": 15368}` to `required_status_checks` in `.github/rulesets/main.json` by a pull request, so the file stays the
 record of what is applied.

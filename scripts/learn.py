@@ -36,7 +36,7 @@ def seal(data: list[dict]) -> str:
 
 def markdown(cat: dict) -> str:
     data = rows(cat)
-    out = ["---", "tipo: doc", "id: k8s-lan-party-learn", "version: 1.0.0", "fecha_alta: 2026-11-04", "fecha_ultimo_cambio: 2026-11-04",
+    out = ["---", "tipo: doc", "id: k8s-lan-party-learn", "version: 1.0.0", "fecha_alta: 2026-11-04", f"fecha_ultimo_cambio: {cat['meta']['fecha_ultimo_cambio']}",
            "categoria: plataforma", "dueno_agente: casa-orquestador", "pieza: k8s-lan-party", "meta: ../meta.yml",
            "depende_de: [docs/FEATURES.yml, scripts/learn.py]", "lo_usan: [README.md, docs/TRY-IT.md]", "docs: [docs/FEATURES.yml, docs/POC-STATUS.md]",
            "scripts: [scripts/learn.py]", "runbooks: []", "tags: [learn, concepts, platform-engineering, generated]", "---", "",

@@ -114,6 +114,8 @@ def validate(cat: dict, make: dict[str, str] | None = None, files: list[str] | N
     make = makefile_suites() if make is None else make
     files = tracked() if files is None else files
     problems, suites = [], {}
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", str((cat.get("meta") or {}).get("fecha_ultimo_cambio"))):
+        problems.append("meta.fecha_ultimo_cambio must be a YYYY-MM-DD date (scripts/learn.py stamps LEARN.md with it)")
     for s in cat.get("suites") or []:
         sid = s.get("id")
         if sid in suites:
