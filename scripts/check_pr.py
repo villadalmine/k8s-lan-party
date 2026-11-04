@@ -501,6 +501,9 @@ def main() -> int:
         cited = [tuple(line.split()) for line in Path(args.verify_runs).read_text(encoding="utf-8").splitlines()
                  if len(line.split()) == 2]
         strict = citation_required(args.action)
+        if not cited:  # a pending body cites nothing (issue #79); a body that must cite one failed step 1 already
+            print("no cited run to check (the description is still 'CI: pending')")
+            return 0
         if verify_runs(cited, args.repo, args.head, wait=WAIT_SECONDS if strict else 0):
             return 0
         if not strict:

@@ -175,6 +175,17 @@ class CheckPr(unittest.TestCase):
         self.assertEqual((code, runs), (0, "villadalmine/k8s-lan-party 123\n"))
         self.assertFalse(check_pr.pending_citation(bodies["pending and a link"]))
 
+    def test_the_api_step_has_nothing_to_judge_for_a_pending_body(self):
+        """pr-format.yml runs step 2 whenever cited-runs.txt exists, and a pending body leaves it empty."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            runs = Path(tmp) / "runs.txt"
+            runs.write_text("", encoding="utf-8")
+            for action in ("labeled", "edited"):
+                code, _ = self._main("--verify-runs", str(runs), "--repo", "villadalmine/k8s-lan-party",
+                                     "--head", "abc", "--action", action)
+                self.assertEqual(code, 0, action)
+
     def test_pending_body_still_fails_the_other_checks(self):
         code, out, _ = self._event_run("labeled", self.PENDING_BODY.replace("- Scope: security", "- Scope: huge"))
         self.assertEqual(code, 1)
