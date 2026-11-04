@@ -47,7 +47,7 @@ make pr-check   # CI's PR checks, locally (CONTRIBUTING -> Check before you push
      When you push, write "pending": that run does not exist yet and pr-format does not ask for it
      (the verify run of that push is the proof). When verify passes, CI posts a 'where-it-ran'
      comment with the line; paste it here and save (one edit). While it says "CI: pending" an edit or a
-     label change only warns; once it links a run, that run must be a green verify run of the exact head. Add the machine or local environment too if you ran anything there. -->
+     label change only warns, and the `evidence` check stays in progress (it blocks the merge); once it links a run, that run must be a green verify run of the exact head, and `evidence` turns green. Add the machine or local environment too if you ran anything there. -->
 - CI: pending
 - Local: 
 

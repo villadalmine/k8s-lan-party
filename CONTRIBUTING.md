@@ -166,11 +166,17 @@ head: a failed run stays in `check-runs?filter=all` and our merge rule is "no fa
 edit that replaces `pending` with the green run.** A body with an empty link, `none`, or a link next to
 `pending` is not pending and stays strict.
 
-**What stops a pending merge.** Nothing in CI: a required check that reports neutral or success while pending
-counts as passing, so GitHub would let it through. The guarantee at merge is the human rule: before merging,
-read the last `pr-format` run of the head (it must say `PR description OK` and no `still 'CI: pending'`
-warning) and check `filter=all` has no failure. The check prints a `::warning::` on every pending run so it
-shows in the log and the checks tab.
+**What stops a pending merge: the `evidence` check.** `pr-format` cannot, because a required check that reports
+neutral or success while pending counts as passing. So a second check run, `evidence`, is written with the Checks
+API by `scripts/evidence.py` (job `evidence-writer` of `pr-format.yml`; `evidence.yml` with `pull_request_target`
+for fork PRs, whose token cannot write checks, and which never checks out or runs anything of the PR). It is
+`in_progress` while no run is cited (`CI: pending`, empty, `none`): a required check that has not completed
+blocks the merge and leaves no failure in `check-runs?filter=all`. It becomes `success` when the description cites
+a green `verify` run of the exact head, and `failure` only for a link that is not. There is one `evidence` check
+run per head and every event updates that same run, so a failure is replaced by the later success. Making it a
+required check is a ruleset change the maintainer applies after merging
+([`docs/runbooks/github-evidence-requerido.md`](docs/runbooks/github-evidence-requerido.md)); until then the
+merge rule is manual: the `evidence` check of the head must be `success` and `filter=all` clean.
 
 `pr-format` lives in its
 own workflow (`pr-format.yml`), and `verify.yml` runs only on pushes, so an edit or a label never creates a

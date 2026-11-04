@@ -560,7 +560,7 @@ def main() -> int:
         return 1
     if pending_body and citation_required(action):
         print(f"::warning::'Where it ran' is still 'CI: pending' on '{action}': fine while verify runs, but "
-              "paste the green run of the head before merge (nothing in CI stops a pending merge).")
+              "paste the green run of the head before merge (the evidence check stays in progress until then).")
     elif not strict and not cited_runs(body):
         print(f"::notice::'Where it ran' has no run link yet; on '{action}' that is fine: paste the line "
               "from the where-it-ran comment once verify passes.")
