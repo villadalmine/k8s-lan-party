@@ -69,6 +69,11 @@ that prove it (`poc-join` J01-J07, `poc-vm` V06c...), the paths that change it, 
 incus, kind). `make features-check` (and `make test`) fail when a `poc-*` suite of the Makefile is missing from it or a feature names no
 step that exists. A new suite, step or feature goes into the catalog in the same PR.
 
+**Learn mode (issue #77).** Every feature declares `layer` and `user_facing`; a user-facing feature, or one a What's new page shows
+(`releases: [v0.3.0-poc]`), also carries a `learn` block (`concept`, `analogy`, `real_world`, `seen_in`: one true sentence each). Without it
+`make features-check` fails. [`docs/LEARN.md`](docs/LEARN.md) and `poc/page/whatsnew/learn.json` are generated from the catalog, never edited:
+run `make learn` after changing a sentence (`make learn-check` and `make test` fail on a stale copy).
+
 A PR that changes the cluster (the scripts and manifests under `poc/` that build or run a game) runs **every** suite, from the join to `down`:
 
 ```bash

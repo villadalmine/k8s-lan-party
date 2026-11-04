@@ -165,6 +165,10 @@ per feature of the release (what, why, the command) and the history of every rel
 - **Data, not code:** `poc/page/whatsnew/<version>.json` (the story, the cards, the links) and `poc/page/whatsnew/<version>/*.cast`. `news.py`
   checks them when the page starts (a bad link or a missing recording stops it) and builds the HTML once; nothing on that page reads a
   request into a file name.
+- **What you just saw, and where it is used for real (issue #77):** each release page ends with a card per feature the release introduced
+  (concept, analogy, real-world use, where it was seen), listed in `releases:` of `docs/FEATURES.yml`. `poc/page/whatsnew/learn.json` is
+  generated from that catalog (`make learn`; `showcase.py learn` does the same), `news.py` reads it at start and renders it with the page's
+  own classes: no script, style or source is added, so the CSP is unchanged. `docs/LEARN.md` has the same text for every feature.
 - **The recordings are real and made by script:** `make showcase` runs `poc-page` with `SHOWCASE=poc/.showcase`; the run writes the
   visitor's and the host's screens with their times, and only a run where every step passed becomes a recording. `showcase.py redact`
   removes what must never be published (public IPs, k3s tokens, JWTs, claim codes, keys, long base64, fingerprints, UUIDs, your clone's
