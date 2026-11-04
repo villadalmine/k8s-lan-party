@@ -101,7 +101,7 @@ def at(pat):
     return m and int(m[1]) * 3600 + int(m[2]) * 60 + int(m[3])
 ok = True
 for who in ("alice", "bob"):
-    c, j, d = at(who + r" has connected\."), at(who + r" joined the game\."), at(who + r" disconnected\. \(\d+ KILLS, \d+ DEATHS\)")
+    c, j, d = at(who + r" has connected\."), at(who + r" joined the game\."), at(who + r" disconnected\. \((?:\d+) (?:KILLS|FRAGS), \d+ DEATHS\)")
     good = None not in (c, j, d) and c <= j < d and d - j >= (play - 5 if who == "bob" else 1)
     print(f"server: {who} joined and stayed {d - j if None not in (c, j, d) else '?'} s")
     ok = ok and good

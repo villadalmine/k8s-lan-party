@@ -658,7 +658,7 @@ nodes with `k3s ctr images import`, so a joined stranger's node pulls nothing fr
 
 **What it does not claim.** Odamex over a LAN-like path is the easy case for a netcode that tolerates latency; this shows the party carries real
 UDP game traffic, not that a match over the internet through a relay is good (that is the relay's budget, section 15.1). The player is a script:
-it proves connection, map, movement and shooting, not skill. It does not claim to cut a match in progress when a party ends: DM14 proves that a client starting after `leave` (the same client, the same local port) gets no answer, not what happens to a game being played at that moment (not tested). The server's line `<name> disconnected. (N KILLS, M DEATHS)` is each player's
+it proves connection, map, movement and shooting, not skill. It does not claim to cut a match in progress when a party ends: DM14 proves that a client starting after `leave` (the same client, the same local port) gets no answer, not what happens to a game being played at that moment (not tested). The server's line `<name> disconnected. (N FRAGS, M DEATHS)` is each player's
 frags and deaths; the suite requires both lines, the joins and the stay, not a number of frags (two scripted robots may or may not meet).
 
 ## 15. What the operator needs (and where traffic goes)
