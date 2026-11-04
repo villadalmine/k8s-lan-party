@@ -3,6 +3,8 @@ release in poc/page/whatsnew/, its recordings next to it. Built once when the pa
 
     whatsnew/<version>.json        version, date, title, release, summary, issues; the newest ones also story, casts, features
     whatsnew/<version>/<name>.cast the recordings (poc/page/whatsnew/showcase.py, from real runs only)
+    whatsnew/<version>/rec/        their filtered sources; never installed on the server, never served
+The page loads with strict=False (a recording that `make showcase` has not made yet is left out); poc/test_whatsnew.py with strict=True.
 """
 from __future__ import annotations
 
