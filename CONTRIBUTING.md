@@ -128,7 +128,9 @@ make test                               # poc/test_whatsnew.py: every .cast rebu
 ```
 
 The page starts while a listed recording does not exist yet (it is left out), so `make showcase` can run the page of the
-release it records; `make test` requires every listed recording. A recording is never edited by hand: change the run or the filter (`poc/page/whatsnew/showcase.py`) and record again. A text transcript of
+release it records; `make test` requires every listed recording. An error that a recording shows on purpose gets its note from a rule in `poc/page/whatsnew/annotations.json` (a regex, the note,
+optionally a regex that must have matched earlier); add a rule there, run `make showcase-build`, and every release's recordings get it. A
+release with no recordings of its own can show another's with `"recordings_from"`. A recording is never edited by hand: change the run or the filter (`poc/page/whatsnew/showcase.py`) and record again. A text transcript of
 another real run (with UTC times, like `v0.2.0-poc/rec/aws.txt`) goes in `rec/<name>.txt`; `make showcase-build` turns it into
 `<name>-player.cast` and `<name>-host.cast`, listed in the release's `casts` with `"run": "aws"` (or another name). The links must point at this
 repository's release tag; the page refuses to start otherwise. The entry is deployed to the public server (`page-server.sh install`) only

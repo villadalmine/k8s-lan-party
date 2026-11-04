@@ -1,0 +1,14 @@
+{
+  "about": "What's new (issue #63): notes the recordings get when showcase.py build makes a .cast from rec/*.tsv. The real output is never changed: a note is a new yellow '# ...' line before the line it explains. notes: the first rule whose 'match' (a regex) finds the line wins; 'after' (a regex) must have matched an earlier line of the same screen; no note when one was added in the last 'window' lines. collapse: a run of more than 'min' consecutive lines that match is kept to its first 'keep' lines plus one line 'say' ({n}: how many were left out).",
+  "window": 3,
+  "notes": [
+    {"match": "^\\d{2}:\\d{2}:\\d{2} \\| visitor: Unable to connect", "after": "lease (ended|end|expired)",
+     "note": "expected after the lease: the namespace is gone, the visitor's API calls time out, Nebula refuses its revoked cert"},
+    {"match": "Unable to connect to the server", "after": "lease (ended|end|expired)", "note": "expected: the lease ended, the tunnel is gone"},
+    {"match": "\\(Forbidden\\)|forbidden \\(403\\)", "note": "expected: 403 — a guest only sees its own corner"}
+  ],
+  "collapse": [
+    {"match": "^E\\d{4} \\d{2}:\\d{2}:\\d{2}\\.\\d+ +\\d+ \\S+\\.go:\\d+\\]", "min": 4, "keep": 1,
+     "say": "... ({n} lines of the expelled node's k3s retrying)"}
+  ]
+}

@@ -73,7 +73,11 @@ def load(d: Path, strict: bool = True) -> list[dict]:
             if not all(isinstance(i, int) for i in c.get("issues", [])):
                 raise NewsError(f"{f.name}: feature {c.get('name')!r}: issues are numbers")
         out.append(r)
-    return sorted(out, key=lambda r: (r["date"], r["version"]), reverse=True)
+    known = {r["version"] for r in out}
+    for r in out:
+        if "recordings_from" in r and (r["recordings_from"] not in known or r["recordings_from"] == r["version"]):
+            raise NewsError(f"{r['version']}.json: recordings_from must name another release in whatsnew/")
+    return sorted(out, key=lambda r: (r["date"], [int(x) for x in re.findall(r"\d+", r["version"])]), reverse=True)
 
 
 def casts(d: Path, releases: list[dict]) -> dict[str, bytes]:
@@ -92,11 +96,11 @@ def _cast(r: dict, c: dict) -> str:
             f'<a href="/whats-new/{e(r["version"])}/{e(c["file"])}">.cast</a></figcaption></figure>')
 
 
-def _release(r: dict) -> str:
+def _release(r: dict, by: dict) -> str:
     e, parts = html.escape, []
     parts.append(f'<section id="{e(r["version"])}"><h2>{e(r["version"])}: {e(r["title"])}</h2>'
-                 f'<p class=meta>{e(r["date"])} &middot; <a href="{e(r["release"])}">release notes</a> &middot; {_issues(r.get("issues", []))}</p>'
-                 f'<p>{e(r["summary"])}</p>')
+                 f'<p class=meta>{e(r["date"])} &middot; <a href="{e(r["release"])}">release notes on GitHub</a> &middot; '
+                 f'{_issues(r.get("issues", []))}</p><p>{e(r["summary"])}</p>')
     story = r.get("story") or {}
     if story:
         parts.append("<div class=sides>")
@@ -110,6 +114,10 @@ def _release(r: dict) -> str:
     if aws:
         parts.append(f'<h3>{e(r.get("aws_title", "The same game on a real cloud"))}</h3><div class=sides>'
                      + "".join(f"<div class=side>{_cast(r, c)}</div>" for c in aws) + "</div>")
+    src = by.get(r.get("recordings_from", ""))
+    if src:   # a release with no run of its own shows the recordings it changed, and says whose they are
+        parts.append(f'<h3>The recordings of <a href="/whats-new/{e(src["version"])}">{e(src["version"])}</a>, rebuilt by this release</h3>'
+                     '<div class=sides>' + "".join(f"<div class=side>{_cast(src, c)}</div>" for c in src.get("casts", [])) + "</div>")
     feats = r.get("features", [])
     if feats:
         parts.append("<h3>New power-ups</h3><div class=cards>")
@@ -120,18 +128,32 @@ def _release(r: dict) -> str:
     return "".join(parts) + "</section>"
 
 
-def page(releases: list[dict]) -> str:
-    e = html.escape
-    newest = [r for r in releases if r.get("story") or r.get("features")]
-    history = "".join(f'<tr><td><a href="{e(r["release"])}">{e(r["version"])}</a></td><td>{e(r["date"])}</td>'
-                      f'<td>{e(r["title"])}</td><td>{_issues(r.get("issues", []))}</td></tr>' for r in releases)
+def _doc(title: str, body: str) -> str:
     return ('<!doctype html>\n<html lang=en><head><meta charset=utf-8><meta name=viewport content="width=device-width, initial-scale=1">'
-            '<title>k8s-lan-party: what\'s new</title><link rel=stylesheet href=/static/page.css>'
-            '<link rel=stylesheet href=/static/asciinema-player.css></head><body><main class=wide>'
-            '<p><a href="/">&larr; ask for a place</a></p><h1>What\'s new</h1>'
-            '<p>Every release, told as a game: the player who lends a machine for an hour, and the host who runs the pool. The '
-            'recordings are real runs, played back here (no video, no tracker: plain text your browser replays).</p>'
-            + "".join(_release(r) for r in newest)
-            + '<section id=history><h2>History</h2><table><tr><th>Release</th><th>Date</th><th>What</th><th>Issues</th></tr>'
-            + history + '</table></section></main><script src=/static/asciinema-player.min.js></script>'
-            '<script src=/static/whatsnew.js></script></body></html>\n')
+            f'<title>{html.escape(title)}</title><link rel=stylesheet href=/static/page.css>'
+            '<link rel=stylesheet href=/static/asciinema-player.css></head><body><main class=wide>' + body
+            + '</main><script src=/static/asciinema-player.min.js></script><script src=/static/whatsnew.js></script></body></html>\n')
+
+
+def pages(releases: list[dict]) -> dict[str, str]:
+    """/whats-new (the index: the newest release in full, then every release with a link to its page) and /whats-new/<version> for
+    each one, with older / index / newer. The paths come from the checked versions (VERSION_RE), never from a request."""
+    e, by = html.escape, {r["version"]: r for r in releases}
+    rows = "".join(f'<tr><td><a href="/whats-new/{e(r["version"])}">{e(r["version"])}</a></td><td>{e(r["date"])}</td>'
+                   f'<td>{e(r["title"])}</td><td><a href="{e(r["release"])}">GitHub</a></td><td>{_issues(r.get("issues", []))}</td></tr>'
+                   for r in releases)
+    table = ('<section id=history><h2>Every release</h2><table><tr><th>Page</th><th>Date</th><th>What</th><th>Notes</th><th>Issues</th></tr>'
+             + rows + '</table></section>')
+    out = {"/whats-new": _doc("k8s-lan-party: what's new", '<p><a href="/">&larr; ask for a place</a></p><h1>What\'s new</h1>'
+                              '<p>Every release, told as a game: the player who lends a machine for an hour, and the host who runs the pool. '
+                              'The recordings are real runs, played back here (no video, no tracker: plain text your browser replays). '
+                              'Each release has its own page below.</p>' + (_release(releases[0], by) if releases else "") + table)}
+    for i, r in enumerate(releases):
+        newer, older = (releases[i - 1] if i else None), (releases[i + 1] if i + 1 < len(releases) else None)
+        nav = " &middot; ".join(x for x in (
+            f'<a href="/whats-new/{e(older["version"])}">&larr; {e(older["version"])}</a>' if older else "",
+            '<a href="/whats-new">all releases</a>',
+            f'<a href="/whats-new/{e(newer["version"])}">{e(newer["version"])} &rarr;</a>' if newer else "") if x)
+        out[f"/whats-new/{r['version']}"] = _doc(f"k8s-lan-party {r['version']}", f'<nav class=meta>{nav}</nav>' + _release(r, by)
+                                                 + f'<nav class=meta>{nav}</nav>')
+    return out

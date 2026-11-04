@@ -1,0 +1,31 @@
+{
+  "version": "v0.2.1-poc",
+  "date": "2026-11-04",
+  "title": "every release has its page, and the recordings say which errors are expected",
+  "release": "https://github.com/villadalmine/k8s-lan-party/releases/tag/v0.2.1-poc",
+  "summary": "Fixes to this page; nothing else in the project changed. Every release now has its own page with a stable link (/whats-new/<version>), and /whats-new lists them all. The recordings of v0.2.0-poc showed red errors that are the point of the demo (a guest refused outside its namespace, a visitor shut out when its lease ends) and looked like failures: each one now has a yellow '# expected' line just before it, added by the build from a versioned table, never by editing the real output, and the captions say what you will see. No new recordings: the ones below are v0.2.0-poc's, rebuilt.",
+  "issues": [
+    63
+  ],
+  "features": [
+    {
+      "name": "A page per release",
+      "what": "/whats-new/v0.2.0-poc, /whats-new/v0.2.1-poc...: each release's story, cards and recordings at a link you can share, with older, newer and all releases; /whats-new is the index.",
+      "why": "So a past release keeps its explanation after the next one ships.",
+      "command": "curl -s https://play.cybercirujas.club/whats-new/v0.2.0-poc | head",
+      "issues": [
+        63
+      ]
+    },
+    {
+      "name": "Expected errors, labelled",
+      "what": "showcase.py build reads poc/page/whatsnew/annotations.json: a note before each line a rule matches, and a long run of one kind of line kept short with a count. The real lines stay as they were.",
+      "why": "An error you are meant to see should say so: 403 for a guest is the fence working, a timeout after the lease is the expulsion working.",
+      "command": "make showcase-build\npython3 -m unittest poc.test_whatsnew",
+      "issues": [
+        63
+      ]
+    }
+  ],
+  "recordings_from": "v0.2.0-poc"
+}

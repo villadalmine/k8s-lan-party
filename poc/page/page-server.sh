@@ -204,6 +204,12 @@ echo "\$h" | grep -qi '^strict-transport-security:' && echo "\$h" | grep -qi "^c
 w=\$(curl -skI --connect-to ::127.0.0.1: "$url/whats-new" | tr -d '\r')
 echo "\$w" | head -1 | grep -q ' 200' && echo "\$w" | grep -qi "^content-security-policy: default-src 'none'; script-src 'self' 'wasm-unsafe-eval';" &&
   ok "What's new answers; its CSP adds only WebAssembly for the player" || no "What's new does not answer, or its CSP is not the page's"
+v=0; for r in \$(python3 -I -c 'import glob, json
+for f in sorted(glob.glob("/opt/k8s-lan-party-page/whatsnew/v*.json")): print(json.load(open(f))["version"])'); do
+  s=\$(curl -sk --connect-to ::127.0.0.1: -o /dev/null -w '%{http_code}' "$url/whats-new/\$r"); v=\$((v+1))
+  [ "\$s" = 200 ] || { no "What's new: the page /whats-new/\$r answers \$s"; v=-999; }
+done
+[ "\$v" -lt 0 ] || ok "What's new: the \$v release pages answer 200"
 n=0; b=0; for c in \$(python3 -I -c 'import glob, json
 for f in sorted(glob.glob("/opt/k8s-lan-party-page/whatsnew/v*.json")):
     r = json.load(open(f))
