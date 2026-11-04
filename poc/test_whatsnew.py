@@ -91,6 +91,7 @@ class Recordings(unittest.TestCase):
             try:
                 shutil.copytree(rel, d / rel.name)
                 shutil.copy(rel.parent / f"{rel.name}.json", d / f"{rel.name}.json")
+                shutil.copy(NEWS / "annotations.json", d / "annotations.json")
                 for c in (d / rel.name).glob("*.cast"):
                     c.unlink()
                 with contextlib.redirect_stdout(io.StringIO()):
@@ -119,10 +120,45 @@ class Recordings(unittest.TestCase):
         self.assertIn("asciinema-player 3.17.0", (HERE / "page" / "page.py").read_text())
 
 
+def screen(cast: Path) -> list[str]:
+    """The lines a viewer reads in a .cast, colours removed."""
+    text = "".join(json.loads(ln)[2] for ln in cast.read_text().splitlines()[1:])
+    return [re.sub(r"\x1b\[[0-9;]*m", "", ln) for ln in text.split("\r\n")]
+
+
+class ExpectedErrors(unittest.TestCase):
+    ANN = json.loads((NEWS / "annotations.json").read_text())
+
+    def test_every_expected_error_is_explained_just_before(self):
+        n = 0
+        for f in sorted(NEWS.glob("v*/*.cast")):
+            lines = screen(f)
+            for i, ln in enumerate(lines):
+                if "Forbidden" in ln or "Unable to connect" in ln:
+                    n += 1
+                    self.assertTrue(any(x.startswith("# expected") for x in lines[max(0, i - 2):i]),
+                                    f"{f.name} line {i}: {ln[:60]!r} has no '# expected' note in the 2 lines before it")
+        self.assertGreaterEqual(n, 7)   # 1 + 3 Forbidden, 1 + 2 Unable to connect in v0.2.0-poc
+
+    def test_notes_only_add_lines(self):
+        rows = showcase.read_tsv(str(NEWS / "v0.2.0-poc" / "rec" / "aws-player.tsv"))
+        out = showcase.annotate(rows, {**self.ANN, "collapse": []})
+        self.assertEqual([r for r in out if r[1] != "note" or r in rows], rows)
+        self.assertGreater(len(out), len(rows))
+
+    def test_a_long_run_of_k3s_retries_is_shortened_and_counted(self):
+        e = [(float(i), "out", f'E1103 17:52:{i:02d}.000001    2162 controller.go:208] "Failed to ensure lease exists"') for i in range(6)]
+        rows = [(0.0, "out", "before")] + e + [(9.0, "out", "after")]
+        out = showcase.annotate(rows, self.ANN)
+        self.assertEqual([x[2] for x in out], ["before", e[0][2], "... (5 lines of the expelled node's k3s retrying)", "after"])
+        self.assertEqual(showcase.annotate(rows[:5], self.ANN), rows[:5])   # 4 lines: kept as they are
+
+
 class Releases(unittest.TestCase):
     def test_every_release_loads_and_v0_2_0_tells_both_sides(self):
         rs = {r["version"]: r for r in news.load(NEWS)}
         self.assertIn("v0.1.0-poc", rs)
+        self.assertEqual(rs["v0.2.1-poc"]["recordings_from"], "v0.2.0-poc")
         r = rs["v0.2.0-poc"]
         self.assertEqual({c["side"] for c in r["casts"]}, {"player", "host"})
         self.assertTrue(r["story"]["player"]["steps"] and r["story"]["host"]["steps"])
@@ -138,7 +174,8 @@ class Releases(unittest.TestCase):
             cast = {"file": "p.cast", "title": "t", "side": "player"}
             feat = {"name": "n", "what": "w", "why": "y", "command": "c"}
             for bad in ({"release": "https://evil.example/releases/tag/v9.9.9"}, {"version": "v9"}, {"issues": ["1"]},
-                        {"casts": [{**cast, "file": "../x.cast"}]}, {"casts": [{**cast, "file": "missing.cast"}]}):
+                        {"casts": [{**cast, "file": "../x.cast"}]}, {"casts": [{**cast, "file": "missing.cast"}]},
+                        {"recordings_from": "v1.0.0"}, {"recordings_from": "v9.9.9"}):
                 (d / "v9.9.9.json").write_text(json.dumps({**good, **bad}))
                 with self.assertRaises(news.NewsError, msg=str(bad)):
                     news.load(d)
@@ -201,6 +238,31 @@ class Served(unittest.TestCase):
         self.assertTrue(all(u.startswith(("/", "#", news.REPO + "/")) for u in hrefs), hrefs)
         self.assertNotIn("wasm", self.get("/")[1]["Content-Security-Policy"])   # only /whats-new needs it
         self.assertIn(b'href=/whats-new', self.get("/")[2])
+
+    def test_each_release_has_its_own_page_and_the_index_links_them(self):
+        rs = news.load(NEWS)
+        index = self.get("/whats-new")[2].decode()
+        for i, r in enumerate(rs):
+            v = r["version"]
+            self.assertIn(f'href="/whats-new/{v}"', index)
+            s, h, body = self.get(f"/whats-new/{v}")
+            self.assertEqual(s, 200, v)
+            self.assertIn("'wasm-unsafe-eval'", h["Content-Security-Policy"])
+            text = body.decode()
+            self.assertIn(f'href="{r["release"]}"', text)                    # its release on GitHub
+            self.assertIn('href="/whats-new">all releases', text)            # back to the index
+            if i:
+                self.assertIn(f'href="/whats-new/{rs[i - 1]["version"]}"', text)   # the newer one
+            if i + 1 < len(rs):
+                self.assertIn(f'href="/whats-new/{rs[i + 1]["version"]}"', text)   # the older one
+        self.assertIn(f'<section id="{rs[0]["version"]}">', index)            # the newest one in full on the index
+
+    def test_only_known_versions_route(self):
+        for p in ("/whats-new/v9.9.9-poc", "/whats-new/v0.2.0-poc/", "/whats-new/v0.2.0-poc.json", "/whats-new/../page.py",
+                  "/whats-new/v0.2.0-poc/../../page.py", "/whats-new/%2e%2e/page.py", "/whats-new/v0.2.0-poc%2f..%2fpage.py",
+                  "/whats-new/annotations.json", "/whats-new/v0.2.0-poc/rec/player.tsv", "/whats-new//v0.2.0-poc", "/whats-new/V0.2.0-POC"):
+            self.assertEqual(self.get(p)[0], 404, p)
+        self.assertEqual(self.get("/whats-new/v0.2.0-poc?x=../../etc/passwd")[0], 200)   # the query is never read
 
     def test_casts_and_player_are_served_from_here(self):
         for f in sorted(NEWS.glob("v*/*.cast")):

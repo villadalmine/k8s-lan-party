@@ -4,7 +4,25 @@
   "title": "every feature tested the same way, every time",
   "release": "https://github.com/villadalmine/k8s-lan-party/releases/tag/v0.2.0-poc",
   "summary": "The rules of the game did not change; the referee got stricter. Every feature is now in one catalog with the steps that prove it, one command runs the whole stack, and a pull request has to show the evidence for what it touches. Two tokens a joined machine carries lost powers they never needed.",
-  "issues": [29, 35, 47, 52, 53, 54, 56, 59, 60, 62, 64, 65, 66, 67, 68, 69, 71],
+  "issues": [
+    29,
+    35,
+    47,
+    52,
+    53,
+    54,
+    56,
+    59,
+    60,
+    62,
+    64,
+    65,
+    66,
+    67,
+    68,
+    69,
+    71
+  ],
   "story": {
     "player": {
       "title": "Player 1: you, with a spare machine",
@@ -33,17 +51,95 @@
   },
   "aws_title": "The same game with a real stranger: an EC2 machine against the live demo (2026-11-03)",
   "casts": [
-    {"file": "player.cast", "side": "player", "title": "The player's screen", "caption": "a real make showcase run (poc-page) in Incus VMs: the visitor is a VM on its own network."},
-    {"file": "host.cast", "side": "host", "title": "The host's screen", "caption": "the same run, from the control plane: only the ticks and pulls where something happened, and a look a minute at the lease."},
-    {"file": "aws-player.cast", "side": "player", "run": "aws", "title": "The visitor on AWS", "caption": "asked at 16:49, Ready at 16:52, expelled at 17:50 when its hour ended."},
-    {"file": "aws-host.cast", "side": "host", "run": "aws", "title": "The live demo's host", "caption": "the request, the automatic approval, the node, the countdown and the reap."}
+    {
+      "file": "player.cast",
+      "side": "player",
+      "title": "The player's screen",
+      "caption": "a real make showcase run (poc-page) in Incus VMs. The red lines are the point: the guest gets 403 outside its own namespace, and once the lease ends the API is gone (each one marked '# expected')."
+    },
+    {
+      "file": "host.cast",
+      "side": "host",
+      "title": "The host's screen",
+      "caption": "the same run, from the control plane: only the ticks and pulls where something happened, and a look a minute at the lease. No errors here: the host's side of an expulsion is one tick line."
+    },
+    {
+      "file": "aws-player.cast",
+      "side": "player",
+      "run": "aws",
+      "title": "The visitor on AWS",
+      "caption": "asked at 16:49, Ready at 16:52, expelled at 17:50 when its hour ended. The Forbidden lines are the guest bumping into its fence (nodes, kube-system, secrets): that is the security working, each marked '# expected'."
+    },
+    {
+      "file": "aws-host.cast",
+      "side": "host",
+      "run": "aws",
+      "title": "The live demo's host",
+      "caption": "the request, the automatic approval, the node, the countdown and the reap. The errors after 17:50:30 are the visitor being shut out on schedule: its namespace is gone, its API calls time out, Nebula refuses its revoked certificate."
+    }
   ],
   "features": [
-    {"name": "The Cilium guard", "what": "The Cilium agent's token on a joined node can no longer forge another node's endpoints, WireGuard key or identities.", "why": "A joined node is someone else's machine: its owner can read every token on it. A token should do only what that node needs.", "command": "make poc-vm      # V06c, V09b-V09c\nmake poc-golden  # G3.5", "issues": [53, 29, 58]},
-    {"name": "SPIRE, scoped", "what": "The SPIRE agent's token may only get nodes and pods: no nodes/proxy, nothing cluster-wide beyond that.", "why": "nodes/proxy reaches every kubelet. A guest never needs it.", "command": "make poc-vm      # V103\nmake poc-golden  # G3.6", "issues": [54, 35]},
-    {"name": "The puller's token", "what": "Normalized on write and read; verify proves the page accepts it, from your host, without sending it to the server.", "why": "A trailing newline used to lock the host out of its own page.", "command": "./page/page-server.sh verify --ssh \"$SSH\" --site page.example.org", "issues": [52, 47]},
-    {"name": "make regression", "what": "Every suite of the catalog, in a fixed order, each with its own state; it never touches what it did not create, and keeps each suite's logs with secrets redacted.", "why": "Same commit, same host, same day: the same table. A release is that table, all PASS.", "command": "make regression\nmake regression ONLY=\"poc-join poc-revoke\"", "issues": [65, 71]},
-    {"name": "docker-vm", "what": "On a host with Incus and no Docker, the Docker and kind suites run inside a VM of the run: nothing is skipped for want of a runtime.", "why": "One machine proves both runtimes.", "command": "REGRESSION_RUNTIME=docker-vm make regression", "issues": [66]},
-    {"name": "The gate", "what": "docs/FEATURES.yml maps every path to a feature; a pull request cites the PASS of the suites it touches, says its docs impact, and its diagrams carry the hash of their source.", "why": "Evidence, not promises: a change cannot ship untested or with a stale diagram.", "command": "make features-check\nmake pr-check PR_BODY=body.md", "issues": [67, 62, 60, 61]}
+    {
+      "name": "The Cilium guard",
+      "what": "The Cilium agent's token on a joined node can no longer forge another node's endpoints, WireGuard key or identities.",
+      "why": "A joined node is someone else's machine: its owner can read every token on it. A token should do only what that node needs.",
+      "command": "make poc-vm      # V06c, V09b-V09c\nmake poc-golden  # G3.5",
+      "issues": [
+        53,
+        29,
+        58
+      ]
+    },
+    {
+      "name": "SPIRE, scoped",
+      "what": "The SPIRE agent's token may only get nodes and pods: no nodes/proxy, nothing cluster-wide beyond that.",
+      "why": "nodes/proxy reaches every kubelet. A guest never needs it.",
+      "command": "make poc-vm      # V103\nmake poc-golden  # G3.6",
+      "issues": [
+        54,
+        35
+      ]
+    },
+    {
+      "name": "The puller's token",
+      "what": "Normalized on write and read; verify proves the page accepts it, from your host, without sending it to the server.",
+      "why": "A CRLF in the token file made the puller get 401 while verify said ok.",
+      "command": "./page/page-server.sh verify --ssh \"$SSH\" --site page.example.org",
+      "issues": [
+        52,
+        47
+      ]
+    },
+    {
+      "name": "make regression",
+      "what": "Every suite of the catalog, in a fixed order, each with its own state; it never touches what it did not create, and keeps each suite's logs with secrets redacted.",
+      "why": "Same commit, same host, same day: the same table. A release is that table, all PASS.",
+      "command": "make regression\nmake regression ONLY=\"poc-join poc-revoke\"",
+      "issues": [
+        65,
+        71
+      ]
+    },
+    {
+      "name": "docker-vm",
+      "what": "On a host with Incus and no Docker, the Docker and kind suites run inside a VM of the run: nothing is skipped for want of a runtime.",
+      "why": "One machine proves both runtimes.",
+      "command": "REGRESSION_RUNTIME=docker-vm make regression",
+      "issues": [
+        66
+      ]
+    },
+    {
+      "name": "The gate",
+      "what": "docs/FEATURES.yml maps every path to a feature; a pull request cites the PASS of the suites it touches, says its docs impact, and its diagrams carry the hash of their source.",
+      "why": "Evidence, not promises: a change cannot ship untested or with a stale diagram.",
+      "command": "make features-check\nmake pr-check PR_BODY=body.md",
+      "issues": [
+        67,
+        62,
+        60,
+        61
+      ]
+    }
   ]
 }

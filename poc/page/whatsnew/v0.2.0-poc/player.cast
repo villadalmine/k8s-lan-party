@@ -882,6 +882,7 @@
 [45.268, "o", "e"]
 [45.293, "o", "s"]
 [45.618, "o", "\r\n"]
+[46.031, "o", "\u001b[1;33m# expected: 403 \u2014 a guest only sees its own corner\u001b[0m\r\n"]
 [46.031, "o", "Error from server (Forbidden): nodes is forbidden: User \"system:serviceaccount:play-visitor:user\" cannot list resource \"nodes\" in API group \"\" at the cluster scope\r\n"]
 [46.044, "o", "edge-mesh: forbidden (403): you may only work in your namespace play-visitor\r\n"]
 [48.044, "o", "\u001b[2m   ... 11 min 15 s later\u001b[0m\r\n"]
@@ -1092,4 +1093,5 @@
 [56.63, "o", "0"]
 [56.655, "o", "s"]
 [56.98, "o", "\r\n"]
+[58.98, "o", "\u001b[1;33m# expected: the lease ended, the tunnel is gone\u001b[0m\r\n"]
 [58.98, "o", "Unable to connect to the server: context deadline exceeded\r\n"]

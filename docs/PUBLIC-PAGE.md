@@ -1,7 +1,7 @@
 ---
 tipo: runbook
 id: k8s-lan-party-public-page
-version: 0.2.0
+version: 0.3.0
 fecha_alta: 2026-10-28
 fecha_ultimo_cambio: 2026-11-04
 categoria: plataforma
@@ -151,6 +151,17 @@ hour (reads the page, makes keys, asks, waits, collects, `edge-mesh join`, runs 
 request arrives, the tick admits, `kubectl get nodes`, the countdown, the reap). Each side has a recording you can replay, then one card
 per feature of the release (what, why, the command) and the history of every release with its issues.
 
+- **One page per release:** `/whats-new` is the index (the newest release in full, then every release with a link to its page and to its
+  notes on GitHub); `/whats-new/<version>` (for example `/whats-new/v0.2.0-poc`) is a stable link to one release, with older / all releases /
+  newer. The routes are the exact paths built from the checked versions when the page starts: anything else, a traversal included, is a
+  404. A release with no run of its own can show the recordings it changed (`"recordings_from": "v0.2.0-poc"`, as v0.2.1-poc does).
+- **Expected errors say so:** some red lines are the point of the demo (a guest gets 403 outside its namespace; after the lease its API calls
+  time out and Nebula refuses its revoked certificate). `poc/page/whatsnew/annotations.json` is a versioned table of rules: `showcase.py
+  build` adds a yellow `# expected: ...` line before each line a rule matches, and keeps a long run of one kind of line (the expelled node's
+  k3s retrying) to its first line plus `... (N lines of ...)`. It only adds lines: the real output in `rec/` is never edited, and every
+  release inherits the table. `poc/test_whatsnew.py` fails when a `Forbidden` or `Unable to connect` line has no `# expected` in the two
+  lines before it. Each recording's caption also says, in one sentence, which errors you will see and why they are good.
+
 - **Data, not code:** `poc/page/whatsnew/<version>.json` (the story, the cards, the links) and `poc/page/whatsnew/<version>/*.cast`. `news.py`
   checks them when the page starts (a bad link or a missing recording stops it) and builds the HTML once; nothing on that page reads a
   request into a file name.
@@ -166,7 +177,7 @@ per feature of the release (what, why, the command) and the history of every rel
   `'wasm-unsafe-eval'` added to `script-src` (it lets the browser compile WebAssembly, not evaluate JavaScript); every other route keeps the CSP
   unchanged. No cookie, no tracker, no font or script from a CDN.
 - `page-server.sh install` copies the release files and recordings (never `rec/`) and removes the ones that are gone; `verify` checks that
-  `/whats-new` answers with that CSP.
+  `/whats-new` answers with that CSP, that every release page `/whats-new/<version>` answers 200, and every recording they list.
 
 ## The API, version 1
 

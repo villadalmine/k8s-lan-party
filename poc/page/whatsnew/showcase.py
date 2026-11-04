@@ -141,10 +141,40 @@ def from_text(txt: str, outdir: str, stem: str = "aws") -> None:
         write_tsv([(t - t0, k, x) for t, k, x in rows], f"{outdir}/{stem}-{s}.tsv")
 
 
-def cast(tsv: str, out: str, title: str) -> None:
+def annotate(rows: list, ann: dict) -> list:
+    """The notes and the shortening of annotations.json, applied to a screen: new 'note' rows before the lines they explain, and long
+    runs of one kind of line kept to their first lines plus one that says how many were left out. The real lines are never edited."""
+    out, seen, last_note = [], [], -10 ** 9
+    rules = [(re.compile(r["match"]), re.compile(r["after"]) if r.get("after") else None, r["note"]) for r in ann.get("notes", [])]
+    for t, kind, text in rows:
+        for rx, after, note in rules:
+            if rx.search(text):
+                if (after is None or any(after.search(x) for x in seen)) and len(out) - last_note > ann.get("window", 3):
+                    out.append((t, "note", note))
+                    last_note = len(out) - 1
+                break
+        out.append((t, kind, text))
+        seen.append(text)
+    for c in ann.get("collapse", []):
+        rx, kept, i = re.compile(c["match"]), [], 0
+        while i < len(out):
+            j = i
+            while j < len(out) and out[j][1] == "out" and rx.search(out[j][2]):
+                j += 1
+            if j - i > c["min"]:
+                kept += out[i:i + c["keep"]] + [(out[i + c["keep"]][0], "out", c["say"].format(n=j - i - c["keep"]))]
+                i = j
+            else:
+                kept.append(out[i])
+                i += 1
+        out = kept
+    return out
+
+
+def cast(tsv: str, out: str, title: str, ann: dict | None = None) -> None:
     side = "host" if "host" in Path(tsv).stem else "player"
     ev, clock, last = [], 0.0, None
-    for t, kind, text in read_tsv(tsv):
+    for t, kind, text in annotate(read_tsv(tsv), ann or {}):
         if last is not None:
             gap = t - last
             clock += min(max(gap, 0.0), GAP)
@@ -171,11 +201,13 @@ def build(d: str) -> None:
     rel = Path(d)
     data = json.loads((rel.parent / f"{rel.name}.json").read_text())
     titles = {c["file"]: c["title"] for c in data.get("casts", [])}
+    notes = rel.parent / "annotations.json"   # the expected errors and long runs, for every release (docs/PUBLIC-PAGE.md)
+    ann = json.loads(notes.read_text()) if notes.is_file() else {}
     for txt in sorted((rel / "rec").glob("*.txt")):   # a text transcript (the AWS run): first its two TSV files
         from_text(str(txt), str(rel / "rec"), txt.stem)
     for tsv in sorted((rel / "rec").glob("*.tsv")):
         name = f"{tsv.stem}.cast"
-        cast(str(tsv), str(rel / name), titles.get(name, tsv.stem))
+        cast(str(tsv), str(rel / name), titles.get(name, tsv.stem), ann)
         print(f"cast: {rel / name}")
 
 

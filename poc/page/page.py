@@ -776,7 +776,8 @@ def make_server(page: Page, listen: str) -> Server:
     for path, ctype in STATIC.items():
         static[path] = ((HERE / "static" / path.rsplit("/", 1)[1]).read_bytes(), ctype)
     releases = news.load(HERE / "whatsnew", strict=False)   # What's new: built once, served like the static files (test: strict)
-    static["/whats-new"] = (news.page(releases).encode(), "text/html; charset=utf-8", {"Content-Security-Policy": news.CSP})
+    for path, body in news.pages(releases).items():   # /whats-new and /whats-new/<version>: exact keys, nothing else matches
+        static[path] = (body.encode(), "text/html; charset=utf-8", {"Content-Security-Policy": news.CSP})
     for path, body in news.casts(HERE / "whatsnew", releases).items():
         static[path] = (body, "application/x-asciicast; charset=utf-8")
     handler = type("PageHandler", (Handler,), {"page": page, "static": static})
