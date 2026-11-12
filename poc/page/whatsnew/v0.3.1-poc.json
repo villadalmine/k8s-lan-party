@@ -3,7 +3,7 @@
   "date": "2026-11-12",
   "title": "the robots finally score: frags in the Doom match",
   "release": "https://github.com/villadalmine/k8s-lan-party/releases/tag/v0.3.1-poc",
-  "summary": "A patch release of v0.3.0-poc's LAN party, about what you see, not about how it works. In v0.3.0 the scripted robots hit each other but ended every match with their fists and zero frags: they fire without pause, pick up little, and had emptied the pistol before the recording started. romero's Doom server now gives infinite ammo, makes each hit three times stronger and brings a dead robot back after three seconds (a robot never presses Use, the only way to respawn). Measured over three real runs: 2, 1 and 3 frags in the match, and a frag on carmack's screen in two of the three recordings. Frags are still not a test: the server log is the witness, as before. Under the hood, the last test image pulled by tag is now pinned by digest, and a test keeps it that way; every suite was run again with it, all PASS.",
+  "summary": "A patch release of v0.3.0-poc's LAN party, about what you see, not about how it works. In v0.3.0 the scripted robots hit each other but ended every match with their fists and zero frags: they fire without pause, pick up little, and had emptied the pistol before the recording started. romero's Doom server now gives infinite ammo, makes each hit three times stronger and brings a dead robot back after three seconds (a robot never presses Use, the only way to respawn). Measured over three real runs: 2, 1 and 3 frags in the match, and a frag on carmack's screen in two of the three recordings. Frags are still not a test: the server log is the witness, as before. Under the hood, agnhost, the small test server behind the suites' UDP echo, is now pinned by digest like the Doom image's base, and a test keeps both that way; every suite was run again with it, all PASS.",
   "issues": [
     80,
     20
@@ -14,7 +14,7 @@
       "steps": [
         "Everything from v0.3.0-poc is the same: three friends, two parties, the fence that keeps a third player out until she has her own yes.",
         "romero's server now runs with infinite ammo, three times the weapon damage and a forced respawn after three seconds.",
-        "carmack's robot joins through his party, and this time the counter under FRAGS moves: the GIF below is his screen.",
+        "carmack's robot joins through his party already holding a frag (FRAGS 1 on his screen), and in the last seconds of the GIF below romero kills him: the screen goes red, the deathmatch table shows carmack and romero with one frag and one death each.",
         "petersen joins through her own party; carmack and petersen still never reach each other."
       ]
     },
@@ -31,7 +31,7 @@
       "file": "player.cast",
       "side": "player",
       "title": "The friends' screens",
-      "caption": "a real make showcase-doom run (poc-doom) in Incus VMs with Cilium, with the server settings of this release. The 'no server answered' lines are the point (no yes, one yes, a third player while another is in a party, after leaving) and each one is marked '# expected'."
+      "caption": "a real poc-doom run, recorded the way make showcase-doom does in Incus VMs with Cilium, with the server settings of this release. The 'no server answered' lines are the point (no yes, one yes, a third player while another is in a party, after leaving) and each one is marked '# expected'."
     },
     {
       "file": "host.cast",
@@ -44,8 +44,8 @@
     {
       "file": "match.gif",
       "title": "carmack's screen during the match",
-      "alt": "A first-person view of a small FreeDM deathmatch map: carmack's marine firing a plasma gun down grey corridors, with Doom's status bar at the bottom and the FRAGS counter at 1.",
-      "caption": "captured by the automated robot under a virtual screen (Xvfb + ffmpeg) late in the match, when the others have joined: 320x200, 30 seconds. carmack has already scored once (FRAGS 1); in the whole match of this recording there were 4 frags (carmack 2, petersen 1, romero 1). Whether a kill falls inside these 30 seconds is chance."
+      "alt": "A first-person view of a small FreeDM deathmatch map: carmack's marine firing a chaingun down grey corridors with FRAGS 1 in Doom's status bar; at the end the screen turns red, romero's kill message shows at the top right and the deathmatch table lists carmack, romero and petersen.",
+      "caption": "captured by the automated robot under a virtual screen (Xvfb + ffmpeg) late in the match, when the others have joined: 320x200, 30 seconds. carmack already holds one frag; at the end romero kills him (the red screen and the table). In the whole match of this recording there were 4 frags (carmack 2, petersen 1, romero 1). What falls inside these 30 seconds is chance."
     }
   ],
   "features": [
@@ -59,8 +59,8 @@
       ]
     },
     {
-      "name": "Every test image pinned by digest",
-      "what": "agnhost, the small server and client of the network checks (the UDP echo of the Doom suite among them), is now pinned by tag and digest in poc/stack.env, like the Doom image's Debian base; tests/test_image_pins.py fails if either loses its digest. The whole make regression ran again with it: all PASS.",
+      "name": "agnhost pinned by digest",
+      "what": "agnhost, the small server and client of the network checks (the UDP echo of the Doom suite among them), is now pinned by tag and digest in poc/stack.env, like the Doom image's Debian base; tests/test_image_pins.py fails if either loses its digest. Other test images (pause, alpine, netshoot, the tools image) are still pinned by tag. The whole make regression ran again with it: all PASS.",
       "why": "A tag can be moved to other content; a digest cannot, so what was tested is what runs.",
       "command": "python3 -m pytest -q tests/test_image_pins.py\nmake regression",
       "issues": [

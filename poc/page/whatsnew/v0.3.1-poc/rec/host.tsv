@@ -2,13 +2,13 @@
 0.042	cmd	mesh host auto --once
 2.034	out	burned 0
 7.733	out	issued romero
-7.733	out	bundle: /home/dalmine/regress/showcase031/reg/state/poc-doom/bundles/romero  (send it privately; it holds the player's key and a join token that works until the node registers or 8 min pass)
+7.733	out	bundle: bundles/romero  (send it privately; it holds the player's key and a join token that works until the node registers or 8 min pass)
 7.733	out	namespace: play-romero  (the bundle's kubeconfig works there only, until 1800s from now)
 12.673	out	issued carmack
-12.673	out	bundle: /home/dalmine/regress/showcase031/reg/state/poc-doom/bundles/carmack  (send it privately; it holds the player's key and a join token that works until the node registers or 8 min pass)
+12.673	out	bundle: bundles/carmack  (send it privately; it holds the player's key and a join token that works until the node registers or 8 min pass)
 12.673	out	namespace: play-carmack  (the bundle's kubeconfig works there only, until 1800s from now)
 17.908	out	issued petersen
-17.908	out	bundle: /home/dalmine/regress/showcase031/reg/state/poc-doom/bundles/petersen  (send it privately; it holds the player's key and a join token that works until the node registers or 8 min pass)
+17.908	out	bundle: bundles/petersen  (send it privately; it holds the player's key and a join token that works until the node registers or 8 min pass)
 17.908	out	namespace: play-petersen  (the bundle's kubeconfig works there only, until 1800s from now)
 17.969	out	tick: auto on | expelled 0 | approved 3 | slots 3/3 used | 0 in the list (0 eligible now)
 431.927	note	the host's tick: both consents, both namespaces live, so it opens the party

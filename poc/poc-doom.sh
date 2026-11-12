@@ -166,7 +166,7 @@ step DM19 "two policies are left (romero and petersen's pair); reconcile twice s
 step DM20 "nothing non-free is in the image: FreeDM only, no doom.wad or doom2.wad, both licences present" free_only
 
 [ -z "$SC" ] || [ "$FAILS" -ne 0 ] || { cp "$OUTD/match.gif" "$SC/match.gif"; for s in player host; do   # only a run that passed becomes a recording (the GIF first: down removes the state)
-  python3 "$SCP" redact "$SC/$s.raw" "$SC/$s.tsv" --strip "$POC/" --strip "${POC%/*}/" || FAILS=$((FAILS+1)); done; }
+  python3 "$SCP" redact "$SC/$s.raw" "$SC/$s.tsv" --strip "$STATE/" --strip "$POC/" --strip "${POC%/*}/" || FAILS=$((FAILS+1)); done; }
 if [ "${KEEP:-0}" != 1 ]; then "$POC/vm/down.sh" >/dev/null 2>&1; fi
 echo "----"
 if [ "$FAILS" -eq 0 ]; then echo "RESULT PASS"; else echo "RESULT FAIL ($FAILS)"; fi

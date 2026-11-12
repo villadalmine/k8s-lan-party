@@ -291,7 +291,7 @@ step G27 "the server is clean: the page, the Caddy this script installed and the
 
 if [ "${KEEP:-0}" != 1 ]; then "$POC/vm/down.sh" >/dev/null 2>&1; fi
 [ -z "$SC" ] || [ "$FAILS" -ne 0 ] || for s in player host; do   # only a run that passed becomes a recording
-  python3 "$SCP" redact "$SC/$s.raw" "$SC/$s.tsv" --strip "$POC/" --strip "${POC%/*}/" || FAILS=$((FAILS+1)); done
+  python3 "$SCP" redact "$SC/$s.raw" "$SC/$s.tsv" --strip "$STATE/" --strip "$POC/" --strip "${POC%/*}/" || FAILS=$((FAILS+1)); done
 echo "----"
 if [ "$FAILS" -eq 0 ]; then echo "RESULT PASS"; else echo "RESULT FAIL ($FAILS)"; fi
 [ "$FAILS" -eq 0 ]
