@@ -670,7 +670,7 @@ starting after `leave` (the same robot, the same local port) gets no answer. The
 player's frags and deaths; the suite requires the lines, the joins and the stay, **not a number of frags** (scripted robots may or may not meet,
 so it cannot be a condition of PASS). For the recording only (issue #80), the server runs with `sv_infiniteammo 1`, `sv_weapondamage 3` and
 `sv_forcerespawn 1` with `sv_forcerespawntime 3` (`poc/doom/server.sh`, each read in the Odamex 12.3.0 source): the robots fire without pause and
-pick nothing up, so they used to empty the pistol before the recording started and end the match with fists and 0 frags, and a dead robot never
+pick up little, so they used to empty the pistol before the recording started and end the match with fists and 0 frags, and a dead robot never
 presses Use, the only way to respawn. Measured over three runs on 2026-11-12: 2, 1 and 3 frags in the match, and a frag on carmack's screen in
 two of the three GIFs (2.8 to 3.2 MB).
 
