@@ -1,0 +1,71 @@
+{
+  "version": "v0.3.1-poc",
+  "date": "2026-11-12",
+  "title": "the robots finally score: frags in the Doom match",
+  "release": "https://github.com/villadalmine/k8s-lan-party/releases/tag/v0.3.1-poc",
+  "summary": "A patch release of v0.3.0-poc's LAN party, about what you see, not about how it works. In v0.3.0 the scripted robots hit each other but ended every match with their fists and zero frags: they fire without pause, pick up little, and had emptied the pistol before the recording started. romero's Doom server now gives infinite ammo, makes each hit three times stronger and brings a dead robot back after three seconds (a robot never presses Use, the only way to respawn). Measured over three real runs: 2, 1 and 3 frags in the match, and a frag on carmack's screen in two of the three recordings. Frags are still not a test: the server log is the witness, as before. Under the hood, the last test image pulled by tag is now pinned by digest, and a test keeps it that way; every suite was run again with it, all PASS.",
+  "issues": [
+    80,
+    20
+  ],
+  "story": {
+    "player": {
+      "title": "Players: romero, carmack and petersen, the same three friends",
+      "steps": [
+        "Everything from v0.3.0-poc is the same: three friends, two parties, the fence that keeps a third player out until she has her own yes.",
+        "romero's server now runs with infinite ammo, three times the weapon damage and a forced respawn after three seconds.",
+        "carmack's robot joins through his party, and this time the counter under FRAGS moves: the GIF below is his screen.",
+        "petersen joins through her own party; carmack and petersen still never reach each other."
+      ]
+    },
+    "host": {
+      "title": "The host who runs the pool",
+      "steps": [
+        "The host's tick admits the three and opens each party when both said yes, as in v0.3.0-poc.",
+        "romero's server log is still the witness: who connected, joined and left, now with frags and deaths that are not all zero."
+      ]
+    }
+  },
+  "casts": [
+    {
+      "file": "player.cast",
+      "side": "player",
+      "title": "The friends' screens",
+      "caption": "a real make showcase-doom run (poc-doom) in Incus VMs with Cilium, with the server settings of this release. The 'no server answered' lines are the point (no yes, one yes, a third player while another is in a party, after leaving) and each one is marked '# expected'."
+    },
+    {
+      "file": "host.cast",
+      "side": "host",
+      "title": "The host's screen",
+      "caption": "the tick that admits them, the two parties that open, and romero's server log with each player's frags and deaths. No errors here."
+    }
+  ],
+  "media": [
+    {
+      "file": "match.gif",
+      "title": "carmack's screen during the match",
+      "alt": "A first-person view of a small FreeDM deathmatch map: a marine with a pistol or a shotgun, other marines across the room, and the FRAGS counter in Doom's status bar at the bottom.",
+      "caption": "captured by the automated robot under a virtual screen (Xvfb + ffmpeg) late in the match, when the others have joined: 320x200, 30 seconds. Whether a frag falls inside these 30 seconds is chance: it did in two of three runs."
+    }
+  ],
+  "features": [
+    {
+      "name": "Robots that score",
+      "what": "romero's Odamex server runs with sv_infiniteammo 1, sv_weapondamage 3 and sv_forcerespawn 1 with sv_forcerespawntime 3, each checked in the Odamex 12.3.0 source. Double ammo was tried first and was not enough: it only doubles what is picked up.",
+      "why": "A deathmatch where nobody can win does not tell the story; the fence, the parties and the witness are unchanged.",
+      "command": "make poc-doom      # DM01-DM20, frags are never a PASS condition\nmake showcase-doom RELEASE=v0.3.1-poc",
+      "issues": [
+        80
+      ]
+    },
+    {
+      "name": "Every test image pinned by digest",
+      "what": "agnhost, the small server and client of the network checks (the UDP echo of the Doom suite among them), is now pinned by tag and digest in poc/stack.env, like the Doom image's Debian base; tests/test_image_pins.py fails if either loses its digest. The whole make regression ran again with it: all PASS.",
+      "why": "A tag can be moved to other content; a digest cannot, so what was tested is what runs.",
+      "command": "python3 -m pytest -q tests/test_image_pins.py\nmake regression",
+      "issues": [
+        20
+      ]
+    }
+  ]
+}
