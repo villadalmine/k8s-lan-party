@@ -3,7 +3,7 @@ them from itself only. No network, no machines.
 
 - every committed recording is rebuilt from its committed source and must be byte-identical (nobody edited a .cast by hand);
 - every file of poc/page/whatsnew is scanned with the filter's own patterns: one leak (a public IP, a k3s token, a long base64, a claim
-  code, a JWT, a key, a fingerprint) fails the test, and a planted leak proves the scan sees it;
+  code, a JWT, a key, a fingerprint, a home directory) fails the test, and a planted leak proves the scan sees it;
 - a game screen (.gif) is a real GIF of at most 5 MiB with no text block that holds a leak, and is served as an image of this page only;
 - the vendored player matches the SHA-256 in poc/page/static/VENDOR.md;
 - /whats-new is served with the page's CSP plus only 'wasm-unsafe-eval', loads nothing from another site, and each release is there.

@@ -172,7 +172,7 @@ per feature of the release (what, why, the command) and the history of every rel
 - **The recordings are real and made by script:** `make showcase` runs `poc-page` with `SHOWCASE=poc/.showcase`; the run writes the
   visitor's and the host's screens with their times, and only a run where every step passed becomes a recording. `showcase.py redact`
   removes what must never be published (public IPs, k3s tokens, JWTs, claim codes, keys, long base64, fingerprints, UUIDs, your clone's
-  path) into `rec/*.tsv`; `showcase.py build` turns them into asciicast v2 files, the pauses longer than 2 s shortened (and those over a minute
+  path, the run's state dir, and any home directory such as `/home/<user>`, which would name you and your machine's layout) into `rec/*.tsv`; `showcase.py build` turns them into asciicast v2 files, the pauses longer than 2 s shortened (and those over a minute
   say how long they really were). A text transcript (the AWS run of 2026-11-03, `rec/aws.txt`, already masked by hand when it was taken) goes
   through the same filter. `poc/test_whatsnew.py` rebuilds every `.cast` from its source and fails on one byte of difference, and scans
   every file with the filter's patterns: one leak fails it.
