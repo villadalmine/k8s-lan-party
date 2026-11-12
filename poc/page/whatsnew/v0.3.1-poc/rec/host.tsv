@@ -1,0 +1,54 @@
+0.000	note	three friends ask for a place; one tick of the host admits all three
+0.042	cmd	mesh host auto --once
+2.034	out	burned 0
+7.733	out	issued romero
+7.733	out	bundle: /home/dalmine/regress/showcase031/reg/state/poc-doom/bundles/romero  (send it privately; it holds the player's key and a join token that works until the node registers or 8 min pass)
+7.733	out	namespace: play-romero  (the bundle's kubeconfig works there only, until 1800s from now)
+12.673	out	issued carmack
+12.673	out	bundle: /home/dalmine/regress/showcase031/reg/state/poc-doom/bundles/carmack  (send it privately; it holds the player's key and a join token that works until the node registers or 8 min pass)
+12.673	out	namespace: play-carmack  (the bundle's kubeconfig works there only, until 1800s from now)
+17.908	out	issued petersen
+17.908	out	bundle: /home/dalmine/regress/showcase031/reg/state/poc-doom/bundles/petersen  (send it privately; it holds the player's key and a join token that works until the node registers or 8 min pass)
+17.908	out	namespace: play-petersen  (the bundle's kubeconfig works there only, until 1800s from now)
+17.969	out	tick: auto on | expelled 0 | approved 3 | slots 3/3 used | 0 in the list (0 eligible now)
+431.927	note	the host's tick: both consents, both namespaces live, so it opens the party
+432.439	cmd	mesh host auto --once
+436.519	out	burned 0
+436.535	out	tick: auto on | expelled 0 | approved 0 | slots 3/3 used | 0 in the list (0 eligible now)
+440.674	out	party: carmack -> romero: active: ports 10666/UDP
+440.674	out	party: romero -> carmack: active: ports 10666/UDP
+441.097	cmd	mesh host party
+442.372	out	PLAYER               PEER                 STATUS
+442.372	out	carmack              romero               active: ports 10666/UDP
+442.372	out	romero               carmack              active: ports 10666/UDP
+523.727	note	a second party, romero and petersen: another pair, another policy
+524.892	cmd	mesh host auto --once
+528.632	out	burned 0
+528.657	out	tick: auto on | expelled 0 | approved 0 | slots 3/3 used | 0 in the list (0 eligible now)
+531.889	out	party: petersen -> romero: active: ports 10666/UDP
+531.889	out	party: romero -> petersen: active: ports 10666/UDP
+531.981	cmd	mesh host party
+533.218	out	PLAYER               PEER                 STATUS
+533.218	out	carmack              romero               active: ports 10666/UDP
+533.218	out	petersen             romero               active: ports 10666/UDP
+533.218	out	romero               carmack              active: ports 10666/UDP
+533.218	out	romero               petersen             active: ports 10666/UDP
+700.289	note	romero's server is the witness: who connected, joined and left, and when, with frags and deaths
+700.336	cmd	kubectl exec -n play-romero doom-server -- grep -E 'Masters|MAP15|connected|joined|disconnected' /tmp/server.log
+700.761	out	[13:48:16] Masters will not be contacted because sv_usemasters is 0
+700.761	out	[13:48:16] --- MAP15: "Shallow Complex" ---
+700.761	out	[13:50:37] romero has connected.
+700.761	out	[13:50:39] romero joined the game.
+700.761	out	[13:50:46] carmack has connected.
+700.761	out	[13:50:48] carmack joined the game.
+700.761	out	[13:52:06] petersen has connected.
+700.761	out	[13:52:09] petersen joined the game.
+700.761	out	[13:52:53] petersen disconnected. (1 FRAGS, 1 DEATHS)
+700.761	out	[13:53:23] carmack disconnected. (2 FRAGS, 1 DEATHS)
+700.761	out	[13:54:15] romero disconnected. (1 FRAGS, 2 DEATHS)
+703.333	cmd	mesh host auto --once
+707.399	out	burned 0
+707.452	out	tick: auto on | expelled 0 | approved 0 | slots 3/3 used | 0 in the list (0 eligible now)
+710.486	out	party: romero -> carmack: closed: carmack left the party
+737.037	cmd	mesh host party reconcile
+738.307	out	party: unchanged

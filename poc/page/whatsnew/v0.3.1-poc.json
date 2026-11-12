@@ -44,8 +44,8 @@
     {
       "file": "match.gif",
       "title": "carmack's screen during the match",
-      "alt": "A first-person view of a small FreeDM deathmatch map: a marine with a pistol or a shotgun, other marines across the room, and the FRAGS counter in Doom's status bar at the bottom.",
-      "caption": "captured by the automated robot under a virtual screen (Xvfb + ffmpeg) late in the match, when the others have joined: 320x200, 30 seconds. Whether a frag falls inside these 30 seconds is chance: it did in two of three runs."
+      "alt": "A first-person view of a small FreeDM deathmatch map: carmack's marine firing a plasma gun down grey corridors, with Doom's status bar at the bottom and the FRAGS counter at 1.",
+      "caption": "captured by the automated robot under a virtual screen (Xvfb + ffmpeg) late in the match, when the others have joined: 320x200, 30 seconds. carmack has already scored once (FRAGS 1); in the whole match of this recording there were 4 frags (carmack 2, petersen 1, romero 1). Whether a kill falls inside these 30 seconds is chance."
     }
   ],
   "features": [
