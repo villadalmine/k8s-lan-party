@@ -1,0 +1,69 @@
+0.000	note	romero: a Doom deathmatch server (Odamex, FreeDM) in his namespace, on a UDP Service
+0.062	cmd	sudo edge-mesh kubectl get pods,svc
+0.307	out	NAME              READY   STATUS    RESTARTS   AGE
+0.307	out	pod/doom-server   1/1     Running   0          3s
+0.307	out	
+0.307	out	NAME           TYPE        CLUSTER-IP     EXTERNAL-IP   PORT(S)     AGE
+0.307	out	service/doom   ClusterIP   10.43.76.139   <none>        10666/UDP   3s
+18.409	note	carmack and petersen: a robot pod each in their own namespace (a virtual screen, a recorder, a script that plays); romero's is beside his server
+18.455	cmd	sudo edge-mesh kubectl get pods
+18.744	out	NAME          READY   STATUS    RESTARTS   AGE
+18.744	out	doom-client   1/1     Running   0          17s
+18.744	out	doom-probe    1/1     Running   0          15s
+18.865	note	romero runs the server in his namespace; his friends' robots try it. Nobody has agreed to anything yet
+25.810	cmd	sudo edge-mesh kubectl exec doom-client -- client.sh doom.play-romero.svc.cluster.local 10666 10 carmack
+26.271	out	client carmack: connecting to doom.play-romero.svc.cluster.local:10666
+43.432	out	client carmack: no server answered at doom.play-romero.svc.cluster.local:10666 in 15 s
+43.481	out	command terminated with exit code 3
+43.989	cmd	sudo edge-mesh kubectl exec doom-client -- client.sh doom.play-romero.svc.cluster.local 10666 10 petersen
+44.400	out	client petersen: connecting to doom.play-romero.svc.cluster.local:10666
+61.589	out	client petersen: no server answered at doom.play-romero.svc.cluster.local:10666 in 15 s
+61.713	out	command terminated with exit code 3
+62.287	note	romero invites carmack: his consent alone opens nothing
+62.340	cmd	sudo edge-mesh party invite carmack
+62.674	out	party with carmack: your consent is recorded; it opens once carmack agrees too (the host's next tick); see: edge-mesh party list
+69.510	cmd	sudo edge-mesh party list
+69.715	out	PEER      PORTS   STATUS
+69.715	out	carmack           waiting for carmack to accept
+73.353	cmd	sudo edge-mesh kubectl exec doom-client -- client.sh doom.play-romero.svc.cluster.local 10666 10 carmack
+73.758	out	client carmack: connecting to doom.play-romero.svc.cluster.local:10666
+90.958	out	client carmack: no server answered at doom.play-romero.svc.cluster.local:10666 in 15 s
+91.085	out	command terminated with exit code 3
+91.981	note	carmack accepts: now both agreed
+92.069	cmd	sudo edge-mesh party accept romero
+92.461	out	party with romero: your consent is recorded; it opens once romero agrees too (the host's next tick); see: edge-mesh party list
+100.857	cmd	sudo edge-mesh party list
+101.107	out	PEER     PORTS   STATUS
+101.107	out	romero           active: ports 10666/UDP
+135.022	note	romero's robot joins his own server first (it is in his namespace: no party needed)
+154.828	note	carmack is playing. petersen's robot tries the same server: carmack's party with romero is nothing to her
+158.390	cmd	sudo edge-mesh kubectl exec doom-client -- client.sh doom.play-romero.svc.cluster.local 10666 10 petersen
+158.724	out	client petersen: connecting to doom.play-romero.svc.cluster.local:10666
+175.892	out	client petersen: no server answered at doom.play-romero.svc.cluster.local:10666 in 15 s
+176.024	out	command terminated with exit code 3
+183.776	note	romero invites petersen; petersen accepts
+183.881	cmd	sudo edge-mesh party invite petersen
+184.404	out	party with petersen: your consent is recorded; it opens once petersen agrees too (the host's next tick); see: edge-mesh party list
+184.475	cmd	sudo edge-mesh party accept romero
+184.940	out	party with romero: your consent is recorded; it opens once romero agrees too (the host's next tick); see: edge-mesh party list
+224.882	cmd	sudo edge-mesh kubectl exec doom-client -- client.sh doom.play-romero.svc.cluster.local 10666 40 petersen
+225.275	out	client petersen: connecting to doom.play-romero.svc.cluster.local:10666
+229.374	out	client petersen: server: k8s-lan-party doom
+229.374	out	client petersen: map MAP15 "Shallow Complex"
+234.029	out	client petersen: in the game, playing 40 s
+277.253	out	client petersen: left the game after 40 s
+359.035	note	carmack's session (played in the background while the others joined; the robot's own output)
+359.097	cmd	sudo edge-mesh kubectl exec doom-client -- client.sh doom.play-romero.svc.cluster.local 10666 150 carmack
+359.097	out	client carmack: connecting to doom.play-romero.svc.cluster.local:10666
+359.097	out	client carmack: server: k8s-lan-party doom
+359.097	out	client carmack: map MAP15 "Shallow Complex"
+359.097	out	client carmack: in the game, playing 150 s
+359.097	out	client carmack: left the game after 150 s
+359.097	out	client carmack: match.gif 3141538 bytes
+363.007	note	carmack leaves the party: the same robot, the same server, and nobody answers again; petersen's party stays
+363.054	cmd	sudo edge-mesh party leave
+363.365	out	left: the host closes the party at its next tick
+377.698	cmd	sudo edge-mesh kubectl exec doom-client -- client.sh doom.play-romero.svc.cluster.local 10666 10 carmack
+378.141	out	client carmack: connecting to doom.play-romero.svc.cluster.local:10666
+395.274	out	client carmack: no server answered at doom.play-romero.svc.cluster.local:10666 in 15 s
+395.366	out	command terminated with exit code 3

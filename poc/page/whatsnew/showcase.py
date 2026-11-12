@@ -40,6 +40,7 @@ SECRETS = [
     ("base64", re.compile(r"(?<![\w+/-])(?=[\w+/-]*[A-Z])(?=[\w+/-]*[a-z])(?=[\w+/-]*\d)[\w+/-]{40,}={0,2}"), "<base64>"),   # mixed: not a path
     ("ipv6", re.compile(r"(?<![\w:])(?:[0-9a-fA-F]{1,4}:){4,7}[0-9a-fA-F]{1,4}(?![\w:])"), "<ipv6>"),
     ("nebula-index", re.compile(r"((?:local|remote|initiator|responder)Index)=\d+"), r"\1=<n>"),
+    ("home-path", re.compile(r"(?<![\w.-])(?:/var)?/(?:home|Users)/[\w.-]+"), "~"),   # a user name and the host's layout (#93: a state dir outside the clone)
 ]
 GAP, IDLE = 2.0, 60.0   # in a cast a pause longer than GAP plays as GAP; one longer than IDLE also prints how long it really was
 COLS, ROWS = 110, 30

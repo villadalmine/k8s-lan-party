@@ -3,7 +3,7 @@ them from itself only. No network, no machines.
 
 - every committed recording is rebuilt from its committed source and must be byte-identical (nobody edited a .cast by hand);
 - every file of poc/page/whatsnew is scanned with the filter's own patterns: one leak (a public IP, a k3s token, a long base64, a claim
-  code, a JWT, a key, a fingerprint) fails the test, and a planted leak proves the scan sees it;
+  code, a JWT, a key, a fingerprint, a home directory) fails the test, and a planted leak proves the scan sees it;
 - a game screen (.gif) is a real GIF of at most 5 MiB with no text block that holds a leak, and is served as an image of this page only;
 - the vendored player matches the SHA-256 in poc/page/static/VENDOR.md;
 - /whats-new is served with the page's CSP plus only 'wasm-unsafe-eval', loads nothing from another site, and each release is there.
@@ -44,6 +44,7 @@ LEAKS = {   # one sample per thing the filter must remove (made up: none of them
     "uuid": "UID 2f1e4c7a-9b3d-4e5f-8a6b-7c8d9e0f1a2b",
     "bearer": "Authorization: Bearer Zm9vYmFyYmF6cXV4",
     "ipv6": "from 2a01:4f8:c0c:1234::1 and 2001:db8:1:2:3:4:5:6",
+    "home path": "bundle /home/alice/regress/reg/state/poc-doom/bundles/carmack written",
 }
 KEEP = ["10.77.0.2:6443 is the API on the mesh", "pod 10.42.9.2 on node aws-e2e", "Claim code: XXXXX-XXXXX-XXXXX-XXXXX-XXXXX-X",
         "io/v1/namespaces/kube-node-lease/leases/aws-e2e", "v1.37.1+k3s1", "2026-11-03T16:49:34Z", "<visitor-ip>"]

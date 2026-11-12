@@ -257,7 +257,7 @@ features:
     description: the Doom deathmatch over parties (issue #75 part B) - romero's Odamex server with FreeDM and the robots of carmack and petersen play through two parties on 10666/UDP; the server log is the witness; no consent, after leave, or a third player with another's party connects nothing; the image has nothing non-free
     layer: tenancy
     user_facing: true
-    releases: ["v0.3.0-poc"]
+    releases: ["v0.3.0-poc", "v0.3.1-poc"]
     learn:
       concept: "Pairwise, non-transitive access: a party between A and B, and another between A and C, opens nothing between B and C."
       analogy: "romero hosts the server; carmack and petersen each cable into his machine, never into each other's."

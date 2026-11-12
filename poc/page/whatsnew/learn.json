@@ -68,6 +68,15 @@
     "real_world": "A shared service, such as a database or an inference endpoint, that each consumer reaches without reaching the other consumers.",
     "seen_in": "v0.3.0-poc: petersen cannot reach carmack although both play on romero's server."
    }
+  ],
+  "v0.3.1-poc": [
+   {
+    "analogy": "romero hosts the server; carmack and petersen each cable into his machine, never into each other's.",
+    "concept": "Pairwise, non-transitive access: a party between A and B, and another between A and C, opens nothing between B and C.",
+    "id": "doom",
+    "real_world": "A shared service, such as a database or an inference endpoint, that each consumer reaches without reaching the other consumers.",
+    "seen_in": "v0.3.0-poc: petersen cannot reach carmack although both play on romero's server."
+   }
   ]
  }
 }
