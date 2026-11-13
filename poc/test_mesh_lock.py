@@ -17,6 +17,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE / "console"))
+sys.path.insert(0, str(HERE))
 import actions  # noqa: E402
 
 BASH = shutil.which("bash")
@@ -109,12 +110,38 @@ class LockTest(unittest.TestCase):
         """Nobody holds the lock, and the owner file left behind names an ancestor of both callers: they still take turns."""
         self.state.mkdir(parents=True, exist_ok=True)
         (self.state / "mesh.lock").touch()
-        (self.state / "mesh.lock.owner").write_text(f"{os.getpid()}\n")
+        (self.state / "mesh.lock.owner").write_text(f"{os.getpid()} {os.getpid()}\n")   # even naming a live "holder"
         ps = [self.bash(self.critical(t), EMESH_LOCK_HELD=str(os.getpid())) for t in ("a", "b")]
         for p in ps:
             p.communicate(timeout=30)
             self.assertEqual(p.returncode, 0)
         self.assertSerial()
+
+    def test_an_owner_file_of_a_holder_that_is_gone_is_not_trusted(self):
+        """The moment between a holder taking the lock and rewriting the owner file: the lock is held, and the file still names the last
+        holder's pid (killed, so it could not remove it) with a served pid that is our ancestor. Not trusted: the call waits."""
+        import meshlock
+        lock = self.state / "mesh.lock"
+        self.state.mkdir(parents=True, exist_ok=True)
+        dead = subprocess.Popen(["true"])
+        dead.wait()
+        fd = os.open(lock, os.O_RDWR | os.O_CREAT, 0o600)
+        self.addCleanup(os.close, fd)
+        __import__("fcntl").flock(fd, __import__("fcntl").LOCK_EX)   # a new holder has the lock, the file is the old one's
+        meshlock.owner_path(lock).write_text(f"{os.getpid()} {dead.pid}\n")
+        self.assertFalse(meshlock.held_by(lock, os.getpid()))
+        meshlock.owner_path(lock).write_text(f"{os.getpid()} {os.getpid()}\n")   # the same file, its holder alive: trusted
+        self.assertTrue(meshlock.held_by(lock, os.getpid()))
+        meshlock.owner_path(lock).write_text(f"{os.getpid()}\n")   # the old format, or a file written by hand
+        self.assertFalse(meshlock.held_by(lock, os.getpid()))
+
+    def test_a_holder_removes_the_owner_file_before_it_lets_go(self):
+        r = self.run_bash(f'mesh_lock; echo a >>"{self.marks}"', timeout=20)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        end = time.monotonic() + 5
+        while (self.state / "mesh.lock.owner").exists() and time.monotonic() < end:
+            time.sleep(0.05)
+        self.assertFalse((self.state / "mesh.lock.owner").exists())
 
     def test_a_killed_holder_frees_the_lock(self):
         p = self.bash(self.critical("a", 60))
