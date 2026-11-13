@@ -7,6 +7,7 @@ body { margin: 0 auto; max-width: 1100px; padding: 16px; background: var(--bg); 
        font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
 h1 { font-size: 1.4rem; margin: 0; }
 h2 { font-size: 1.1rem; margin: 1.4rem 0 .5rem; }
+h3 { font-size: 1rem; margin: 1.2rem 0 .3rem; }
 header { display: flex; flex-wrap: wrap; gap: .3rem 1rem; align-items: baseline; }
 .muted { color: var(--muted); }
 .error { color: var(--danger); }
@@ -31,3 +32,8 @@ input, select { font: inherit; width: 100%; padding: .3rem; border: 1px solid va
 menu { display: flex; justify-content: flex-end; gap: .5rem; padding: 0; }
 code { font-family: ui-monospace, monospace; }
 footer { margin-top: 2rem; font-size: .85rem; }
+.hostverb { display: grid; grid-template-columns: 9rem 1fr; gap: .1rem .75rem; padding: .4rem 0; border-bottom: 1px solid var(--line); }
+.hostverb button { justify-self: start; }
+.hostverb code { overflow-wrap: anywhere; }
+@media (max-width: 560px) { .hostverb { grid-template-columns: 1fr; } }
+td button { padding: .1rem .5rem; font-size: .9em; }
