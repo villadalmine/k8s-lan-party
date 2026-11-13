@@ -51,6 +51,7 @@ if os.environ.get("FAKE_CHILD"):   # a grandchild in the same process group, as 
     open(os.environ["FAKE_CHILD"], "w").write(str(c.pid))
 if not os.environ.get("FAKE_SLEEP_ONLY") or a[1] == os.environ["FAKE_SLEEP_ONLY"]:
     time.sleep(float(os.environ.get("FAKE_SLEEP") or 0))
+print("note " + a[1], file=sys.stderr)   # stderr kept apart from stdout (#88)
 print("done " + " ".join(a[1:]) + " " + os.environ.get("FAKE_PLANT", ""))
 sys.exit(int(os.environ.get("FAKE_EXIT") or 0))
 '''
@@ -68,7 +69,9 @@ def alive(pid: int) -> bool:
 
 
 @unittest.skipUnless(LINUX, "the daemon needs Linux (SO_PEERCRED)")
-class ActionsTest(unittest.TestCase):
+class DaemonCase(unittest.TestCase):
+    """A daemon on a real unix socket with the fake engine; no tests of its own (poc/test_console_cli.py builds on it too)."""
+
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp(prefix="ca"))
         self.addCleanup(shutil.rmtree, self.tmp, True)
@@ -133,6 +136,10 @@ class ActionsTest(unittest.TestCase):
             body["typed"] = typed
         return plan, self.post(verb, body)
 
+
+
+@unittest.skipUnless(LINUX, "the daemon needs Linux (SO_PEERCRED)")
+class ActionsTest(DaemonCase):
     def test_a_plain_verb_is_a_job_with_its_output_and_one_audit_line(self):
         status, j = self.post("burn", {"args": {}})
         self.assertEqual((status, j["state"] in ("queued", "running", "done")), (202, True))
@@ -264,10 +271,13 @@ class ActionsTest(unittest.TestCase):
         os.environ["ADMISSION_NOTIFY_CMD"] = f"{sys.executable} {hook}"
         status, j = self.console.act("request", {"args": {"name": "dani", "note": "hi"}}, "console", "tok:x", "web", 1000)
         self.assertEqual(status, 202)
-        j = self.job(j["id"])
-        self.assertNotIn("AAAAsecret", j["output"])
-        self.assertIn("<pem>", j["output"])
-        self.assertIn("<state>/ca/ca.key", j["output"])
+        local = self.job(j["id"])   # the socket is the local role: the engine's own words (the #85 decision)
+        self.assertIn("AAAAsecret", local["output"])
+        seen = self.console.runner.get(j["id"]).view(self.console.redact)   # what any other role is shown
+        for k in ("output", "stdout"):
+            self.assertNotIn("AAAAsecret", seen[k])
+            self.assertIn("<pem>", seen[k])
+            self.assertIn("<state>/ca/ca.key", seen[k])
         text = (self.state / "console" / "audit.jsonl").read_text()
         self.assertNotIn("AAAAsecret", text)
         self.assertEqual(self.audit()[0]["role"], "console")
@@ -349,6 +359,30 @@ class ActionsTest(unittest.TestCase):
         self.assertEqual((first["state"], first["error"]), ("failed", "internal"))
         self.assertIsNotNone(first["ended"])
         self.assertEqual((second["state"], second["exit"]), ("done", 0))
+
+    def test_a_runner_that_breaks_after_the_engine_started_kills_it(self):
+        """Never two engines at once: if _run fails once the engine runs, the engine's group is killed before the next job starts."""
+        child = self.tmp / "child.pid"
+        os.environ.update(FAKE_SLEEP="30", FAKE_CHILD=str(child))
+        real = mutate.threading.Thread
+
+        class NoReaders(real):
+            def __init__(self, *a, target=None, **kw):
+                if getattr(target, "__name__", "") == "read":
+                    end = time.monotonic() + 10   # the engine is up (its grandchild recorded) before the failure
+                    while not child.exists() and time.monotonic() < end:
+                        time.sleep(0.05)
+                    raise RuntimeError("no thread for the reader")
+                super().__init__(*a, target=target, **kw)
+        with unittest.mock.patch.object(mutate.threading, "Thread", NoReaders):
+            j = self.job(self.post("burn", {"args": {}})[1]["id"], wait=20)
+        self.assertEqual((j["state"], j["error"]), ("failed", "internal"))
+        pid = int(child.read_text())
+        end = time.monotonic() + 10
+        while alive(pid) and time.monotonic() < end:
+            time.sleep(0.1)
+        self.assertFalse(alive(pid))
+        self.assertEqual(len(self.audit()), 1)
 
     def test_the_notify_line_goes_through_the_redactor(self):
         sent = []

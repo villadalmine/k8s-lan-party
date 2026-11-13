@@ -755,11 +755,27 @@ def status_json(cfg: dict, led: Ledger, auto: dict) -> dict:
             "leases": [{"name": l.get("name", ""), "end": l["end"]} for l in led.due(everyone=True)], "requests": reqs}
 
 
+_ENGINE_LOCK: list[int] = []
+
+
+def engine_lock(lockfile: Path) -> None:
+    """The engine's lock (poc/meshlock.py), held by this process until it exits; its nested `mesh` calls (the kicks) see EMESH_LOCK_HELD
+    and do not take it again. A panic run by a `mesh` that holds it already (nothing does today) does not wait for its own parent."""
+    import meshlock
+    held = os.environ.get("EMESH_LOCK_HELD", "")
+    if held.isdigit() and meshlock.held_by(lockfile, int(held)):
+        return
+    _ENGINE_LOCK.append(meshlock.take(lockfile, os.getpid()))
+    os.environ["EMESH_LOCK_HELD"] = str(os.getpid())
+
+
 def run(a, cfg: dict) -> int:
     d = Path(a.state)
     after: list = []
     if a.cmd == "panic" and not a.clear:   # the switch first, outside the ledger's lock: closed now, expelled when the lock is ours
         a.panic_first = not update_auto(d, {"enabled": False, "panic": True})["panic"]
+        if getattr(a, "engine_lock", None):   # admission is closed already; the expulsions wait for the pass that holds the engine
+            engine_lock(Path(a.engine_lock))
     with locked_state(d, after, write=not getattr(a, "read_only", False)) as state:
         auto = read_auto(d)
         saved = dict(auto)
@@ -946,6 +962,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--state", required=True, help="directory of state.json")
     ap.add_argument("--config", required=True, help="pool.yaml")
     ap.add_argument("--mesh", default=str(Path(__file__).resolve().parent / "mesh"))
+    ap.add_argument("--engine-lock", default=None, help="the engine's lock file; panic takes it after writing its switch (poc/mesh passes it)")
     ap.add_argument("--bundles", help="the players' bundle directory (default: <state>/../bundles)")
     ap.add_argument("--outbox", help="where approved bundles are packed (default: <state>/outbox)")
     ap.add_argument("--now", type=int, default=None, help="epoch seconds (tests); default: the clock")
