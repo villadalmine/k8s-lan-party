@@ -5,6 +5,7 @@
 
 const $ = (id) => document.getElementById(id);
 const POLL_MS = 5000, JOB_MS = 1000;
+const asked = {};   // player -> the last activity answer
 let view = "status", timer = null, current = null;   // current: {verb, action, args, plan}
 
 function token() {
@@ -24,7 +25,8 @@ async function api(method, path, body) {
   }
   const r = await fetch("/api/v1/" + path, opts);
   let data = null;
-  try { data = await r.json(); } catch (e) { data = { message: "no JSON from the console (HTTP " + r.status + ")" }; }
+  if (r.ok && (r.headers.get("Content-Type") || "").startsWith("text/plain")) data = { text: await r.text() };
+  else try { data = await r.json(); } catch (e) { data = { message: "no JSON from the console (HTTP " + r.status + ")" }; }
   if (r.status === 401 || r.status === 429) banner(data.message || "not allowed");
   else if (r.ok) banner("");
   return { status: r.status, data };
@@ -89,8 +91,31 @@ async function show() {
     summary(data);
     return;
   }
+  if (view === "metrics") { box.appendChild(el("pre", data.text || "")); return; }
+  if (view === "players" && Array.isArray(data)) { box.appendChild(players(data)); return; }
   const rows = listOf(data);
   box.appendChild(rows ? table(view === "events" || view === "audit" ? rows.slice().reverse() : rows) : pairs(data));
+}
+
+function players(rows) {   // the list, and per player a button that asks the cluster whether that machine is doing anything
+  const wrap = table(rows), t = wrap.querySelector ? wrap.querySelector("table") : null;
+  if (!t) return wrap;
+  t.querySelector("tr").appendChild(el("th", "activity"));
+  [...t.querySelectorAll("tr")].slice(1).forEach((tr, i) => {
+    const td = el("td"), b = el("button", "check"), name = (rows[i] || {}).name;
+    b.type = "button";
+    b.addEventListener("click", async () => {
+      b.disabled = true;
+      const r = await api("GET", "players/" + encodeURIComponent(name) + "/activity");
+      asked[name] = r.status === 200 ? r.data.state + (r.data.why ? ": " + r.data.why : "") : (r.data && r.data.message) || "HTTP " + r.status;
+      td.replaceChildren(el("span", asked[name] + " "), b);
+      b.disabled = false;
+    });
+    if (asked[name]) td.appendChild(el("span", asked[name] + " "));   // the view is drawn again every few seconds: keep the last answer
+    td.appendChild(b);
+    tr.appendChild(td);
+  });
+  return wrap;
 }
 
 function summary(s) {
@@ -118,6 +143,26 @@ async function loadActions() {
     b.title = a.summary;
     b.addEventListener("click", () => openAction(a));
     box.appendChild(b);
+  });
+}
+
+async function loadHostOnly() {   // what this role may not run: on the page, never clickable, with where to type it
+  const { status, data } = await api("GET", "verbs");
+  const box = $("hostverbs");
+  box.replaceChildren();
+  const rows = status === 200 && Array.isArray(data) ? data.filter((v) => !v.allowed) : [];
+  $("hostonly").hidden = rows.length === 0;
+  rows.forEach((v) => {
+    const row = el("div", null, "hostverb"), b = el("button", v.verb), text = el("div");
+    b.type = "button";
+    b.disabled = true;
+    b.title = v.why;
+    text.appendChild(el("div", v.summary));
+    text.appendChild(el("code", v.command));
+    text.appendChild(el("div", v.why, "muted"));
+    row.appendChild(b);
+    row.appendChild(text);
+    box.appendChild(row);
   });
 }
 
@@ -233,5 +278,6 @@ document.addEventListener("DOMContentLoaded", () => {
   $("go").addEventListener("click", go);
   if (!token()) banner("No token: on the host, run `mesh host console url` and open the link it prints.");
   loadActions();
+  loadHostOnly();
   poll();
 });

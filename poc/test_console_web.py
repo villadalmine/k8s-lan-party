@@ -367,6 +367,19 @@ class WebTest(DaemonCase):
             self.assertIsNone(re.search(r"(?:https?:)?//[a-z0-9.-]+\.[a-z]{2,}", text), "a third-party file or link")
         self.assertEqual(sorted(p.name for p in STATIC.iterdir()), ["console.css", "console.js", "index.html"])
 
+    def test_what_the_web_may_not_run_is_shown_and_still_refused(self):
+        """GET /verbs is a description for the page (a disabled button, the command to type on the host); the refusal is the daemon's."""
+        status, verbs = self.j("GET", "/api/v1/verbs")
+        self.assertEqual(status, 200)
+        closed = {v["verb"] for v in verbs if not v["allowed"]}
+        self.assertEqual(closed, {"invite", "bundle", "refresh", "init", "down"})
+        for verb in sorted(closed):
+            status, body = self.j("POST", f"/api/v1/actions/{verb}", {"args": {"name": "ana"}})
+            self.assertIn(status, (403, 404), verb)   # 403 not for this role; 404 not a verb of the registry (init, down)
+        self.assertEqual(self.mutations(), [])
+        js = (STATIC / "console.js").read_text()
+        self.assertIn("b.disabled = true;\n    b.title = v.why;", js)   # the page never gives a host-only verb a click handler
+
     def test_the_link_token_leaves_the_address_bar(self):
         js = (STATIC / "console.js").read_text()
         self.assertIn('history.replaceState(null, "", location.pathname)', js)
