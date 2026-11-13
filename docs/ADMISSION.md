@@ -65,6 +65,10 @@ back" has one exact answer: when the oldest of the last two leases is 24 hours o
 Names are checked in full against `[a-z][a-z0-9-]{1,19}` (they become the node name, the certificate name and a directory), `lh`, `cp`, `n1`, `n2` are
 reserved, and a name is used once (as with `mesh host invite`).
 
+Every `mesh host` verb of this page can also run through the host console ([CONSOLE.md](CONSOLE.md)): typed in a shell with its daemon
+running, it goes through the daemon with the same output and exit code, and it is written in the console's audit log; the web console
+offers the same verbs as buttons. The tick and `panic` never go through it.
+
 ## A. Manual approval (built)
 
 ```mermaid
