@@ -33,7 +33,7 @@ menu { display: flex; justify-content: flex-end; gap: .5rem; padding: 0; }
 code { font-family: ui-monospace, monospace; }
 footer { margin-top: 2rem; font-size: .85rem; }
 .hostverb { display: grid; grid-template-columns: 9rem 1fr; gap: .1rem .75rem; padding: .4rem 0; border-bottom: 1px solid var(--line); }
-.hostverb button { justify-self: start; }
+.hostverb button { justify-self: start; align-self: start; }
 .hostverb code { overflow-wrap: anywhere; }
 @media (max-width: 560px) { .hostverb { grid-template-columns: 1fr; } }
 td button { padding: .1rem .5rem; font-size: .9em; }
