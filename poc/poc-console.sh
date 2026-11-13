@@ -15,7 +15,8 @@ LOG="$CACHE/poc-console.log"; : >"$LOG"   # kept after the run for diagnosis (.c
 MESH="$POC/mesh"
 LEASE="${ADM_LEASE:-900}"
 export POOL_CONFIG="$STATE/pool-test.yaml"
-sed "s/^lease_seconds: [0-9]*/lease_seconds: $LEASE/" "$POC/pool.yaml" >"$POOL_CONFIG"
+# the idle kick off: ana and bob are expelled by the steps that test it, not early because a lease of the test's length ran idle
+sed -e "s/^lease_seconds: [0-9]*/lease_seconds: $LEASE/" -e "s/^idle_kick_seconds: [0-9]*/idle_kick_seconds: 0/" "$POC/pool.yaml" >"$POOL_CONFIG"
 unset EMESH_DIRECT EMESH_AUDITED EMESH_LOCK_HELD
 SOCK="$STATE/console/api.sock"
 AUDIT="$STATE/console/audit.jsonl"
@@ -54,7 +55,9 @@ same_both_ways() { # `mesh host burn` through the daemon and with EMESH_DIRECT=1
   [ "$a" = "$b" ] && [ "$ra" = "$rb" ] && [ "$ra" = 0 ] && tail -2 "$AUDIT" | grep -q '"source": "socket"' && last_is direct burn
 }
 kick_bob() { via_confirmed "" socket kick host kick bob && ! k get node bob && ! machine_running bob; }
-tick_direct() { local n; n=$(lines); out_has "tick:" env EMESH_DIRECT=1 "$MESH" host auto --once && [ "$(lines)" -eq "$n" ]; }
+tick_direct() { # as typed in a shell (no EMESH_DIRECT) with the daemon up: the tick is not sent, and its nested burn and kicks neither
+  local n j; n=$(lines); j=$(grep -c '"source": "socket"' "$AUDIT"); out_has "tick:" "$MESH" host auto --once && [ "$(lines)" -eq "$n" ] &&
+  [ "$(grep -c '"source": "socket"' "$AUDIT")" -eq "$j" ]; }
 killed_leaves_socket() { kill -9 "$CONSOLE_PID"; wait "$CONSOLE_PID" 2>/dev/null; CONSOLE_PID=""; [ -S "$SOCK" ] && ! answers; }
 lease_end() { python3 -c 'import json,sys; print(next(l["end"] for l in json.load(open(sys.argv[1]))["pool"]["leases"] if l["name"] == sys.argv[2]))' "$ADM" "$1"; }
 expires_without_daemon() { # the timer's command, with no daemon at all: ana's lease ends and she is expelled
@@ -77,7 +80,7 @@ step K16 "ana joins with her bundle and is Ready" play_ready ana
 step K17 "approve bob through the daemon: bob, confirmed" via_confirmed "approved bob (public)" socket approve host approve
 step K18 "bob joins with his bundle and is Ready" play_ready bob
 step K19 "kick bob through the daemon (the CLI types the name): node and machine gone, one audit line" kick_bob
-step K20 "the tick runs direct while the daemon runs: its nested calls too, no audit line" tick_direct
+step K20 "the tick typed with the daemon up runs direct, its nested calls too: no audit line" tick_direct
 step K21 "the daemon is killed (SIGKILL) and leaves its socket behind, answering nothing" killed_leaves_socket
 step K22 "carol asks with no daemon behind the socket: direct, one audit line" via "carol: waiting" direct request host request carol --ip 2001:db8:c::1
 step K02 "with the daemon stopped, the timer's tick expels ana at her lease's end" expires_without_daemon

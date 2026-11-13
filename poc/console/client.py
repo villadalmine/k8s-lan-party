@@ -32,20 +32,25 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import actions  # noqa: E402
 
 EX_TEMPFAIL = 75
+CONNECT_TIMEOUT = 5     # seconds to reach the socket
+READ_TIMEOUT = 30       # seconds a GET of a job may take (the daemon answers those from memory)
+POST_TIMEOUT = None     # a POST waits as long as the daemon needs: a plan's reads wait for the ledger's lock (60 s each at most), and a
+                        # client that gave up while the daemon goes on would report a failure for a command that runs anyway
 POLL = 0.2
 WAIT_NOTE_AFTER = 1.0   # a job still queued after this long: say so (a direct command waiting for the lock would just wait)
 PLAN_TRIES = 3
 
 
 class UnixHTTP(http.client.HTTPConnection):
-    def __init__(self, path: str, timeout: float = 30):
-        super().__init__("localhost", timeout=timeout)
-        self.path = path
+    def __init__(self, path: str, timeout: float | None = READ_TIMEOUT):
+        super().__init__("localhost")
+        self.path, self.read_timeout = path, timeout
 
     def connect(self) -> None:
         s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        s.settimeout(self.timeout)
+        s.settimeout(CONNECT_TIMEOUT)
         s.connect(self.path)
+        s.settimeout(self.read_timeout)
         self.sock = s
 
 
@@ -53,8 +58,12 @@ class NotSent(Exception):
     """Nothing reached the daemon: running the engine directly is safe."""
 
 
-def call(sock: str, method: str, path: str, body: dict | None = None, sent: bool = True) -> tuple[int, dict]:
-    c = UnixHTTP(sock)
+class MaybeRan(Exception):
+    """A call that starts a job was sent, and no answer came back: the job may run. Never run it again behind its back."""
+
+
+def call(sock: str, method: str, path: str, body: dict | None = None) -> tuple[int, dict]:
+    c = UnixHTTP(sock, POST_TIMEOUT if method == "POST" else READ_TIMEOUT)
     try:
         try:
             c.connect()
@@ -88,14 +97,30 @@ def refused(status: int, out: dict) -> int:
 
 
 def start(sock: str, verb: str, args: dict) -> tuple[int, dict]:
-    """POST the call, and when it wants a confirmation, confirm it: (status, job) on 202, else (status, error)."""
+    """POST the call, and when it wants a confirmation, confirm it: (status, job) on 202, else (status, error). A lost answer to a
+    call that starts a job is MaybeRan; a lost plan is a plain error (nothing ran)."""
+    if actions.REGISTRY[verb].confirm == "none":
+        return started(sock, verb, args)
     status, out = call(sock, "POST", f"actions/{verb}", {"args": args})
     if status != 200:
         return status, out
     body = {"args": args, "confirm": out["confirm"]}
     if out.get("type_to_confirm"):
         body["typed"] = out["type_to_confirm"]
-    return call(sock, "POST", f"actions/{verb}", body)
+    try:
+        return call(sock, "POST", f"actions/{verb}", body)
+    except (OSError, http.client.HTTPException) as e:   # NotSent included: the plan was answered, so the daemon was there
+        raise MaybeRan(str(e)) from None
+
+
+def started(sock: str, verb: str, args: dict) -> tuple[int, dict]:
+    """start() for a verb with no confirmation: its one POST starts the job."""
+    try:
+        return call(sock, "POST", f"actions/{verb}", {"args": args})
+    except NotSent:
+        raise
+    except (OSError, http.client.HTTPException) as e:
+        raise MaybeRan(str(e)) from None
 
 
 def follow(sock: str, job: dict, verb: str) -> dict:
@@ -140,8 +165,12 @@ def run(a) -> int:
         if job.get("id"):
             print(f"\nmesh: {verb} goes on in the console daemon (job {job['id']})", file=sys.stderr)
         return 130
-    except (OSError, RuntimeError, NotSent) as e:
-        print(f"mesh: lost the console daemon while {verb} ran ({e}); see its audit log", file=sys.stderr)
+    except MaybeRan as e:
+        print(f"mesh: the console daemon did not answer once {verb} was sent ({e or 'connection lost'}): it may have run. "
+              "Look at <state>/console/audit.jsonl before you try again.", file=sys.stderr)
+        return 1
+    except (OSError, RuntimeError, NotSent, http.client.HTTPException) as e:
+        print(f"mesh: lost the console daemon while {verb} ran ({e or 'connection lost'}); see its audit log", file=sys.stderr)
         return 1
     if job.get("error") == "plan-changed":
         print(f"mesh: the state kept changing under {verb}: try again", file=sys.stderr)

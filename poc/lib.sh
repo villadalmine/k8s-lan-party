@@ -129,7 +129,7 @@ verb_class() {
     "host kick") echo "registry kick" ;; "host refresh") echo "registry refresh" ;; "host bundle") echo "registry bundle" ;;
     "host request") echo "registry request" ;; "host reject") echo "registry reject" ;; "host approve") echo "registry approve" ;;
     "host players") case "$rest" in *" --read-only "*) echo "read -" ;; *) echo "mutate -" ;; esac ;;
-    "host reap") case "$rest" in *" --all "*) echo "registry reap-all" ;; *" --name "*) echo "registry reap-one" ;; *) echo "registry reap" ;; esac ;;
+    "host reap") case "$rest" in *" --all "*) echo "registry reap-all" ;; *" --name "*|*" --name="*) echo "registry reap-one" ;; *) echo "registry reap" ;; esac ;;
     "host auto") case "${3:-}" in --once) echo "registry tick" ;; on) echo "registry auto-on" ;; off) echo "registry auto-off" ;; *) echo "read -" ;; esac ;;
     "host panic") case "$rest" in *" --clear "*) echo "registry panic-clear" ;; *) echo "registry panic" ;; esac ;;
     "host party") case "${3:-list}" in reconcile) echo "registry party-reconcile" ;; end) echo "registry party-end" ;;
