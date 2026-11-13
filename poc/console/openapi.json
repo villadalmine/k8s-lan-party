@@ -2147,7 +2147,8 @@
      "command",
      "roles",
      "allowed",
-     "why"
+     "why",
+     "closed_values"
     ],
     "properties": {
      "verb": {
@@ -2180,6 +2181,33 @@
        "null"
       ],
       "description": "null when allowed"
+     },
+     "closed_values": {
+      "type": "array",
+      "description": "for an allowed verb, the argument values this role may still not send, each with the command to type on the host",
+      "items": {
+       "type": "object",
+       "required": [
+        "param",
+        "value",
+        "command",
+        "why"
+       ],
+       "properties": {
+        "param": {
+         "type": "string"
+        },
+        "value": {
+         "type": "string"
+        },
+        "command": {
+         "type": "string"
+        },
+        "why": {
+         "type": "string"
+        }
+       }
+      }
      }
     }
    }
