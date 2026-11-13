@@ -60,7 +60,7 @@ same_both_ways() { # `mesh host burn` through the daemon and with EMESH_DIRECT=1
 web_local_only() { # the host reaches the page and, with the link's token, the API; nothing but the loopback listens on that port; ana's
   # machine reaches the host's bridge address (a control listener there) but is refused on the web port. The host itself has no Nebula
   # address (the lighthouse and the control plane are VMs): the underlay bridge is the only way from a player's machine to the host.
-  local link tok rc ctl=$((WEB_PORT + 1)) cpid ok=1
+  local link tok rc ctl=$((WEB_PORT + 1)) cpid ok=1 empty
   [ -n "${UNDERLAY_NET:-}" ] || { echo "UNDERLAY_NET is empty"; return 1; }
   link=$("$MESH" host console url --web "127.0.0.1:$WEB_PORT" 2>/dev/null); tok="${link##*#t=}"
   curl -fsS -o /dev/null "http://127.0.0.1:$WEB_PORT/" || { echo "the host does not reach the page"; return 1; }
@@ -68,10 +68,11 @@ web_local_only() { # the host reaches the page and, with the link's token, the A
     { echo "the host does not reach the API with the link's token"; return 1; }
   [ "$(ss -Hltn "sport = :$WEB_PORT" | awk '{print $4}' | sort -u)" = "127.0.0.1:$WEB_PORT" ] ||
     { echo "something other than 127.0.0.1 listens on $WEB_PORT:"; ss -Hltn "sport = :$WEB_PORT"; return 1; }
-  python3 -m http.server --bind "$UNDERLAY_NET.1" "$ctl" >/dev/null 2>&1 & cpid=$!
+  empty=$(mktemp -d)   # the control serves an empty directory: never the clone (.git, .state with the CA) to the VMs on the bridge
+  python3 -m http.server --bind "$UNDERLAY_NET.1" --directory "$empty" "$ctl" >/dev/null 2>&1 & cpid=$!
   wait_for 10 curl -fsS -o /dev/null "http://$UNDERLAY_NET.1:$ctl/"
   dx ana curl -sS -m 5 -o /dev/null "http://$UNDERLAY_NET.1:$ctl/" || { echo "control: ana does not reach $UNDERLAY_NET.1:$ctl"; ok=0; }
-  kill "$cpid" 2>/dev/null; wait "$cpid" 2>/dev/null
+  kill "$cpid" 2>/dev/null; wait "$cpid" 2>/dev/null; rmdir "$empty"
   [ "$ok" = 1 ] || return 1
   dx ana curl -sS -m 5 -o /dev/null "http://$UNDERLAY_NET.1:$WEB_PORT/"; rc=$?
   echo "the host: page and API; only 127.0.0.1 listens; ana -> $UNDERLAY_NET.1:$ctl (control): reached; -> :$WEB_PORT: curl exit $rc"

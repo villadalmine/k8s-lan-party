@@ -80,6 +80,10 @@ STATIC_FILES = {"/": ("index.html", "text/html; charset=utf-8"), "/console.js": 
 ROUTES = ("health", "status", "requests", "leases", "players", "parties", "events", "audit", "metrics", "actions")
 
 
+class HungUp(Exception):
+    """The read deadline hung this request up: nothing more is done for it, not even an answer."""
+
+
 class Refusal(Exception):
     def __init__(self, status: int, error: str, message: str):
         super().__init__(message)
@@ -346,8 +350,10 @@ class Handler(BaseHTTPRequestHandler):
         self._send(status, body.encode(), "application/json; charset=utf-8", extra)
 
     def read_done(self) -> None:
-        """The request is read: from here the work may take long (a plan's reads), and the read deadline no longer applies."""
-        self.server.read_done(self.request)
+        """The request is read: from here the work may take long (a plan's reads), and the read deadline no longer applies. If the
+        deadline already hung it up (in the instant between the last byte and here), nothing is done for it: no job behind its back."""
+        if not self.server.read_done(self.request):
+            raise HungUp
 
     def _route(self, method: str) -> None:
         raw, _, q = self.path.partition("?")
@@ -390,6 +396,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(405, {"error": "method", "message": "not allowed here"}, {"Allow": "POST" if path.startswith("actions/") else "GET"})
             else:
                 raise Refusal(404, "not-found", "no such route")
+        except HungUp:
+            return
         except (Refusal, actions.Refused) as e:
             self._json(e.status, {"error": e.error, "message": e.message})
         except Exception as e:   # never a traceback to the client
@@ -429,11 +437,27 @@ def peer_uid(sock: socket.socket) -> int:
 class Slots:
     """At most MAX_CONNECTIONS handled at once; more get a 503 at once; and a request that is not read within REQUEST_READ_SECONDS
     is hung up (a client dripping a byte every few seconds beats the per-read timeout, not this). A mixin of both listeners."""
-    def read_done(self, request) -> None:
+    def read_done(self, request) -> bool:
+        """Stop the request's read deadline: False when it already fired (the request was hung up)."""
         with self.timers_lock:
             t = self.timers.pop(id(request), None)
         if t:
             t.cancel()
+        return t is not None
+
+    def expire(self, request) -> None:
+        with self.timers_lock:
+            if self.timers.pop(id(request), None) is None:
+                return   # read in time: the deadline lost the race
+        _hang_up(request)
+
+    def handle_error(self, request, client_address):
+        """A client gone (hung up by the deadline, or it closed): one line, not a traceback for each."""
+        e = sys.exc_info()[1]
+        if isinstance(e, (OSError, ValueError)):
+            sys.stderr.write(f"console: a client went away ({e.__class__.__name__})\n")
+        else:
+            super().handle_error(request, client_address)
     def process_request(self, request, client_address):
         if not self.slots.acquire(blocking=False):
             try:
@@ -444,7 +468,7 @@ class Slots:
         super().process_request(request, client_address)
 
     def process_request_thread(self, request, client_address):
-        timer = threading.Timer(REQUEST_READ_SECONDS, _hang_up, (request,))
+        timer = threading.Timer(REQUEST_READ_SECONDS, self.expire, (request,))
         timer.daemon = True
         with self.timers_lock:
             self.timers[id(request)] = timer
