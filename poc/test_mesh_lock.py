@@ -93,6 +93,13 @@ class LockTest(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(self.sections(), ["nested"])
 
+    def test_c12c_in_a_subshell_too(self):
+        """mesh_lock inside a subshell: the holder serves the subshell, so a nested call trusts it instead of waiting for it forever."""
+        nested = f'bash -c \'. "{HERE}/lib.sh"; mesh_lock; echo nested >>"{self.marks}"\''
+        r = self.run_bash(f'( mesh_lock; {nested} )', timeout=20)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.sections(), ["nested"])
+
     def test_a_marker_set_by_hand_is_not_trusted(self):
         """While another command holds the lock: a marker naming init, this test (an ancestor that does not hold the lock), the holder
         itself (it holds it, but is not an ancestor) or nonsense is refused, and the call waits its turn. One holder per marker."""
