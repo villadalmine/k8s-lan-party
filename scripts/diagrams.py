@@ -70,8 +70,10 @@ def stale(directory: Path = DIR) -> list[str]:
 def render(names: list[str], directory: Path = DIR) -> None:
     mmdc = os.environ.get("MMDC", "mmdc")
     for mmd in [directory / f"{n}.mmd" for n in names] or sorted(directory.glob("*.mmd")):
+        # a diagram's own mermaid config, when it has one (features.json: the ELK layout, wide instead of a 13000 px column)
+        config = ["-c", str(mmd.with_suffix(".json"))] if mmd.with_suffix(".json").is_file() else []
         for suffix, extra in ((".svg", []), (".png", ["-b", "white", "-s", "2"])):
-            subprocess.run([mmdc, "-q", "-i", str(mmd), "-o", str(mmd.with_suffix(suffix)), *extra], check=True)
+            subprocess.run([mmdc, "-q", "-i", str(mmd), "-o", str(mmd.with_suffix(suffix)), *config, *extra], check=True)
         stamp(mmd)
         print(f"rendered {mmd.stem}: svg, png, {source_hash(mmd)[:12]}")
 

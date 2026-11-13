@@ -38,7 +38,9 @@ the web console is the second; the bot will be the third. The API adds no behavi
 - **Not in the safety path.** The tick timer keeps calling the engine directly, so lease expiry never depends on the daemon; `mesh host
   panic` from the CLI **always** runs the engine directly, never through the API; and through the API `panic` never waits behind another
   job (below, "Jobs, locks and timeouts"). The public page's puller (`poc/page/puller.py`) runs `mesh` directly too (`EMESH_DIRECT=1`,
-  #88): public intake never depends on the daemon, nor takes the host's queue slots or rate limit.
+  #88): public intake never depends on the daemon, nor takes the host's queue slots or rate limit. It starts each `mesh` in a process group
+  of its own and kills the whole group at its timeout: killing `mesh` alone would free the engine's lock while the verb it runs in a child
+  goes on.
 - **One environment.** Once the CLI forwards to the daemon (#88), the engine runs with the daemon's environment (its systemd unit:
   `POOL_CONFIG`, `TOKEN_TTL`, `REVOKE_WAIT`, `ADMISSION_NOTIFY_*`; and what `poc/lib.sh` reads from `$STATE`, such as `LH_RSH` in
   `$STATE/lighthouse.env`), not the operator's shell's: the client sends argv only. A
@@ -210,6 +212,14 @@ exactly as today: the person who typed the command already confirmed it.
   A confirmed job's plan is checked again **when the job starts**, not only when it is queued: if the state changed while it waited, the job
   does not run and ends `plan-changed` (exit 75 too); the web console shows the new plan, and the CLI, whose person already confirmed by
   typing the command, asks for a new plan and confirms it itself, at most 3 times, then exits 75.
+- **The CLI never runs a command twice, and never hides one that may have run** (#88). Nothing reached the daemon (no socket, a socket
+  with nobody behind it): the command runs directly, as without a daemon. The plan's call got no answer: nothing ran, exit 1. A call that
+  starts a job got no answer: the job may have run, exit 1, look at the audit before trying again (never a direct run behind it). The job
+  started and following it failed: it goes on in the daemon, exit 1, its end will be in the audit. A call that starts a job waits up to
+  300 s for its answer (the daemon answers in far less: its plan reads wait 60 s each at most for the ledger's lock, and a job's run time
+  is never part of the answer); a GET of a running job, 30 s. **Ctrl-C** stops the CLI, not the job: it says the job goes on (or, when
+  it came during the call that starts it, that it may already be queued), then dies by SIGINT, as the direct command would, so a shell
+  loop around `mesh` stops too. A direct registry verb stopped with Ctrl-C still leaves its audit line first, then `mesh` dies by SIGINT.
 - **`panic` never waits in the daemon's queue**, and its switch does not wait for anybody. Today admission.py writes the ledger and the
   switch only at the end of its locked pass, so a `panic` killed half way would have expelled people and still left panic off, and a `panic`
   started during a long `reap-all` would only close admission when that pass ended. #87 splits it: `panic` first writes the switch (auto
