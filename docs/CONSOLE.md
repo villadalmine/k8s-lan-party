@@ -182,7 +182,9 @@ exactly as today: the person who typed the command already confirmed it.
   The lock is taken by the **outermost** `mesh` only. The engine calls `mesh` from inside `mesh` (a `reap`, a tick, `panic` and `approve` run
   `mesh host burn`, `kick` and `invite` through admission.py), and a `flock` is not re-entrant: a nested call that tried to take it again would
   wait for its own parent forever. So the outermost `mesh` takes it, exports `EMESH_LOCK_HELD=1`, and every nested `mesh` sees the marker and
-  runs without locking; the lock's file descriptor is inherited by the whole process tree and released when the outermost process ends. On
+  runs without locking. The marker alone is not trusted (anyone can set a variable): a `mesh` that sees it checks that the lock really is
+  held (a non-blocking `flock -n` on `$STATE/mesh.lock` must fail; in the fallback, the link's pid must be a live ancestor) and otherwise
+  takes the lock as usual. The lock's file descriptor is inherited by the whole process tree and released when the outermost process ends. On
   a system without `flock(1)` (macOS) the same rule applies to the fallback `with_guard_lock` already uses in `poc/lib.sh` (a symbolic link
   holding the owner's pid, taken over only when stale). The node guard's own lock stays, nested inside this one.
 - **Jobs wait their turn, like the CLI does.** The daemon runs one job at a time, in order; while one runs, up to 4 more wait in a queue
@@ -191,14 +193,18 @@ exactly as today: the person who typed the command already confirmed it.
   caller's 409 makes the CLI exit 75 (`EX_TEMPFAIL`, "busy: 4 jobs waiting, try again"), where a direct command would just have waited.
   A confirmed job's plan is checked again **when the job starts**, not only when it is queued: if the state changed while it waited, the job
   does not run and ends `plan-changed` (exit 75 too); the web console shows the new plan, and the CLI, whose person already confirmed by
-  typing the command, asks for a new plan and confirms it itself.
+  typing the command, asks for a new plan and confirms it itself, at most 3 times, then exits 75.
 - **`panic` never waits in the daemon's queue**, and its switch does not wait for anybody. Today admission.py writes the ledger and the
   switch only at the end of its locked pass, so a `panic` killed half way would have expelled people and still left panic off, and a `panic`
   started during a long `reap-all` would only close admission when that pass ended. #87 splits it: `panic` first writes the switch (auto
-  off, panic on, in `auto.json`, atomically, under a short lock of that file alone, with its event), outside the engine's lock; every pass
-  that starts after that sees it, and a pass already running does not overwrite it (admission.py writes `auto.json` only when the pass
-  itself changed the switch; it may still finish the approvals of the pass it began with the old switch). Then `panic` takes the engine's lock to expel: **that part still waits** for the pass that holds it, as long as
-  that pass lasts (900 s at most, a `reap-all`). The switch is immediate; the expulsions are not.
+  off, panic on) to `auto.json` with an atomic rename (`write_atomic`), outside the engine's lock; every pass that starts after that sees it,
+  and a pass already running does not overwrite it (admission.py writes `auto.json` only when the pass itself changed the switch; it may
+  still finish the approvals of the pass it began with the old switch). #87 also makes the commit write only the keys the pass changed, so a
+  `panic --clear` that read the switch before a new `panic` cannot put `panic: false` back. The `panic` event is not written there: it goes
+  to `events.jsonl` with the expulsions, under the ledger's lock (a line appended outside it could be lost to `flush_events`' rewrite), and
+  #87 changes the test that emits it (today only when panic was off at the start of the pass, which a switch written first would make
+  false). Then `panic` takes the engine's lock to expel: **that part still waits** for the pass that holds it, as long as that pass lasts
+  (900 s at most, a `reap-all`). The switch is immediate; the expulsions are not.
 - Each verb has a **timeout** (`timeout_seconds` in the registry, counted from the moment the job starts, not while it waits: 120 s for a
   switch, up to 900 s for `reap-all`). When it passes the process group gets SIGTERM, then SIGKILL 30 s later, and the job ends with exit
   124, like `timeout(1)`. The engine's lock is a `flock` and dies with the process. `panic` has no timeout.
