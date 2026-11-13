@@ -33,6 +33,10 @@ the internet asks for a place on their own, with nobody in between. To play with
 What the page never adds: a credential on the public server. The CA, the join tokens and the Kubernetes API stay with you; the page only keeps a
 list and opaque sealed bundles that only each visitor can open.
 
+The page is not the host's console. The host console ([CONSOLE.md](CONSOLE.md)) runs on the host, on its loopback, and is reached
+through an SSH tunnel; it is never on the page server and never public. The page still holds no credential: its puller, on the host,
+runs the engine directly and never through the console's daemon.
+
 ## How it works
 
 ```mermaid
