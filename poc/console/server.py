@@ -361,6 +361,8 @@ class Handler(BaseHTTPRequestHandler):
                 try:
                     body = PageHandler._body(self, MAX_BODY)
                 except PageRefusal as e:
+                    if e.status == 415:   # refused before the body was read: read it, so a client still sending it gets our answer
+                        self._drain()
                     raise Refusal(e.status, e.error, e.message) from None
                 cred, source, uid = self.who()
                 status, out = self.console.act(verb, body, self.role, cred, source, uid)

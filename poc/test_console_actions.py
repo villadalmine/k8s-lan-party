@@ -256,6 +256,28 @@ class ActionsTest(DaemonCase):
         c.close()
         self.assertEqual(self.mutations(), [])
 
+    def test_a_refused_body_is_read_so_a_slow_client_gets_the_answer(self):
+        """415 for a form is decided from the headers: the body that follows is read anyway, so the client that sends it after the
+        headers gets the 415, not a broken pipe or a reset (the race behind a flaky c07)."""
+        import socket as sk
+        s = sk.socket(sk.AF_UNIX)
+        s.settimeout(10)
+        s.connect(str(self.sock))
+        body = b"name=ana&" * 400   # 3.6 KB: within MAX_BODY
+        s.sendall(b"POST /api/v1/actions/burn HTTP/1.0\r\nHost: x\r\nContent-Type: application/x-www-form-urlencoded\r\n"
+                  b"Content-Length: " + str(len(body)).encode() + b"\r\n\r\n")
+        time.sleep(0.5)   # the daemon has decided by now
+        s.sendall(body)
+        answer = b""
+        while True:
+            chunk = s.recv(4096)
+            if not chunk:
+                break
+            answer += chunk
+        s.close()
+        self.assertTrue(answer.startswith(b"HTTP/1.0 415"), answer[:80])
+        self.assertEqual(self.mutations(), [])
+
     def test_c08_the_console_role_through_act(self):
         for verb, args in (("invite", {"name": "ana"}), ("bundle", {"name": "ana"}), ("approve", {"trust": "friends"})):
             with self.assertRaises(actions.Refused) as e:
