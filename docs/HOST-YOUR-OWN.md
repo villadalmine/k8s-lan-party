@@ -209,6 +209,8 @@ User=<your user>
 WorkingDirectory=<the clone>/poc
 Environment=RUNTIME=incus
 Environment=ADMISSION_NOTIFY_CMD=<your notify command>
+# the tick never goes through the host console (docs/CONSOLE.md): expiry must not depend on its daemon
+Environment=EMESH_DIRECT=1
 ExecStart=<the clone>/poc/mesh host auto --once
 ExecStopPost=/bin/sh -c './mesh host admission-metrics > /var/lib/node_exporter/textfile/emesh_admission.prom.tmp && mv /var/lib/node_exporter/textfile/emesh_admission.prom.tmp /var/lib/node_exporter/textfile/emesh_admission.prom'
 
@@ -224,7 +226,7 @@ WantedBy=timers.target
 ```
 
 `sudo systemctl daemon-reload && sudo systemctl enable --now emesh-admission.timer`; `journalctl -u emesh-admission` shows each tick's line. Or cron:
-`* * * * * cd <the clone>/poc && RUNTIME=incus ADMISSION_NOTIFY_CMD=<your command> ./mesh host auto --once >>/var/log/emesh-admission.log 2>&1`.
+`* * * * * cd <the clone>/poc && EMESH_DIRECT=1 RUNTIME=incus ADMISSION_NOTIFY_CMD=<your command> ./mesh host auto --once >>/var/log/emesh-admission.log 2>&1`.
 Two ticks at the same moment are safe (one lock). Alert on `emesh_admission_last_tick_timestamp_seconds` older than a few minutes: without the tick
 nothing expels at the hour (the certificate still expires). `./poc-admission-auto.sh` proves the whole automatic cycle on Incus VMs (37 checks; [dell]);
 like the other suites it builds its own cluster, so run it after `./mesh host down`.

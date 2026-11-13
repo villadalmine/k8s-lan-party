@@ -232,6 +232,14 @@ class Console:
                 out.append(item)
         return out[-limit:]
 
+    def raw_job(self, view, role: str) -> dict | None:
+        """A job's stdout, stderr and output as the engine printed them, for the `local` role (the host's own user, who can read the
+        state directory anyway): the CLI through the API prints exactly what it prints direct (#88). Every other role: None."""
+        if role != "local" or not isinstance(view, dict) or not isinstance(view.get("id"), str):
+            return None
+        job = self.runner.get(view["id"])
+        return job.raw() if job is not None else None
+
     def get(self, path: str, query: dict) -> tuple[int, object, str]:
         """(status, body, kind) for a GET; kind is json or text."""
         parts = path.split("/")
@@ -306,8 +314,12 @@ class Handler(BaseHTTPRequestHandler):
         if self.command != "HEAD":
             self.wfile.write(body)
 
-    def _json(self, status: int, obj, extra: dict | None = None) -> None:
-        body = json.dumps(self.console.redact(obj), sort_keys=True) + "\n"
+    def _json(self, status: int, obj, extra: dict | None = None, raw: dict | None = None) -> None:
+        """Everything redacted; `raw` (a job's own output, for the local role only: the #85 decision) is added after that step."""
+        out = self.console.redact(obj)
+        if raw:
+            out = {**out, **raw}
+        body = json.dumps(out, sort_keys=True) + "\n"
         self._send(status, body.encode(), "application/json; charset=utf-8", extra)
 
     def _route(self, method: str) -> None:
@@ -333,7 +345,7 @@ class Handler(BaseHTTPRequestHandler):
                     raise Refusal(e.status, e.error, e.message) from None
                 uid = peer_uid(self.connection)
                 status, out = self.console.act(verb, body, "local", f"uid:{uid}", "socket", uid)
-                return self._json(status, out)
+                return self._json(status, out, raw=self.console.raw_job(out, "local"))
             if method == "POST":
                 self._drain()
             if method == "GET" and path.startswith("actions/"):
@@ -343,7 +355,7 @@ class Handler(BaseHTTPRequestHandler):
                 if kind == "text":
                     self._send(status, self.console.redact.text(body).encode(), "text/plain; version=0.0.4; charset=utf-8")
                 else:
-                    self._json(status, body)
+                    self._json(status, body, raw=self.console.raw_job(body, "local") if path.startswith("jobs/") else None)
             elif path in ROUTES or path.startswith(("players/", "jobs/", "actions/")):
                 self._json(405, {"error": "method", "message": "not allowed here"}, {"Allow": "POST" if path.startswith("actions/") else "GET"})
             else:

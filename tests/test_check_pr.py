@@ -271,7 +271,7 @@ class FeatureGate(unittest.TestCase):
         self.assertIn("cite the RESULT PASS of poc-golden", failed)
         self.assertIn("poc-placement", self.gate(GATED, "poc/vm/poc-placement.sh")[0])   # placement: poc-placement and poc-golden
 
-    LIB = ("join", "host-your-own", "join-token-burn", "node-guard", "two-level-ca")   # the features poc/lib.sh touches
+    LIB = ("join", "host-your-own", "join-token-burn", "node-guard", "two-level-ca", "host-console")   # the features poc/lib.sh touches
 
     def table(self, result: dict, commit: str = "abcdef012345") -> str:
         rows = "".join(f"| `{f}` | {result.get(f, 'PASS')} | `poc-join` J01: x |\n" for f in self.LIB)

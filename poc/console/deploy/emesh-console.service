@@ -12,6 +12,14 @@ After=network.target
 User=<your user>
 WorkingDirectory=<the clone>/poc
 UMask=0077
+# With this daemon running, `mesh host <verb>` from your shell runs here (#88): the variables the engine reads come from these lines, not
+# from your shell. Set the ones you use (a value set in the shell for one command then needs EMESH_DIRECT=1 on that command):
+#Environment=POOL_CONFIG=<the clone>/poc/pool.yaml
+#Environment=TOKEN_TTL=8m
+#Environment=REVOKE_WAIT=30
+#Environment=ADMISSION_NOTIFY_CMD=<your notify command>
+#Environment=ADMISSION_NOTIFY_IP=1
+# (LH_RSH and the rest of the lighthouse's settings are read from .state/lighthouse.env by the engine itself.)
 ExecStart=<the clone>/poc/mesh host console
 Restart=on-failure
 RestartPreventExitStatus=2

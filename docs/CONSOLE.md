@@ -4,7 +4,9 @@ Status: **RFC of [#85](https://github.com/villadalmine/k8s-lan-party/issues/85)*
 merges and the decision is recorded in #85. **Built so far: #86**, the daemon on the unix socket (role `local`) and every read
 (`mesh host console`, `poc/console/server.py`, `poc/console/actions.py`, the unit in `poc/console/deploy/`), and **#87**, the mutations:
 plans and confirm tokens, the job queue and panic's own lane, timeouts, the audit log and the `console_action` notify
-(`poc/console/mutate.py`), and `panic` writing its switch before it waits for the ledger (`poc/admission.py`). The pieces are [#86](https://github.com/villadalmine/k8s-lan-party/issues/86) (the daemon and its reads),
+(`poc/console/mutate.py`), and `panic` writing its switch before it waits for the ledger (`poc/admission.py`), and **#88**, the CLI
+as a client: `poc/mesh` sends registry verbs to the daemon (`poc/console/client.py`), takes the engine's lock (`poc/meshlock.py`) and
+writes the audit line of what it runs directly. The pieces are [#86](https://github.com/villadalmine/k8s-lan-party/issues/86) (the daemon and its reads),
 [#87](https://github.com/villadalmine/k8s-lan-party/issues/87) (mutations, confirmation, jobs, audit),
 [#88](https://github.com/villadalmine/k8s-lan-party/issues/88) (the CLI as a client),
 [#89](https://github.com/villadalmine/k8s-lan-party/issues/89) (the web console) and
@@ -186,15 +188,23 @@ exactly as today: the person who typed the command already confirmed it.
   the daemon. The daemon has no lock of its own besides that one.
   The lock is taken by the **outermost** `mesh` only. The engine calls `mesh` from inside `mesh` (a `reap`, a tick, `panic` and `approve` run
   `mesh host burn`, `kick` and `invite` through admission.py), and a `flock` is not re-entrant: a nested call that tried to take it again would
-  wait for its own parent forever. So the outermost `mesh` takes it, exports `EMESH_LOCK_HELD=1`, and every nested `mesh` sees the marker and
-  runs without locking. The marker alone is not trusted (anyone can set a variable): a `mesh` that sees it checks that the lock really is
-  held (a non-blocking `flock -n` on `$STATE/mesh.lock` must fail; in the fallback, the link's pid must be a live ancestor) and otherwise
-  takes the lock as usual. The lock's file descriptor is inherited by the whole process tree and released when the outermost process ends. On
-  a system without `flock(1)` (macOS) the same rule applies to the fallback `with_guard_lock` already uses in `poc/lib.sh` (a symbolic link
-  holding the owner's pid, taken over only when stale). The node guard's own lock stays, nested inside this one.
+  wait for its own parent forever. So the outermost `mesh` takes it, exports `EMESH_LOCK_HELD=<its pid>`, and every nested `mesh` sees the
+  marker and runs without locking. The marker alone is not trusted (anyone can set a variable): a `mesh` that sees it checks that the lock
+  really is held now (a non-blocking `flock` on `$STATE/mesh.lock` fails), that `$STATE/mesh.lock.owner` (written under the lock) names that
+  pid, and that the pid is one of its own ancestors; otherwise it takes the lock as usual.
+  **Built (#88) with a holder process**, not with a descriptor the whole process tree inherits: any process that outlived the command (an
+  ssh ControlPersist master started through `LH_RSH`, a daemonized helper) would have kept such a descriptor, and the lock, for hours.
+  `poc/meshlock.py hold` takes the `flock`, prints `locked`, and keeps it while the `mesh` it serves runs (it polls every 0.1 s; a zombie
+  counts as gone); it is in the caller's process group, so the daemon's SIGKILL at a timeout frees it too. Python's `fcntl.flock` exists on
+  macOS as well, so there is no second mechanism for systems without `flock(1)`. The node guard's own lock stays, nested inside this one.
+  `panic` is the one verb `mesh` does not lock: admission.py takes the same lock itself right after writing the switch
+  (`--engine-lock`), so the switch never waits and the expulsions do.
+  Whatever runs directly marks its whole process tree direct (`EMESH_DIRECT=1`): a nested `mesh` sent to the daemon would queue behind
+  its own parent's lock.
 - **Jobs wait their turn, like the CLI does.** The daemon runs one job at a time, in order; while one runs, up to 4 more wait in a queue
   (a fifth gets 409 `busy`). A job that waits behaves like a direct command waiting for the lock, so the CLI through the API keeps the same
-  output and exit code (#88); the client shows `waiting for <verb> (job ...)` on stderr while it waits. The one difference: the fifth
+  output and exit code (#88: the job keeps stdout and stderr apart, and the client prints each where the engine printed it); the client
+  shows `waiting for <verb> (job ...)` on stderr once when the job is still queued after a second. The one difference: the fifth
   caller's 409 makes the CLI exit 75 (`EX_TEMPFAIL`, "busy: 4 jobs waiting, try again"), where a direct command would just have waited.
   A confirmed job's plan is checked again **when the job starts**, not only when it is queued: if the state changed while it waited, the job
   does not run and ends `plan-changed` (exit 75 too); the web console shows the new plan, and the CLI, whose person already confirmed by
@@ -224,8 +234,11 @@ verb, args (free text cut to 200 characters), whether it was confirmed, exit cod
 because `EMESH_DIRECT=1` is also set by people), and a `mesh` that sees it writes nothing; so the engine the daemon starts, and the nested
 `kick` and `burn` inside a `reap`, add no line of their own. One verb is left out by its name, not by who ran it: `auto --once`, the
 tick, whose facts are already in `admission/events.jsonl` (a line a minute would drown the rest); a tick run from the console is the
-registry verb `tick` and is audited. Every writer appends one line with a single `O_APPEND` write, under `$STATE/mesh.lock`, which is also
-where the file is rotated (1 MiB, one old copy kept), so two writers never interleave or lose a line.
+registry verb `tick` and is audited. Every writer appends one line with a single `O_APPEND` write, under `$STATE/console/audit.lock`,
+which is also where the file is rotated (1 MiB, one old copy kept), so two writers never interleave or lose a line. The audit has a lock of
+its own (#88), held for one write: under the engine's lock, which a command holds as long as it runs (a `reap-all`: up to 900 s), a
+daemon job would have waited that long to end. A direct line has `source: direct`, `confirmed: false` (no confirmation step: the command
+was the confirmation) and no job id; a call that is not exactly a registry call (`invite --pub FILE`) records its words as `argv`.
 
 A mutation by the `console` role also fires the admission notify hook (`ADMISSION_NOTIFY_CMD`, docs/ADMISSION.md) with the event
 `console_action` and a summary (`kick alice: exit 0`), so the host learns about a click from the web on the same channel as the pool's
@@ -243,6 +256,11 @@ Job output, audit lines, notify summaries and every response pass through one re
 | the page puller's token (the daemon reads the file `$STATE/page/puller.token` at start and redacts its value) | environment, error messages | `<token>` |
 | a claim code of the page | puller output | `<code>` |
 | the state directory and any home directory | paths in messages | `<state>`, `~` (the same rule as `poc/page/whatsnew/showcase.py`) |
+
+**The local role sees a job's own output (decided in #85 while building #88).** A job's stdout, stderr and output reach a `local` caller
+(the unix socket: the host's own uid, which can read `.state` anyway) as the engine printed them, so `mesh host invite alice` through the
+API prints the bundle's real path, the same as direct. Everything else stays redacted: every read, a job seen by the `console` role (the
+web, #89; the bot, #50), every audit line and every notify summary.
 
 Identities (a visitor's IP) are not redacted: the host sees them in `mesh host waitlist` today, and the console is the host. The notify hook
 keeps its own rule (no identity unless `ADMISSION_NOTIFY_IP=1`). #87 has a leak test that plants each of these in a fake engine's output.
@@ -266,13 +284,13 @@ issue that builds each test is in brackets.
 | 8 | the web reaches the persistent CA or a private key | the role is checked on the server for every call: `console` cannot run `approve --trust friends`, `invite`, `bundle` or `refresh`, nor anything outside the registry | C08 [#87] |
 | 9 | an accidental or forced destructive click | two phases: a plan first, then a token bound to verb, args, caller and plan; 60 s, single use; the name typed for kick, revoke and reap | C09 [#87] |
 | 10 | a confirm token replayed, or used for something else | single use; bound to verb, args and caller; a different plan is 409 | C10 [#87] |
-| 11 | two mutations race (the API, the CLI direct and the timer) | one `flock` taken by `poc/mesh` around every mutating verb, whoever calls it; the daemon runs one job at a time | C11 [#87, #88] |
+| 11 | two mutations race (the API, the CLI direct and the timer) | one `flock` taken by `poc/mesh` around every mutating verb, whoever calls it; the daemon runs one job at a time | C11 [#87, #88]: `poc/test_mesh_lock.py` (three writers, never two at once) |
 | 12 | a hung engine call holds the lock forever | a timeout per verb from the job's start; SIGTERM then SIGKILL to the process group, exit 124; the `flock` dies with the process | C12 [#87] |
-| 12b | panic is slowed or lost: queued behind a long job, or killed half way | `panic` skips the daemon's queue and has no timeout; the CLI's `panic` is always direct; the switch is written first, outside the engine's lock (immediate); the expulsions then wait for the pass holding the lock (honest: up to 900 s behind a `reap-all`) | C12b [#87, #88] |
-| 12c | a nested `mesh` deadlocks on the engine's lock | only the outermost `mesh` locks; `EMESH_LOCK_HELD=1` for every nested call; the same with the no-`flock` fallback | C12c [#88]: a tick that reaps and kicks finishes |
+| 12b | panic is slowed or lost: queued behind a long job, or killed half way | `panic` skips the daemon's queue and has no timeout; the CLI's `panic` is always direct; the switch is written first, outside the engine's lock (immediate); the expulsions then wait for the pass holding the lock (honest: up to 900 s behind a `reap-all`) | C12b [#87, #88]: `poc/test_mesh_lock.py` (the switch written while another pass holds the lock; the expulsions after it) |
+| 12c | a nested `mesh` deadlocks on the engine's lock | only the outermost `mesh` locks; `EMESH_LOCK_HELD=<pid>` for every nested call, trusted only when that pid holds the lock and is an ancestor; a direct command keeps its nested calls direct | C12c [#88]: `poc/test_mesh_lock.py` (a nested lock, a forged marker, a killed holder, a lingering child), `poc/test_console_cli.py` (a direct tick's nested burn) |
 | 13 | a secret leaks through output, audit, notify or a response | the redaction step (above) on every path out; a leak test plants each secret | C13 [#86, #87] |
 | 14 | a read changes the game (a token burned, a party reconciled) | pure-read engine modes; a recording fake engine fails the test if a GET writes a file or runs a mutating `kubectl` | C14 [#86] |
-| 15 | the daemon is down or busy when it matters | the timer calls the engine directly (expiry never needs the daemon); `mesh host panic` is always direct; the CLI works without the daemon (no socket: direct) | C15 [#88], K02: the timer expires a lease with the daemon stopped [#88] |
+| 15 | the daemon is down or busy when it matters | the timer calls the engine directly (expiry never needs the daemon); `mesh host panic` is always direct; the CLI works without the daemon (no socket: direct) | C15 [#88]: `poc/test_console_cli.py` (no socket, a socket with no daemon: direct), K02: the timer expires a lease with the daemon stopped [#88] |
 | 16 | denial of service of the daemon | page.py's limits (body size, connections, read timeouts); 30 mutations a minute; the socket keeps working when the web listener is rate limited | C16 [#86] |
 | 17 | odd inputs | random bodies, values and paths against every route: no 5xx, the daemon keeps answering | C17 [#86, #87] |
 
@@ -286,6 +304,7 @@ reads only the files named here, and runs nothing outside the registry; the CA k
 
 | Question | Decided | Why, and what was not chosen |
 | :--- | :--- | :--- |
+| job output for the `local` role | as the engine printed it; redacted for every other role, the audit and notify (#85, while building #88) | the CLI through the API prints what it prints direct; the socket's peer is the host's user, who reads `.state` anyway |
 | a framework (FastAPI, Flask) or the standard library | the standard library, like page.py | no new dependency on the control plane; page.py already has the hardened HTTP parts to import |
 | REST/JSON, gRPC or a websocket | REST/JSON with an OpenAPI file; the web console polls (every 5 s, and a job every second while it runs) | readable with `curl`, testable without a client library; a websocket adds a protocol for a page that changes once a minute |
 | an existing dashboard (Kubernetes Dashboard, Headlamp, Cockpit) | no | they show cluster objects, not the queue, the leases or the CA verbs, and would need cluster credentials behind a web login |

@@ -124,6 +124,68 @@ def argv(verb: str, args: dict, role: str) -> list[str]:
     return out
 
 
+def template(a: Action) -> tuple[list[str], list[tuple[str, bool]], dict[str, str]]:
+    """An engine string as (literal words, positional {param}s with whether optional, {--flag: param})."""
+    parts = re.findall(r"\[[^\]]*\]|\S+", a.engine)[1:]   # without the leading "mesh"
+    words: list[str] = []
+    for part in parts:
+        if part.startswith("["):
+            words += ["[", *part.strip("[]").split(), "]"]
+        else:
+            words.append(part)
+    literal: list[str] = []
+    positional: list[tuple[str, bool]] = []
+    flags: dict[str, str] = {}
+    optional, i = False, 0
+    while i < len(words):
+        w = words[i]
+        if w in ("[", "]"):
+            optional = w == "["
+        elif w.startswith("--") and i + 1 < len(words) and words[i + 1].startswith("{"):
+            flags[w] = words[i + 1][1:-1]
+            i += 1
+        elif w.startswith("{"):
+            positional.append((w[1:-1], optional))
+        elif not positional and not flags:
+            literal.append(w)
+        else:
+            raise ValueError(f"{a.verb}: a literal word after a parameter")
+        i += 1
+    return literal, positional, flags
+
+
+def parse(words: list[str]) -> tuple[str, dict] | None:
+    """The inverse of argv(): a `mesh` argument list as (verb, args), or None when it is not exactly a registry call (an unknown flag, a
+    missing or extra word, a value the registry refuses for the local role). Defaults are not filled in: argv() adds them again."""
+    found = sorted(((template(a), a) for a in REGISTRY.values()), key=lambda t: -len(t[0][0]))
+    for (literal, positional, flags), a in found:
+        if words[:len(literal)] != literal:
+            continue
+        args: dict[str, str] = {}
+        todo = list(positional)
+        rest, i, ok = words[len(literal):], 0, True
+        while ok and i < len(rest):
+            w = rest[i]
+            if w.startswith("--"):
+                ok = w in flags and i + 1 < len(rest) and flags[w] not in args
+                if ok:
+                    args[flags[w]] = rest[i + 1]
+                i += 2
+            else:
+                ok = bool(todo)
+                if ok:
+                    args[todo.pop(0)[0]] = w
+                i += 1
+        if not ok:
+            continue
+        try:
+            argv(a.verb, args, "local")   # a missing required name, a bad value: refused here
+        except Refused:
+            continue
+        return a.verb, args
+    return None
+
+
 def describe(role: str) -> list[dict]:
     """GET /api/v1/actions: the entries this role may run (arg_roles shown, so a client can grey out what it may not choose)."""
     return [{"verb": a.verb, "summary": a.summary, "params": a.params, "required": list(a.required), "confirm": a.confirm,

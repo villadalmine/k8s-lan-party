@@ -9,6 +9,7 @@ flowchart LR
     s_poc_kind["poc-kind"]
     s_poc_admission["poc-admission"]
     s_poc_admission_auto["poc-admission-auto"]
+    s_poc_console["poc-console"]
     s_poc_pool["poc-pool"]
     s_poc_party["poc-party"]
     s_poc_doom["poc-doom"]
@@ -34,6 +35,7 @@ flowchart LR
     f_node_guard["node-guard"]
     f_admission_manual["admission-manual"]
     f_admission_auto["admission-auto"]
+    f_host_console["host-console"]
     f_pool["pool"]
     f_party["party"]
     f_doom["doom"]
@@ -109,6 +111,8 @@ flowchart LR
     p_poc_nodes_sweep_py["poc/nodes_sweep.py"]
     p_poc_admission_py["poc/admission.py"]
     p_poc_pool_yaml["poc/pool.yaml"]
+    p_poc_meshlock_py["poc/meshlock.py"]
+    p_poc_console___py["poc/console/*.py"]
     p_poc_pool_py["poc/pool.py"]
     p_poc_participant_py["poc/participant.py"]
     p_poc_participant_policy_yaml["poc/participant-policy.yaml"]
@@ -231,6 +235,13 @@ flowchart LR
   f_admission_auto -.-> p_poc_admission_py
   f_admission_auto -.-> p_poc_pool_yaml
   f_admission_auto -.-> p_poc_mesh
+  s_poc_console -->|"K02, K10-K25"| f_host_console
+  f_host_console --> c_admission
+  f_host_console -.-> p_poc_mesh
+  f_host_console -.-> p_poc_lib_sh
+  f_host_console -.-> p_poc_meshlock_py
+  f_host_console -.-> p_poc_console___py
+  f_host_console -.-> p_poc_admission_py
   s_poc_pool -->|"PL01-PL25"| f_pool
   f_pool --> c_admission
   f_pool --> c_k3s

@@ -38,7 +38,10 @@
 #   mesh party leave [<peer>] | list --as <player>                      `edge-mesh party ...`, run on that player's machine
 # The host console (docs/CONSOLE.md, issue #85): one local API in front of these verbs
 #   mesh host console [--socket PATH]      run its daemon in the foreground: a unix socket for this user only (<state>/console/api.sock,
-#                                          or EMESH_CONSOLE_SOCK); reads now, mutations with #87, a web console with #89
+#                                          or EMESH_CONSOLE_SOCK); reads, mutations as jobs, a web console with #89
+#   While it runs, the registry verbs typed here (request, approve, kick, reap, burn...) go through it: the same output and exit code,
+#   one audit line each (<state>/console/audit.jsonl), 75 when it is busy. EMESH_DIRECT=1 runs them here instead; the tick and `panic`
+#   always run here. Every mutating verb takes the engine's lock (<state>/mesh.lock), so two never run at once.
 # The CA key lives in .state/ca/ca.key: back it up; if you lose it you must re-issue every player.
 set -eu
 . "$(dirname "$0")/game-env.sh"
@@ -55,6 +58,32 @@ party_sync() { # the host's half of a party: open what both agreed to, close the
   python3 "$POC/party.py" reconcile --quiet --config "${POOL_CONFIG:-$POC/pool.yaml}" --bundles "$STATE/bundles" \
     --nebula-cert "$CACHE/nebula-cert" --kc "$POC/kc" "$@"
 }
+
+# The outermost layer (docs/CONSOLE.md, "Jobs, locks and timeouts" and "Audit", issue #88). A registry verb goes to the console daemon when
+# it runs (its socket exists) and EMESH_DIRECT is unset; the timer's tick and `panic` never do. Anything run here instead marks the whole
+# process tree direct (a nested `mesh` never goes through the API: it would wait for its own parent's lock), takes the engine's lock when it
+# mutates (the outermost `mesh` only; `panic` takes it inside admission.py, after writing its switch), and for a registry verb runs the verb
+# in a child, then writes its audit line (not for the tick: its facts are in admission/events.jsonl). EMESH_AUDITED=1 tells the nested calls
+# (a reap's kicks, an approve's invite) that the line is written already.
+read -r class verb <<EOF
+$(verb_class "$@")
+EOF
+case "$class" in registry|mutate)
+  if [ "$class" = registry ] && [ -z "${EMESH_DIRECT:-}" ] && [ "$verb" != tick ] && [ "$verb" != panic ]; then
+    sock="${EMESH_CONSOLE_SOCK:-$STATE/console/api.sock}"
+    [ ! -S "$sock" ] || exec python3 "$POC/console/client.py" run --socket "$sock" --mesh "$0" -- "$@"
+  fi
+  export EMESH_DIRECT=1
+  [ "$verb" = panic ] || mesh_lock
+  if [ "$class" = registry ] && [ -z "${EMESH_AUDITED:-}" ] && [ "$verb" != tick ]; then
+    export EMESH_AUDITED=1; t0=${EPOCHREALTIME:-$(date +%s)}; rc=0
+    "$0" "$@" || rc=$?
+    python3 "$POC/console/client.py" audit --state "$STATE" --verb "$verb" --started "${t0/,/.}" --exit "$rc" -- "$@" ||
+      echo "warning: the audit line of '$verb' was not written ($STATE/console/audit.jsonl)" >&2
+    exit "$rc"
+  fi
+  export EMESH_AUDITED=1 ;;
+esac
 
 case "$1 ${2:-}" in
   "host init") HOST_ONLY=1 "$UP" && record_game ;;   # the game's RUNTIME, CNI and TAINT go to .state/game.env (lib.sh)
@@ -153,7 +182,8 @@ case "$1 ${2:-}" in
     exec python3 "$POC/console/server.py" serve --state "$STATE" --mesh "$POC/mesh" "$@" ;;
   "host request"|"host waitlist"|"host approve"|"host reject"|"host leases"|"host reap"|"host admission-status"|"host auto"|"host panic"|"host bundle"|"host admission-metrics")
     sub="$2"; shift 2; case "$sub" in admission-status) sub=status ;; admission-metrics) sub=metrics ;; esac
-    rc=0; python3 "$POC/admission.py" --state "$STATE/admission" --config "${POOL_CONFIG:-$POC/pool.yaml}" --mesh "$POC/mesh" "$sub" "$@" || rc=$?
+    lock=""; [ "$verb" != panic ] || lock="--engine-lock=$STATE/mesh.lock"   # panic: the switch first, then the engine's lock (admission.py)
+    rc=0; python3 "$POC/admission.py" --state "$STATE/admission" --config "${POOL_CONFIG:-$POC/pool.yaml}" --mesh "$POC/mesh" ${lock:+"$lock"} "$sub" "$@" || rc=$?
     # the tick also reconciles the parties (a consent made since the last one, a lease that ended); its own result is the tick's
     if [ "$sub ${1:-}" = "auto --once" ]; then party_sync 2>/dev/null || true; fi
     exit "$rc" ;;

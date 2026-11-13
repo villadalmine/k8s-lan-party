@@ -59,6 +59,7 @@ suites:
   - {id: poc-admission-auto, script: poc/poc-admission-auto.sh, runtime: [incus]}
   - {id: poc-pool, script: poc/poc-pool.sh, runtime: [incus]}
   - {id: poc-party, script: poc/poc-party.sh, runtime: [incus]}
+  - {id: poc-console, script: poc/poc-console.sh, runtime: [incus]}
   - {id: poc-doom, script: poc/poc-doom.sh, runtime: [incus]}
   - {id: poc-participants-e2e, script: poc/poc-participants-e2e.sh, runtime: [incus]}
   - {id: poc-page, script: poc/poc-page.sh, runtime: [incus]}
@@ -220,6 +221,21 @@ features:
     paths: [poc/admission.py, poc/pool.yaml, poc/mesh]
     components: [admission, Nebula, k3s]
     docs: [docs/ADMISSION.md]
+
+  - id: host-console
+    description: the host console's daemon (one local API, docs/CONSOLE.md) with the CLI as its client - the same commands, output and exit codes, one engine lock and one audit line per action; the tick, a lease's end and panic never depend on it
+    layer: admission
+    user_facing: true
+    learn:
+      concept: "One control API in front of the tools: every client (a terminal, a web page, a bot) goes through the same checks, the same lock and the same audit log."
+      analogy: "One reception desk for the whole building: whichever door you come in by, you sign the same book and get the same answers."
+      real_world: "The Kubernetes API server in front of etcd, or a cloud provider's API under its console, its CLI and its SDKs."
+      seen_in: "v0.4.0 (in progress): mesh host kick typed in a shell runs as a job of the console daemon, with the same output, and is in its audit log."
+    proven_by:
+      - {suite: poc-console, steps: [K02, K10-K25]}
+    paths: [poc/mesh, poc/lib.sh, poc/meshlock.py, poc/console/*.py, poc/admission.py]
+    components: [admission]
+    docs: [docs/CONSOLE.md, docs/HOST-YOUR-OWN.md]
 
   - id: pool
     description: a namespace and a kubeconfig per player (RBAC, quota, NetworkPolicy), the error matrix, the idle kick, the lease end removes node, namespace and token
