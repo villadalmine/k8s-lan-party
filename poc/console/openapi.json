@@ -742,6 +742,16 @@
         }
        }
       }
+     },
+     "501": {
+      "description": "before #87: mutations are not built yet (the verb exists; nothing ran)",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
      }
     }
    }
@@ -894,6 +904,9 @@
        "public",
        "friends"
       ]
+     },
+     "identity": {
+      "type": "string"
      }
     }
    },

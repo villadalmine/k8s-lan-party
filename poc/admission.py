@@ -170,10 +170,15 @@ def write_atomic(path: Path, data) -> None:
 
 
 @contextlib.contextmanager
-def locked_state(state_dir: str | Path, after: list | None = None):
+def locked_state(state_dir: str | Path, after: list | None = None, write: bool = True):
     """Yield the state dict under the lock; written back (atomically) only when the block ends without an exception. Then, still
-    under the lock, every callable in `after` runs (auto.json, the event log): the order of the log is the order of the commits."""
+    under the lock, every callable in `after` runs (auto.json, the event log): the order of the log is the order of the commits.
+    write=False (a read-only command, the host console's GETs): nothing is written back and `after` does not run, even if loading
+    the ledger tidied it (retention): the next command that writes does the same tidying."""
     d = Path(state_dir)
+    if not write and not d.is_dir():   # a read of a pool that never ran: an empty ledger, and no directory made for it
+        yield {}
+        return
     d.mkdir(parents=True, exist_ok=True)
     path = d / "state.json"
     with open(d / "lock", "a+") as lock:
@@ -188,6 +193,8 @@ def locked_state(state_dir: str | Path, after: list | None = None):
                                         "backup; nothing was changed") from None
             before = json.dumps(state, sort_keys=True)
             yield state
+            if not write:
+                return
             if json.dumps(state, sort_keys=True) != before:
                 write_atomic(path, state)
             for fn in after or ():
@@ -726,7 +733,7 @@ def status_json(cfg: dict, led: Ledger, auto: dict) -> dict:
 def run(a, cfg: dict) -> int:
     d = Path(a.state)
     after: list = []
-    with locked_state(d, after) as state:
+    with locked_state(d, after, write=not getattr(a, "read_only", False)) as state:
         auto = read_auto(d)
         saved = dict(auto)
         eff = dict(cfg, slots=0) if auto["panic"] else cfg   # panic: no place at all, whatever pool.yaml says
@@ -744,6 +751,8 @@ def run(a, cfg: dict) -> int:
             if a.cmd == "auto" and a.once and last_tick(d) != led.now:
                 write_atomic(d / "last-tick", f"{led.now}\n".encode())
         after.append(commit)
+    if getattr(a, "read_only", False):
+        return code
     notify(led.events.pending)   # after the lock: a slow hook never holds up another command
     return code
 
@@ -787,6 +796,10 @@ def command(a, cfg: dict, led: Ledger, auto: dict, state_dir: Path) -> int:
         if what == "added":
             led.events.emit("request", line, req["name"], req["identity"])
         print(f"{line} [{what}]")
+    elif a.cmd == "waitlist" and a.json:
+        print(json.dumps([{"position": i, "name": r["name"], "state": r["state"], "eligible_at": r.get("eligible_at", 0),
+                           "why": r.get("why", ""), "identity": r["identity"], "note": r.get("note", ""), "requested_at": r.get("ts", 0)}
+                          for i, r in enumerate(led.open(), 1)], sort_keys=True))
     elif a.cmd == "waitlist":
         print(f"{'POS':<4} {'NAME':<20} {'STATE':<9} {'ELIGIBLE':<21} {'IDENTITY':<24} NOTE")
         for i, r in enumerate(led.open(), 1):
@@ -806,6 +819,10 @@ def command(a, cfg: dict, led: Ledger, auto: dict, state_dir: Path) -> int:
         if msg.endswith(": rejected"):
             led.events.emit("rejected", f"{a.name}: request rejected by the host", a.name, led.find(a.name)["identity"])
         print(msg)
+    elif a.cmd == "leases" and a.json:
+        print(json.dumps([{"name": l.get("name", ""), "trust": l.get("trust", ""), "start": l.get("start", 0), "end": l["end"],
+                           "left_seconds": max(0, l["end"] - led.now), "identity": l.get("ip", "")}
+                          for l in led.due(everyone=True)], sort_keys=True))
     elif a.cmd == "leases":
         print(f"{'NAME':<20} {'TRUST':<8} {'ENDS':<21} {'LEFT':<9} IDENTITY")
         for l in led.due(everyone=True):
@@ -910,20 +927,25 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--peer", help="socket peer: X-Forwarded-For is believed only from a trusted proxy")
     p.add_argument("--xff")
     p.add_argument("--note")
-    sub.add_parser("waitlist")
+    p = sub.add_parser("waitlist")
+    p.add_argument("--json", action="store_true", help="the list as JSON (the host console)")
+    p.add_argument("--read-only", action="store_true", help="write nothing, not even the ledger's tidying (the host console's reads)")
     p = sub.add_parser("approve")
     p.add_argument("name", nargs="?")
     p.add_argument("--trust", default="public", choices=["public", "friends"])
     p = sub.add_parser("reject")
     p.add_argument("name")
     p.add_argument("--reason")
-    sub.add_parser("leases")
+    p = sub.add_parser("leases")
+    p.add_argument("--json", action="store_true", help="the leases as JSON (the host console)")
+    p.add_argument("--read-only", action="store_true", help="write nothing (the host console's reads)")
     p = sub.add_parser("reap")
     g = p.add_mutually_exclusive_group()
     g.add_argument("--all", action="store_true", help="end every lease now")
     g.add_argument("--name", help="end this one lease now")
     p = sub.add_parser("status")
     p.add_argument("--json", action="store_true", help="the numbers and every request by name, as JSON (for the page's puller)")
+    p.add_argument("--read-only", action="store_true", help="write nothing (the host console's reads)")
     p = sub.add_parser("auto")
     p.add_argument("action", nargs="?", choices=["on", "off", "status"])
     p.add_argument("--once", action="store_true", help="one tick (the host's timer runs it every minute)")
@@ -931,7 +953,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--clear", action="store_true", help="reopen admission (auto stays off)")
     p = sub.add_parser("bundle")
     p.add_argument("name")
-    sub.add_parser("metrics")
+    p = sub.add_parser("metrics")
+    p.add_argument("--read-only", action="store_true", help="write nothing (the host console's reads)")
     a = ap.parse_args(argv)
     a.now = int(time.time()) if a.now is None else a.now
     try:

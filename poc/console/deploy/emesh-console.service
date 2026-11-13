@@ -1,0 +1,22 @@
+# The host console's API daemon (docs/CONSOLE.md), on the HOST that runs `mesh` (next to the CA), as the user that owns the clone.
+# Copy to /etc/systemd/system/, replace <your user> and <the clone>; then: sudo systemctl daemon-reload && sudo systemctl enable --now emesh-console.
+# It listens on a unix socket in the state directory (<the clone>/poc/.state/console/api.sock, 0700 directory) and answers this user only.
+# The engine runs with THIS unit's environment (docs/CONSOLE.md, "One environment"): put here what you would set in your shell for mesh.
+# RUNTIME is not set here: `mesh` reads the game's runtime from .state/game.env. The admission timer (emesh-admission.timer) never goes
+# through this daemon: lease expiry does not depend on it.
+[Unit]
+Description=k8s-lan-party host console API (docs/CONSOLE.md)
+After=network.target
+
+[Service]
+User=<your user>
+WorkingDirectory=<the clone>/poc
+UMask=0077
+ExecStart=<the clone>/poc/mesh host console
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target
