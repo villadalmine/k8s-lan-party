@@ -13,6 +13,7 @@ import random
 import shutil
 import socket
 import stat
+import subprocess
 import sys
 import tempfile
 import threading
@@ -111,7 +112,8 @@ class RegistryTest(unittest.TestCase):
         self.assertEqual(actions.argv("panic", {}, "console"), ["host", "panic"])
 
     def test_c07_hostile_values_never_reach_the_engine(self):
-        for bad in ("ana;id", "$(id)", "`id`", "ana\nbeto", "../etc", "--all", "Ana", "a", "x" * 21, "ana beto", ""):
+        for bad in ("ana;id", "$(id)", "`id`", "ana\nbeto", "../etc", "--all", "Ana", "a", "x" * 21, "ana beto", "",
+                    "cp", "lh", "n1", "n2"):   # the control plane, the lighthouse, the PoC's own nodes: never a player
             with self.assertRaises(actions.Refused, msg=bad) as e:
                 actions.argv("kick", {"name": bad}, "local")
             self.assertEqual(e.exception.status, 400)
@@ -123,6 +125,11 @@ class RegistryTest(unittest.TestCase):
                 actions.argv("request", {"name": "ana", "note": note}, "local")
         with self.assertRaises(actions.Refused):
             actions.argv("invite", {"name": "ana", "ttl": "2h;id"}, "local")
+        for verb, args in (("revoke", {"name": "cp"}), ("reap-one", {"name": "lh"}), ("party-end", {"a": "cp", "b": "ana"})):
+            with self.assertRaises(actions.Refused, msg=verb):
+                actions.argv(verb, args, "local")
+        self.assertEqual(actions.argv("kick", {"name": "cpu"}, "local"), ["host", "kick", "cpu"])   # only the exact names
+        self.assertEqual(actions.argv("refresh", {"name": "cp"}, "local"), ["host", "refresh", "cp"])
 
     def test_c08_console_never_reaches_the_persistent_ca_or_a_key(self):
         for verb, args in (("invite", {"name": "ana"}), ("bundle", {"name": "ana"}), ("refresh", {"name": "cp"}),
@@ -148,7 +155,10 @@ class DaemonTest(unittest.TestCase):
         (self.state / "admission" / "events.jsonl").write_text(
             "".join(json.dumps({"seq": i, "ts": 100 * i, "type": "request", "name": f"p{i}", "summary": f"p{i} asked"}) + "\n"
                     for i in range(1, 8)) + "not json\n")
-        (self.state / "lighthouse.env").write_text(f"LH_EXTERNAL=203.0.113.99\nLH_RSH='{LH_RSH}'\n")
+        # the form lighthouse-vps.sh writes: printf 'LH_RSH=%q' (backslash-escaped spaces), not a quoted string
+        q = subprocess.run(["bash", "-c", 'printf "LH_RSH=%q\\n" "$1"', "_", LH_RSH], capture_output=True, text=True, check=True).stdout
+        self.assertIn("\\ ", q)
+        (self.state / "lighthouse.env").write_text("LH_EXTERNAL=203.0.113.99\n" + q)
         (self.state / "page").mkdir()
         (self.state / "page" / "puller.token").write_text(PULLER + "\n")
         self.mesh = self.tmp / "mesh"
@@ -212,6 +222,11 @@ class DaemonTest(unittest.TestCase):
                 path = p.replace("{name}", "ana").replace("{id}", "0123456789abcdef")
                 status, _ = self.get(path[len("/api/v1/"):])
                 self.assertIn(status, (200, 404) if "{id}" in p else (200,), p)   # no job exists before #87
+
+    def test_the_spec_lists_every_status_a_get_can_answer(self):
+        for p, item in SPEC["paths"].items():
+            if "get" in item:
+                self.assertTrue({"400", "404", "405", "500", "502", "503", "504"} <= set(item["get"]["responses"]), p)
 
     def test_c14_a_get_changes_no_file_and_runs_only_pure_reads(self):
         before = snapshot(self.state)
@@ -285,6 +300,25 @@ class DaemonTest(unittest.TestCase):
             server.make_server(self.state, self.mesh, self.sock)
         with self.assertRaises(SystemExit):
             server.socket_path(self.tmp / ("x" * 120), None)
+
+    def test_the_socket_directory_is_never_loosened_or_invented(self):
+        other = self.tmp / "shared"
+        other.mkdir(mode=0o755)
+        os.chmod(other, 0o755)
+        with self.assertRaises(SystemExit) as e:   # an existing directory that is not 0700 is refused, not chmod'ed
+            server.make_server(self.state, self.mesh, other / "api.sock")
+        self.assertEqual(e.exception.code, 2)
+        self.assertEqual(stat.S_IMODE(other.stat().st_mode), 0o755)
+        with self.assertRaises(SystemExit):        # a state directory that does not exist is not created
+            server.make_server(self.tmp / "nope", self.mesh, self.tmp / "nope" / "console" / "api.sock")
+        self.assertFalse((self.tmp / "nope").exists())
+
+    def test_the_state_dir_is_redacted_as_the_engine_names_it(self):
+        link = self.tmp / "via-link"
+        link.symlink_to(self.state)
+        r = server.Redactor(self.state, link)
+        self.assertEqual(r.text(f"{link}/bundles/ana and {self.state}/ca"), "<state>/bundles/ana and <state>/ca")
+        self.assertEqual(r.text("code ABCDEFGHIJKLMNOPQRSTUVWXYZ typed raw"), "code <code> typed raw")
 
     def test_a_stale_socket_is_replaced(self):
         self.srv.shutdown()

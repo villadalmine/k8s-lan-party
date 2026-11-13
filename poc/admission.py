@@ -169,6 +169,17 @@ def write_atomic(path: Path, data) -> None:
         raise
 
 
+def _load_ledger(path: Path) -> dict:
+    try:
+        state = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+        if not isinstance(state, dict):
+            raise ValueError("not a JSON object")
+    except (ValueError, UnicodeDecodeError) as e:
+        raise AdmissionError(1, f"the ledger {path} is unreadable ({e.__class__.__name__}): restore it from your "
+                                "backup; nothing was changed") from None
+    return state
+
+
 @contextlib.contextmanager
 def locked_state(state_dir: str | Path, after: list | None = None, write: bool = True):
     """Yield the state dict under the lock; written back (atomically) only when the block ends without an exception. Then, still
@@ -179,18 +190,15 @@ def locked_state(state_dir: str | Path, after: list | None = None, write: bool =
     if not write and not d.is_dir():   # a read of a pool that never ran: an empty ledger, and no directory made for it
         yield {}
         return
-    d.mkdir(parents=True, exist_ok=True)
     path = d / "state.json"
+    if not write and not (d / "lock").exists():   # a read creates no lock file: state.json is only ever replaced by a rename
+        yield _load_ledger(path)
+        return
+    d.mkdir(parents=True, exist_ok=True)
     with open(d / "lock", "a+") as lock:
         _lock(lock)
         try:
-            try:
-                state = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
-                if not isinstance(state, dict):
-                    raise ValueError("not a JSON object")
-            except (ValueError, UnicodeDecodeError) as e:
-                raise AdmissionError(1, f"the ledger {path} is unreadable ({e.__class__.__name__}): restore it from your "
-                                        "backup; nothing was changed") from None
+            state = _load_ledger(path)
             before = json.dumps(state, sort_keys=True)
             yield state
             if not write:

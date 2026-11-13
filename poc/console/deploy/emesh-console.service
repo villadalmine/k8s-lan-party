@@ -3,7 +3,7 @@
 # It listens on a unix socket in the state directory (<the clone>/poc/.state/console/api.sock, 0700 directory) and answers this user only.
 # The engine runs with THIS unit's environment (docs/CONSOLE.md, "One environment"): put here what you would set in your shell for mesh.
 # RUNTIME is not set here: `mesh` reads the game's runtime from .state/game.env. The admission timer (emesh-admission.timer) never goes
-# through this daemon: lease expiry does not depend on it.
+# through this daemon: lease expiry does not depend on it. A setup error (exit 2: a wrong path, another daemon) is not restarted.
 [Unit]
 Description=k8s-lan-party host console API (docs/CONSOLE.md)
 After=network.target
@@ -14,6 +14,7 @@ WorkingDirectory=<the clone>/poc
 UMask=0077
 ExecStart=<the clone>/poc/mesh host console
 Restart=on-failure
+RestartPreventExitStatus=2
 RestartSec=5
 NoNewPrivileges=yes
 PrivateTmp=yes

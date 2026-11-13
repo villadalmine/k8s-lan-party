@@ -349,6 +349,11 @@ class CliTest(unittest.TestCase):
         self.assertEqual(json.loads(self.cli("status", "--json", "--read-only", now=300)[1])["waiting"], 2)
         self.assertIn("emesh_admission_waiting 2", self.cli("metrics", "--read-only", now=300)[1])
         self.assertEqual({p.name: p.read_bytes() for p in self.state.iterdir()}, files)
+        # a ledger directory without its lock file (copied, or made by hand): a read creates none
+        (self.state / "lock").unlink()
+        files.pop("lock")
+        self.assertEqual(json.loads(self.cli("waitlist", "--json", "--read-only", now=300)[1])[0]["name"], "ana")
+        self.assertEqual({p.name: p.read_bytes() for p in self.state.iterdir()}, files)
         # whatever a read-only block does to the dict (a tidying on load), nothing reaches the disk and `after` never runs
         ran = []
         with locked_state(self.state, [lambda: ran.append(1)], write=False) as state:

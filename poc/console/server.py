@@ -19,6 +19,8 @@ import argparse
 import json
 import os
 import re
+import shlex
+import signal
 import socket
 import socketserver
 import stat
@@ -68,19 +70,21 @@ class Refusal(Exception):
 PEM = re.compile(r"-----BEGIN [A-Z0-9 ]+-----.*?(-----END [A-Z0-9 ]+-----|\Z)", re.S)
 K3S_TOKEN = re.compile(r"K10[0-9a-f]{8,}::[A-Za-z0-9._:-]+")
 JWT = re.compile(r"eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]*")
-CLAIM = re.compile(r"\b[A-Z2-7]{5}-[A-Z2-7]{5}-[A-Z2-7]{5}-[A-Z2-7]{5}-[A-Z2-7]{5}-[A-Z2-7]\b")
+CLAIM = re.compile(r"\b(?:[A-Z2-7]{5}-[A-Z2-7]{5}-[A-Z2-7]{5}-[A-Z2-7]{5}-[A-Z2-7]{5}-[A-Z2-7]|[A-Z2-7]{26})\b")   # shown, or typed back raw
 HOME = re.compile(r"(?<![\w.-])(?:/var)?/(?:home|Users)/[\w.-]+")
 
 
 class Redactor:
     """Literal secrets read once at start (LH_RSH, the page puller's token), then patterns, then paths."""
 
-    def __init__(self, state: Path):
-        self.state = str(state)
+    def __init__(self, state: Path, given: Path | None = None):
+        # the state directory as the engine names it ($STATE, maybe through a symlink: /home vs /var/home) and as resolved
+        self.states = sorted({str(state), str(given or state)}, key=len, reverse=True)
         self.literals: list[tuple[str, str]] = []
-        rsh = os.environ.get("LH_RSH", "") or env_value(state / "lighthouse.env", "LH_RSH")
-        if rsh:
-            self.literals.append((rsh, "<LH_RSH>"))
+        for raw, value in (env_value(state / "lighthouse.env", "LH_RSH"), (os.environ.get("LH_RSH", ""),) * 2):
+            for lit in {raw, value} - {""}:   # the file's %q form and the command it stands for (what revoke.sh prints)
+                self.literals.append((lit, "<LH_RSH>"))
+        self.literals.sort(key=lambda kv: len(kv[0]), reverse=True)
         try:
             tok = (state / "page" / "puller.token").read_text(encoding="utf-8").strip()
             if tok:
@@ -95,7 +99,8 @@ class Redactor:
         s = K3S_TOKEN.sub("<token>", s)
         s = JWT.sub("<token>", s)
         s = CLAIM.sub("<code>", s)
-        s = s.replace(self.state, "<state>")
+        for st in self.states:
+            s = s.replace(st, "<state>")
         return HOME.sub("~", s)
 
     def __call__(self, obj):
@@ -108,23 +113,29 @@ class Redactor:
         return obj
 
 
-def env_value(path: Path, key: str) -> str:
-    """KEY=value (optionally quoted) from a shell env file the daemon never runs."""
+def env_value(path: Path, key: str) -> tuple[str, str]:
+    """(raw, value) of KEY=... in a shell env file the daemon never runs: raw as written (lighthouse-vps.sh writes `printf %q`, so
+    `ssh\\ -i\\ key ...`), value with the shell's quoting undone by shlex (the command revoke.sh prints). ("", "") when absent."""
     try:
         for line in path.read_text(encoding="utf-8").splitlines():
             if line.startswith(key + "="):
-                return line.split("=", 1)[1].strip().strip("'\"")
+                raw = line.split("=", 1)[1].strip()
+                try:
+                    value = " ".join(shlex.split(raw))
+                except ValueError:
+                    value = raw
+                return raw, value
     except OSError:
         pass
-    return ""
+    return "", ""
 
 
 # --- the console: reads -------------------------------------------------------------------------------------------------------
 
 class Console:
-    def __init__(self, state: Path, mesh: Path):
+    def __init__(self, state: Path, mesh: Path, given: Path | None = None):
         self.state, self.mesh = state, mesh
-        self.redact = Redactor(state)
+        self.redact = Redactor(state, given)
 
     def engine(self, args: list[str]) -> subprocess.CompletedProcess:
         env = dict(os.environ, EMESH_DIRECT="1")
@@ -355,40 +366,55 @@ class Server(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
             self.slots.release()
 
 
+def fail(message: str) -> SystemExit:
+    """A setup error: exit 2, which the systemd unit does not restart (RestartPreventExitStatus=2)."""
+    print(f"console: {message}", file=sys.stderr)
+    return SystemExit(2)
+
+
 def socket_path(state: Path, given: str | None) -> Path:
     p = Path(given or os.environ.get("EMESH_CONSOLE_SOCK") or state / "console" / "api.sock")
     if len(os.fsencode(str(p))) > SUN_PATH_MAX:
-        raise SystemExit(f"console: the socket path {p} is longer than {SUN_PATH_MAX} bytes (a unix socket's limit): "
-                         "set EMESH_CONSOLE_SOCK to a shorter path, for example under $XDG_RUNTIME_DIR")
+        raise fail(f"the socket path {p} is longer than {SUN_PATH_MAX} bytes (a unix socket's limit): "
+                   "set EMESH_CONSOLE_SOCK to a shorter path, for example under $XDG_RUNTIME_DIR")
     return p
 
 
 def prepare(path: Path) -> None:
-    """A 0700 directory of our own, and no stale socket (a live one means another daemon: refuse)."""
+    """The socket's directory: made here 0700 when missing (its parent must exist: nothing else is created), or an existing one
+    that is already ours and 0700 (never chmod'ed: a --socket pointing into another directory does not change that directory).
+    No stale socket: a dead one is removed, a live one means another daemon (refused)."""
     d = path.parent
-    d.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if not d.parent.is_dir():
+        raise fail(f"{d.parent} does not exist (is the game's state directory right?)")
+    try:
+        d.mkdir(mode=0o700)
+        os.chmod(d, 0o700)   # mkdir's mode goes through the umask
+    except FileExistsError:
+        pass
     st = d.lstat()
     if not stat.S_ISDIR(st.st_mode) or st.st_uid != os.getuid():
-        raise SystemExit(f"console: {d} is not a directory of this user")
-    os.chmod(d, 0o700)
+        raise fail(f"{d} is not a directory of this user")
+    if stat.S_IMODE(st.st_mode) != 0o700:
+        raise fail(f"{d} must be mode 0700 (it is {stat.S_IMODE(st.st_mode):o}); use a directory of its own")
     if path.is_symlink() or (path.exists() and not stat.S_ISSOCK(path.lstat().st_mode)):
-        raise SystemExit(f"console: {path} exists and is not a socket")
+        raise fail(f"{path} exists and is not a socket")
     if path.exists():
         probe = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         try:
             probe.connect(str(path))
-            raise SystemExit(f"console: another daemon answers on {path}")
+            raise fail(f"another daemon answers on {path}")
         except (ConnectionRefusedError, FileNotFoundError):
             path.unlink()
         finally:
             probe.close()
 
 
-def make_server(state: Path, mesh: Path, path: Path) -> Server:
+def make_server(state: Path, mesh: Path, path: Path, given: Path | None = None) -> Server:
     if not hasattr(socket, "SO_PEERCRED"):
-        raise SystemExit("console: needs Linux (SO_PEERCRED to check who connects)")
+        raise fail("needs Linux (SO_PEERCRED to check who connects)")
     prepare(path)
-    handler = type("ConsoleHandler", (Handler,), {"console": Console(state, mesh)})
+    handler = type("ConsoleHandler", (Handler,), {"console": Console(state, mesh, given)})
     old = os.umask(0o077)
     try:
         srv = Server(str(path), handler, os.getuid())
@@ -406,10 +432,15 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--mesh", default=str(POC / "mesh"))
     p.add_argument("--socket", help="default: EMESH_CONSOLE_SOCK, else <state>/console/api.sock")
     a = ap.parse_args(argv)
-    state = Path(a.state).resolve()
+    given = Path(os.path.abspath(a.state))
+    state = given.resolve()
     path = socket_path(state, a.socket)
-    srv = make_server(state, Path(a.mesh).resolve(), path)
+    srv = make_server(state, Path(a.mesh).resolve(), path, given)
     print(f"console: listening on {path} (role local; the host's user only)", flush=True)
+
+    def stop(*_):   # systemd's SIGTERM: leave through the finally below, which removes the socket
+        raise KeyboardInterrupt
+    signal.signal(signal.SIGTERM, stop)
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
