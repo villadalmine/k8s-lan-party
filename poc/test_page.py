@@ -13,6 +13,7 @@ import random
 import shutil
 import socket
 import stat
+import subprocess
 import sys
 import tarfile
 import tempfile
@@ -626,6 +627,33 @@ class T07T08Puller(unittest.TestCase):
         return {"id": f"i-{i:016x}", "name": name or f"v{i}", "ip": ip or f"198.51.100.{i % 250 + 1}",
                 "nebula_public_key": neb or keys.nebula_pem(raw_key()), "seal_public_key": seal or keys.seal_pem(raw_key()),
                 "received_at": T0}
+
+    def test_a_mesh_past_its_timeout_is_killed_with_its_children(self):
+        """Low 4 of the #97 review: the verb runs in a child of `mesh`; killing `mesh` alone would free the engine's lock while it goes on."""
+        pidfile = self.tmp / "child.pid"
+        (self.tmp / "mesh").write_text(f"""#!/usr/bin/env python3
+import subprocess, time
+c = subprocess.Popen(["sleep", "60"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)   # holds no pipe of the puller
+open({str(pidfile)!r}, "w").write(str(c.pid))
+time.sleep(60)
+""")
+        a = Namespace(mesh=str(self.tmp / "mesh"))
+        p = pullermod.Puller.__new__(pullermod.Puller)
+        p.a = a
+        with self.assertRaises(subprocess.TimeoutExpired):
+            p.mesh("admission-status", timeout=2)
+        child = int(pidfile.read_text())
+        end = time.monotonic() + 5
+        while time.monotonic() < end:
+            try:
+                os.kill(child, 0)
+            except ProcessLookupError:
+                break
+            if open(f"/proc/{child}/stat").read().split(")")[-1].split()[0] == "Z":
+                break
+            time.sleep(0.05)
+        else:
+            self.fail("the verb's child outlived the timeout")
 
     def test_compromised_page_hostile_fields_never_reach_mesh(self):
         hostile = ["a;id", "$(touch /tmp/pwn)", "../../etc", "cp", "x\ny", "A" * 30]

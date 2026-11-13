@@ -8,9 +8,11 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import signal
 import socket
 import subprocess
 import sys
+import threading
 import time
 import unittest
 import unittest.mock
@@ -181,6 +183,85 @@ class CliTest(DaemonCase):
         time.sleep(0.5)
         self.assertEqual(self.mutations(), [words])   # it did run, once: no direct run after it
 
+    def test_a_lost_daemon_while_following_says_the_job_goes_on(self):
+        """The job was taken (202), then a GET of it gets no answer, or an error (a daemon restarted, which forgot its jobs): the CLI
+        says it goes on in the daemon, never runs it again."""
+        console = self.srv.RequestHandlerClass.console
+        real = console.get
+        for how in ("no answer", "404"):
+            with self.subTest(how=how):
+                open(self.log, "w").close()
+
+                def gone(path, query):
+                    if path.startswith("jobs/"):
+                        if how == "404":
+                            return 404, {"error": "no-such-job", "message": "no such job (jobs are kept an hour)"}, "json"
+                        raise SystemExit   # the connection closes with no answer
+                    return real(path, query)
+                console.get = gone
+                self.addCleanup(setattr, console, "get", real)
+                r = self.client(["host", "burn"])
+                console.get = real
+                self.assertEqual(r.returncode, 1)
+                self.assertIn("burn goes on in the console daemon (job ", r.stderr)
+                self.assertIn("following it failed", r.stderr)
+                end = time.monotonic() + 10
+                while not self.mutations() and time.monotonic() < end:
+                    time.sleep(0.1)
+                time.sleep(0.5)
+                self.assertEqual(self.mutations(), [["host", "burn"]])
+
+    def test_a_lost_daemon_during_the_plan_says_nothing_ran(self):
+        console = self.srv.RequestHandlerClass.console
+        real = console.act
+
+        def gone(verb, body, *a):
+            if not body.get("confirm"):
+                raise SystemExit   # the plan's POST gets no answer: nothing was submitted
+            return real(verb, body, *a)
+        console.act = gone
+        self.addCleanup(setattr, console, "act", real)
+        r = self.client(["host", "kick", "ana"])
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("nothing ran", r.stderr)
+        time.sleep(0.5)
+        self.assertEqual(self.mutations(), [])
+
+    def interrupted(self, words: list[str], at) -> subprocess.CompletedProcess:
+        """The client runs `words`; once `at()` is true, it gets SIGINT, as from Ctrl-C."""
+        p = subprocess.Popen([sys.executable, str(CLIENT), "run", "--socket", str(self.sock), "--mesh", str(self.mesh), "--", *words],
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, stdin=subprocess.DEVNULL)
+        end = time.monotonic() + 15
+        while not at() and time.monotonic() < end:
+            time.sleep(0.05)
+        time.sleep(0.3)
+        p.send_signal(signal.SIGINT)
+        out, err = p.communicate(timeout=30)
+        return subprocess.CompletedProcess(p.args, p.returncode, out, err)
+
+    def test_ctrl_c_while_a_post_is_sent_dies_by_sigint_and_says_it_may_be_queued(self):
+        console = self.srv.RequestHandlerClass.console
+        real, entered, release = console.act, threading.Event(), threading.Event()
+
+        def stuck(verb, body, *a):
+            entered.set()
+            release.wait(20)
+            return real(verb, body, *a)
+        console.act = stuck
+        self.addCleanup(setattr, console, "act", real)
+        self.addCleanup(release.set)
+        r = self.interrupted(["host", "burn"], entered.is_set)
+        self.assertEqual(r.returncode, -signal.SIGINT, r.stderr)   # a shell loop around it stops, as with the direct command
+        self.assertIn("may already be in the console daemon's queue", r.stderr)
+
+    def test_ctrl_c_while_following_dies_by_sigint_and_the_job_goes_on(self):
+        os.environ["FAKE_SLEEP"] = "3"
+        self.addCleanup(os.environ.pop, "FAKE_SLEEP", None)
+        r = self.interrupted(["host", "burn"], lambda: bool(self.mutations()))
+        self.assertEqual(r.returncode, -signal.SIGINT, r.stderr)
+        self.assertIn("burn goes on in the console daemon (job ", r.stderr)
+        self.assertNotIn("may already be", r.stderr)
+
     def test_a_listener_of_another_role_gets_no_raw_output(self):
         """The handler's role, not a constant, decides: a listener of the console role (#89) built on the same handler is redacted."""
         os.environ["FAKE_PLANT"] = str(self.state) + "/bundles/ana"
@@ -243,7 +324,6 @@ class MeshTest(DaemonCase):
 
     def test_ctrl_c_on_a_direct_verb_still_leaves_its_audit_line(self):
         import fcntl
-        import signal
         adm = self.state / "admission"
         adm.mkdir(parents=True, exist_ok=True)
         with open(adm / "lock", "a+") as ledger:
@@ -259,7 +339,7 @@ class MeshTest(DaemonCase):
             time.sleep(1)   # admission.py is waiting for the ledger now
             os.killpg(p.pid, signal.SIGINT)   # what Ctrl-C sends to the terminal's foreground group
             p.communicate(timeout=30)
-        self.assertNotEqual(p.returncode, 0)
+        self.assertEqual(p.returncode, -signal.SIGINT)   # the layer dies by SIGINT too, after the line: a shell loop around it stops
         line, = self.audit()
         self.assertEqual((line["source"], line["verb"]), ("direct", "request"))
         self.assertNotEqual(line["exit"], 0)
