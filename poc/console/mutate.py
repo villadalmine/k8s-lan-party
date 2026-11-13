@@ -156,9 +156,12 @@ class Runner:
         with self.lock:
             cutoff = time.time() - JOB_KEEP_SECONDS
             self.jobs = {k: j for k, j in self.jobs.items() if j.ended is None or j.ended > cutoff}
-            if job.verb == "panic":
+            if job.verb == "panic":   # its own lane, one at a time: a second press while one runs gets that same job
+                running = next((j for j in self.jobs.values() if j.verb == "panic" and j.ended is None), None)
+                if running is not None:
+                    return running
                 self.jobs[job.id] = job
-                threading.Thread(target=self._run, args=(job,), daemon=True).start()
+                threading.Thread(target=self._safe_run, args=(job,), daemon=True).start()
                 return job
             if len(self.queue) >= QUEUE_MAX:
                 raise Refused(409, "busy", f"busy: {QUEUE_MAX} jobs waiting, try again")
@@ -180,7 +183,20 @@ class Runner:
                     self.busy = False
                     return
                 job = self.queue.popleft()
+            self._safe_run(job)
+
+    def _safe_run(self, job: Job) -> None:
+        """_run, and whatever goes wrong in it the job ends (failed, `internal`) and the queue keeps moving."""
+        try:
             self._run(job)
+        except Exception as e:
+            print(f"console: job {job.id} ({job.verb}) failed inside the daemon: {e.__class__.__name__}", file=sys.stderr)
+            if not job.done.is_set():
+                job.exit = job.exit if job.exit is not None else 1
+                job.error = job.error or "internal"
+                job.ended = job.ended or time.time()
+                job.state = "failed"
+                job.done.set()
 
     def _run(self, job: Job) -> None:
         job.started = time.time()
@@ -190,17 +206,17 @@ class Runner:
             except Exception:
                 ok = False
             if not ok:
-                job.state, job.exit, job.error = "failed", EX_TEMPFAIL, "plan-changed"
+                job.exit, job.error = EX_TEMPFAIL, "plan-changed"
                 job.output = "the state changed while the job waited: ask for a new plan\n"
-                return self._finish(job)
+                return self._finish(job, "failed")
         job.state = "running"
         env = dict(os.environ, EMESH_DIRECT="1", EMESH_AUDITED="1")
         try:
             p = subprocess.Popen([str(self.mesh), *job.argv], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                  env=env, start_new_session=True)
         except OSError:
-            job.state, job.exit, job.error = "failed", 127, "engine"
-            return self._finish(job)
+            job.exit, job.error = 127, "engine"
+            return self._finish(job, "failed")
         chunks, size = [], 0
 
         def read():
@@ -213,13 +229,13 @@ class Runner:
         reader.start()
         try:
             job.exit = p.wait(timeout=job.timeout)
-            job.state = "done" if job.exit == 0 else "failed"
+            final = "done" if job.exit == 0 else "failed"
         except subprocess.TimeoutExpired:
             self._kill(p)
-            job.exit, job.state, job.error = 124, "timeout", "timeout"
+            job.exit, job.error, final = 124, "timeout", "timeout"
         reader.join(5)
         job.output = b"".join(chunks).decode("utf-8", "replace")
-        self._finish(job)
+        self._finish(job, final)
 
     def _kill(self, p: subprocess.Popen) -> None:
         for sig, wait in ((signal.SIGTERM, self.kill_grace), (signal.SIGKILL, 5)):
@@ -233,20 +249,34 @@ class Runner:
             except subprocess.TimeoutExpired:
                 continue
 
-    def _finish(self, job: Job) -> None:
+    def _finish(self, job: Job, final: str) -> None:
+        """ended, the audit line and the notify first; the state last, so a client that sees a finished job sees all of it."""
         job.ended = time.time()
         try:
             self.audit(job)
-        finally:
-            if job.role == "console" and self.notify:
-                self.notify(f"{job.verb} {' '.join(v for v in job.argv[2:] if not v.startswith('-'))}".strip() + f": exit {job.exit}")
-            job.done.set()
+        except OSError as e:   # the job ran: say it was not audited, never hide its result or stop the queue
+            print(f"console: the audit line of job {job.id} was not written ({e.__class__.__name__})", file=sys.stderr)
+            job.error = job.error or "audit"
+        if job.role == "console" and self.notify:
+            try:
+                self.notify(self.redact(notify_summary(job)))
+            except Exception:
+                pass
+        job.state = final
+        job.done.set()
 
     def audit(self, job: Job) -> None:
         line = {"ts": int(job.ended), "source": job.source, "role": job.role, "uid": job.uid, "verb": job.verb,
                 "args": {k: (v[:200] if isinstance(v, str) else v) for k, v in job.args.items()}, "confirmed": job.confirmed,
                 "exit": job.exit, "duration_ms": int((job.ended - (job.started or job.ended)) * 1000), "job": job.id}
         write_audit(self.state, json.dumps(self.redact(line), sort_keys=True) + "\n", self.audit_lock)
+
+
+def notify_summary(job: Job) -> str:
+    """`kick alice: exit 0`: the verb and only its name and choice arguments, never free text (a note or a reason)."""
+    a = actions.REGISTRY[job.verb]
+    words = [str(v) for k, v in sorted(job.args.items()) if "enum" in a.params.get(k, {}) or a.params.get(k) is actions.NAME]
+    return " ".join([job.verb, *words]) + f": exit {job.exit}"
 
 
 def write_audit(state: Path, line: str, tlock: threading.Lock) -> None:

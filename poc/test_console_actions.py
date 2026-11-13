@@ -162,8 +162,7 @@ class ActionsTest(unittest.TestCase):
         status, plan = self.post("kick", {"args": {"name": "ana"}})
         self.assertEqual(self.post("kick", {"args": {"name": "beto"}, "confirm": plan["confirm"], "typed": "beto"})[0], 410)
         status, plan = self.post("kick", {"args": {"name": "ana"}})
-        self.assertEqual(self.post("kick", {"args": {"name": "ana"}, "confirm": plan["confirm"], "typed": "anna"})[0], 400)
-        self.assertEqual(self.post("kick", {"args": {"name": "ana"}, "confirm": plan["confirm"], "typed": "ana"})[0], 410)  # used
+        self.assertEqual(self.post("kick", {"args": {"name": "ana"}, "confirm": plan["confirm"], "typed": "anna"})[0], 400)  # kept
         status, plan = self.post("kick", {"args": {"name": "ana"}})
         with unittest.mock.patch.object(self.console.plans, "clock", lambda: time.monotonic() + 61):
             self.assertEqual(self.post("kick", {"args": {"name": "ana"}, "confirm": plan["confirm"], "typed": "ana"})[0], 410)
@@ -275,11 +274,90 @@ class ActionsTest(unittest.TestCase):
         end = time.monotonic() + 5
         while not out.exists() and time.monotonic() < end:
             time.sleep(0.05)
-        self.assertEqual(json.loads(out.read_text().splitlines()[0]), ["console_action", "request dani hi: exit 0"])
+        self.assertEqual(json.loads(out.read_text().splitlines()[0]), ["console_action", "request dani: exit 0"])   # no note
         os.environ["ADMISSION_NOTIFY_CMD"] = f"{sys.executable} {hook}"   # a local job does not notify
         j = self.job(self.post("burn", {"args": {}})[1]["id"])
         time.sleep(0.3)
         self.assertEqual(len(out.read_text().splitlines()), 1)
+
+    def test_c10_a_token_is_bound_to_the_credential_it_was_issued_to(self):
+        status, plan = self.console.act("kick", {"args": {"name": "ana"}}, "local", "uid:1000", "socket", 1000)
+        with self.assertRaises(actions.Refused) as e:
+            self.console.act("kick", {"args": {"name": "ana"}, "confirm": plan["confirm"], "typed": "ana"}, "local", "uid:1001", "socket", 1001)
+        self.assertEqual(e.exception.status, 410)
+        self.assertEqual(self.mutations(), [])
+
+    def test_a_typo_does_not_spend_the_token(self):
+        status, plan = self.post("kick", {"args": {"name": "ana"}})
+        self.assertEqual(self.post("kick", {"args": {"name": "ana"}, "confirm": plan["confirm"], "typed": "anna"})[0], 400)
+        status, j = self.post("kick", {"args": {"name": "ana"}, "confirm": plan["confirm"], "typed": "ana"})
+        self.assertEqual(status, 202)
+        self.job(j["id"])
+        self.assertEqual(self.post("kick", {"args": {"name": "ana"}, "confirm": plan["confirm"], "typed": "ana"})[0], 410)   # spent
+        self.assertEqual(self.mutations(), [["host", "kick", "ana"]])
+
+    def test_one_panic_at_a_time(self):
+        os.environ.update(FAKE_SLEEP="1.5", FAKE_SLEEP_ONLY="panic")
+        _, (status, first) = self.confirm("panic", {})
+        _, (status, second) = self.confirm("panic", {})
+        self.assertEqual(second["id"], first["id"])
+        self.job(first["id"])
+        self.assertEqual(self.mutations(), [["host", "panic"]])
+
+    def test_a_finished_job_is_seen_whole(self):
+        """The state is written last: whoever sees done or failed also sees the output, the end time and the audit line."""
+        os.environ["FAKE_SLEEP"] = "0.3"
+        j = self.post("burn", {"args": {}})[1]
+        end = time.monotonic() + 10
+        while time.monotonic() < end:
+            c = UnixHTTP(str(self.sock))
+            c.request("GET", f"/api/v1/jobs/{j['id']}")
+            v = json.loads(c.getresponse().read())
+            c.close()
+            if v["state"] not in ("queued", "running"):
+                self.assertIsNotNone(v["ended"])
+                self.assertIn("done burn", v["output"])
+                self.assertEqual(len(self.audit()), 1)
+                break
+        else:
+            self.fail("the job never finished")
+
+    def test_an_audit_that_cannot_be_written_never_stops_the_queue(self):
+        self.job(self.post("burn", {"args": {}})[1]["id"])   # the audit file exists
+        audit = self.state / "console" / "audit.jsonl"
+        audit.chmod(0o400)
+        self.addCleanup(audit.chmod, 0o600)
+        if os.access(audit, os.W_OK):
+            self.skipTest("running as root: a 0400 file stays writable")
+        jobs = [self.job(self.post("burn", {"args": {}})[1]["id"]) for _ in range(2)]
+        self.assertEqual([(j["state"], j["exit"], j["error"]) for j in jobs], [("done", 0, "audit")] * 2)
+        audit.chmod(0o600)
+        self.assertEqual(self.job(self.post("burn", {"args": {}})[1]["id"])["error"], None)   # and it recovers
+
+    def test_a_job_that_breaks_the_runner_ends_and_the_queue_moves_on(self):
+        real = self.console.runner._run
+        calls = []
+
+        def broken_once(job):
+            calls.append(job.id)
+            if len(calls) == 1:
+                raise RuntimeError("a bug in the daemon")
+            return real(job)
+        self.console.runner._run = broken_once
+        jobs = [self.post("burn", {"args": {}})[1] for _ in range(2)]
+        first, second = (self.job(j["id"]) for j in jobs)
+        self.assertEqual((first["state"], first["error"]), ("failed", "internal"))
+        self.assertIsNotNone(first["ended"])
+        self.assertEqual((second["state"], second["exit"]), ("done", 0))
+
+    def test_the_notify_line_goes_through_the_redactor(self):
+        sent = []
+        self.console.runner.notify = sent.append
+        with unittest.mock.patch.object(mutate, "notify_summary", lambda job: SECRET):
+            j = self.console.act("burn", {"args": {}}, "console", "tok:x", "web", 1000)[1]
+            self.job(j["id"])
+        self.assertEqual(len(sent), 1)
+        self.assertNotIn("AAAAsecret", sent[0])
 
     def test_rate_limit(self):
         with unittest.mock.patch.object(mutate, "RATE_PER_MINUTE", 3):
