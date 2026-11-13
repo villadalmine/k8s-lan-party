@@ -164,10 +164,10 @@ class Console:
             typed = {"type:name": args.get("name"), "type:all": "all"}.get(a.confirm)
             return 200, {"verb": verb, "args": args, "will": will, "confirm": tok, "expires_in": mutate.CONFIRM_SECONDS,
                          "type_to_confirm": typed}
-        want = self.plans.redeem(body["confirm"], verb, args, cred)
         typed = {"type:name": args.get("name"), "type:all": "all"}.get(a.confirm)
-        if typed is not None and body.get("typed") != typed:
+        if typed is not None and body.get("typed") != typed:   # before the token is spent: a typo does not cost a new plan
             raise Refusal(400, "typed", f"type {typed!r} to confirm")
+        want = self.plans.redeem(body["confirm"], verb, args, cred)
         if verb != "panic" and mutate.plan_hash(mutate.plan(verb, args, self.reads)) != want:   # panic: whatever the leases now
             raise Refusal(409, "plan-changed", "the state changed since the plan: ask for a new one")
         recheck = lambda: mutate.plan_hash(mutate.plan(verb, args, self.reads)) == want   # noqa: E731 - again when the job starts

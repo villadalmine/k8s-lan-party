@@ -488,6 +488,27 @@ class SwitchTest(Base):
         sw = json.loads((self.state / "auto.json").read_text())
         self.assertEqual((sw["panic"], sw["enabled"]), (True, False))
 
+    def test_a_panic_that_raced_a_clear_is_set_again(self):
+        """panic on; a new panic writes its switch early (already on: not first), then a `panic --clear` commits before the panic's pass
+        takes the ledger's lock. The pass sees panic off: it sets it again, with its event, instead of leaving admission open."""
+        self.ok("panic", now=1)
+        n = [k for k, _ in self.kinds()].count("panic")
+        real = admission.update_auto
+
+        def early_write_then_clear(d, changes):
+            before = real(d, changes)
+            admission.update_auto = real
+            real(d, {"panic": False, "changed_at": 2})   # the clear's commit lands between the early write and the lock
+            return before
+        admission.update_auto = early_write_then_clear
+        self.addCleanup(setattr, admission, "update_auto", real)
+        out = self.ok("panic", now=3)
+        self.assertIn("panic: on |", out)
+        self.assertNotIn("(already)", out)
+        sw = json.loads((self.state / "auto.json").read_text())
+        self.assertEqual((sw["panic"], sw["enabled"]), (True, False))
+        self.assertEqual([k for k, _ in self.kinds()].count("panic"), n + 1)
+
     def test_panic_tries_a_failed_kick_again_on_every_tick(self):
         self.ask("ana")
         self.ok("auto", "on")

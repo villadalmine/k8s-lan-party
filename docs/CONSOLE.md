@@ -166,7 +166,10 @@ A verb whose *confirm* is not `none` runs in two calls:
    token: 32 random bytes, valid **60 seconds, once**, bound to the verb, the args, the caller's credential (the socket's uid, or the hash of
    the web token in use: behind the SSH tunnel every web peer is 127.0.0.1, so the address would prove nothing) and a hash of the plan.
 2. The same call with `"confirm": "<token>"` (and for `type:*` also `"typed": "<the name>"` or `"typed": "all"`) starts the job. If the state
-   changed since the plan (another lease, a lease gone) the plan's hash no longer matches: 409, and a new plan is needed.
+   changed since the plan (another lease, a lease gone) the plan's hash no longer matches: 409, and a new plan is needed. The typed text is
+   checked before the token is spent, so a typo costs no new plan. **`panic` is the exception**: its plan is shown, but it is not compared
+   again at the confirm nor when the job starts: whatever the leases are by then, panic expels them all, and it must never be refused for
+   being late. A second `panic` while one runs gets that same job (one panic at a time).
 
 The web console shows the plan in a dialog: one click for `click` (panic is one click on purpose: it has to be fast), the name typed for
 `kick`, `revoke` and `reap-one`, the word `all` for `reap-all`. The CLI (#88) runs both calls itself, so `mesh host kick alice` behaves

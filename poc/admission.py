@@ -901,7 +901,8 @@ def command(a, cfg: dict, led: Ledger, auto: dict, state_dir: Path) -> int:
             else:
                 print("panic: was not on")
             return 0
-        first = getattr(a, "panic_first", not auto["panic"])   # the switch was written before the lock: was it off then?
+        # first if it was off before our early write, or if it is off now (a panic --clear committed in between): then it is set again
+        first = getattr(a, "panic_first", False) or not auto["panic"]
         if first:
             auto.update(enabled=False, panic=True, changed_at=led.now)
             led.closed = True
