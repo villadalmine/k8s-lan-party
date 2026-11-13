@@ -1,0 +1,1550 @@
+{
+ "openapi": "3.1.0",
+ "info": {
+  "title": "k8s-lan-party host console",
+  "version": "0.1.0-draft",
+  "description": "DRAFT of issue #85 (docs/CONSOLE.md). Local only: a unix socket (role local) or 127.0.0.1 (role console, bearer token). Never public."
+ },
+ "servers": [
+  {
+   "url": "http://127.0.0.1:8090",
+   "description": "loopback only; from elsewhere through an SSH tunnel"
+  }
+ ],
+ "security": [
+  {},
+  {
+   "bearer": []
+  }
+ ],
+ "x-transport": {
+  "local": "a unix socket, $STATE/console/api.sock or EMESH_CONSOLE_SOCK; no credential: the peer's uid (SO_PEERCRED) must be the daemon's (OpenAPI has no scheme for it)",
+  "console": "127.0.0.1 or ::1 only, Authorization: Bearer <token>"
+ },
+ "paths": {
+  "/api/v1/health": {
+   "get": {
+    "operationId": "health",
+    "summary": "the daemon answers; no engine call",
+    "tags": [
+     "read"
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Health"
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "no or wrong credential",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "429": {
+      "description": "too many bad tokens",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/status": {
+   "get": {
+    "operationId": "status",
+    "summary": "places, waiting, next to end, auto and panic (admission-status --json)",
+    "tags": [
+     "read"
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Status"
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "no or wrong credential",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "429": {
+      "description": "too many bad tokens",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/requests": {
+   "get": {
+    "operationId": "requests",
+    "summary": "the waiting list in order (waitlist --json)",
+    "tags": [
+     "read"
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/Request"
+         }
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "no or wrong credential",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "429": {
+      "description": "too many bad tokens",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/leases": {
+   "get": {
+    "operationId": "leases",
+    "summary": "active leases and the time left (leases --json)",
+    "tags": [
+     "read"
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/Lease"
+         }
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "no or wrong credential",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "429": {
+      "description": "too many bad tokens",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/players": {
+   "get": {
+    "operationId": "players",
+    "summary": "who is in: node Ready, certificate end (players --json --read-only: no token burned, no guard rewritten)",
+    "tags": [
+     "read"
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/Player"
+         }
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "no or wrong credential",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "429": {
+      "description": "too many bad tokens",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/players/{name}/activity": {
+   "get": {
+    "operationId": "activity",
+    "summary": "active, or idle and why (host activity <name>)",
+    "tags": [
+     "read"
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Activity"
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "no or wrong credential",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "429": {
+      "description": "too many bad tokens",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     }
+    },
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "pattern": "^[a-z][a-z0-9-]{1,19}$"
+      }
+     }
+    ]
+   }
+  },
+  "/api/v1/parties": {
+   "get": {
+    "operationId": "parties",
+    "summary": "every consent and its state (party list --json --read-only: no reconcile on a read)",
+    "tags": [
+     "read"
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/Party"
+         }
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "no or wrong credential",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "429": {
+      "description": "too many bad tokens",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/events": {
+   "get": {
+    "operationId": "events",
+    "summary": "admission/events.jsonl, newest last, bounded",
+    "tags": [
+     "read"
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/Event"
+         }
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "no or wrong credential",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "429": {
+      "description": "too many bad tokens",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     }
+    },
+    "parameters": [
+     {
+      "name": "since",
+      "in": "query",
+      "required": false,
+      "description": "epoch seconds",
+      "schema": {
+       "type": "integer",
+       "minimum": 0
+      }
+     },
+     {
+      "name": "limit",
+      "in": "query",
+      "required": false,
+      "description": "lines",
+      "schema": {
+       "type": "integer",
+       "minimum": 1,
+       "maximum": 500,
+       "default": 100
+      }
+     }
+    ]
+   }
+  },
+  "/api/v1/audit": {
+   "get": {
+    "operationId": "audit",
+    "summary": "console/audit.jsonl, newest last, bounded",
+    "tags": [
+     "read"
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/AuditLine"
+         }
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "no or wrong credential",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "429": {
+      "description": "too many bad tokens",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     }
+    },
+    "parameters": [
+     {
+      "name": "limit",
+      "in": "query",
+      "required": false,
+      "description": "lines",
+      "schema": {
+       "type": "integer",
+       "minimum": 1,
+       "maximum": 500,
+       "default": 100
+      }
+     }
+    ]
+   }
+  },
+  "/api/v1/metrics": {
+   "get": {
+    "operationId": "metrics",
+    "summary": "admission-metrics, Prometheus text format, no identities",
+    "tags": [
+     "read"
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "text/plain; version=0.0.4": {
+        "schema": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "no or wrong credential",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "429": {
+      "description": "too many bad tokens",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/actions": {
+   "get": {
+    "operationId": "actions",
+    "summary": "the registry, filtered by the caller's role",
+    "tags": [
+     "read"
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/ActionInfo"
+         }
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "no or wrong credential",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "429": {
+      "description": "too many bad tokens",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/jobs/{id}": {
+   "get": {
+    "operationId": "job",
+    "summary": "a job's state, exit code and redacted output",
+    "tags": [
+     "read"
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Job"
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "no or wrong credential",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "429": {
+      "description": "too many bad tokens",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     }
+    },
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "pattern": "^[0-9a-f]{16}$"
+      }
+     }
+    ]
+   }
+  },
+  "/api/v1/actions/{verb}": {
+   "post": {
+    "operationId": "act",
+    "summary": "run a registry verb as a job. A verb with a confirmation answers 200 with a plan and a single-use token first; the same call again with that token (and, for type:*, the typed text) starts the job.",
+    "tags": [
+     "mutate"
+    ],
+    "parameters": [
+     {
+      "name": "verb",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "$ref": "#/components/schemas/Verb"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ActionRequest"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "a plan to confirm (nothing ran)",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Plan"
+        }
+       }
+      }
+     },
+     "202": {
+      "description": "the job started",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Job"
+        }
+       }
+      }
+     },
+     "400": {
+      "description": "bad args (unknown key, wrong type, a name that does not match)",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "no or wrong credential",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "403": {
+      "description": "the role may not run this verb or these args",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "404": {
+      "description": "not a registry verb",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "409": {
+      "description": "busy: another mutation is running; or the plan changed since it was shown",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "410": {
+      "description": "the confirm token is wrong, expired (60 s) or used",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "411": {
+      "description": "Content-Length required",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "413": {
+      "description": "body over 4 KB",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "415": {
+      "description": "not application/json",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "429": {
+      "description": "rate limit",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     }
+    }
+   }
+  }
+ },
+ "components": {
+  "schemas": {
+   "Error": {
+    "type": "object",
+    "required": [
+     "error",
+     "message"
+    ],
+    "additionalProperties": false,
+    "properties": {
+     "error": {
+      "type": "string"
+     },
+     "message": {
+      "type": "string"
+     }
+    }
+   },
+   "Health": {
+    "type": "object",
+    "properties": {
+     "ok": {
+      "type": "boolean"
+     },
+     "version": {
+      "type": "string"
+     },
+     "role": {
+      "enum": [
+       "local",
+       "console"
+      ]
+     }
+    }
+   },
+   "Status": {
+    "type": "object",
+    "description": "admission.py status --json without its requests list (GET /requests has them), plus last_tick read from admission/last-tick",
+    "properties": {
+     "now": {
+      "type": "integer"
+     },
+     "auto": {
+      "type": "boolean"
+     },
+     "panic": {
+      "type": "boolean"
+     },
+     "slots_total": {
+      "type": "integer"
+     },
+     "slots_used": {
+      "type": "integer"
+     },
+     "lease_seconds": {
+      "type": "integer"
+     },
+     "waiting": {
+      "type": "integer"
+     },
+     "eligible": {
+      "type": "integer"
+     },
+     "leases": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "properties": {
+        "name": {
+         "type": "string",
+         "pattern": "^[a-z][a-z0-9-]{1,19}$"
+        },
+        "end": {
+         "type": "integer"
+        }
+       }
+      }
+     },
+     "last_tick": {
+      "type": "integer",
+      "description": "0 = never"
+     }
+    }
+   },
+   "Request": {
+    "type": "object",
+    "properties": {
+     "name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{1,19}$"
+     },
+     "position": {
+      "type": "integer"
+     },
+     "state": {
+      "enum": [
+       "waiting",
+       "deferred"
+      ]
+     },
+     "eligible_at": {
+      "type": [
+       "integer",
+       "null"
+      ]
+     },
+     "why": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "identity": {
+      "type": "string"
+     },
+     "note": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "requested_at": {
+      "type": "integer"
+     }
+    }
+   },
+   "Lease": {
+    "type": "object",
+    "properties": {
+     "name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{1,19}$"
+     },
+     "start": {
+      "type": "integer"
+     },
+     "end": {
+      "type": "integer"
+     },
+     "left_seconds": {
+      "type": "integer"
+     },
+     "trust": {
+      "enum": [
+       "public",
+       "friends"
+      ]
+     }
+    }
+   },
+   "Player": {
+    "type": "object",
+    "properties": {
+     "name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{1,19}$"
+     },
+     "ready": {
+      "enum": [
+       "True",
+       "False",
+       "Unknown",
+       "absent"
+      ],
+      "description": "the Node's Ready condition; absent = no Node of that name (the CLI prints no)"
+     },
+     "cert_expires": {
+      "type": "string",
+      "format": "date-time"
+     }
+    }
+   },
+   "Activity": {
+    "type": "object",
+    "properties": {
+     "name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{1,19}$"
+     },
+     "state": {
+      "enum": [
+       "active",
+       "idle",
+       "unknown"
+      ]
+     },
+     "why": {
+      "type": [
+       "string",
+       "null"
+      ]
+     }
+    }
+   },
+   "Party": {
+    "type": "object",
+    "properties": {
+     "player": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{1,19}$"
+     },
+     "peer": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{1,19}$"
+     },
+     "status": {
+      "type": "string"
+     }
+    }
+   },
+   "Event": {
+    "type": "object",
+    "description": "one line of admission/events.jsonl as written (identities blanked after the retention)",
+    "additionalProperties": true
+   },
+   "AuditLine": {
+    "type": "object",
+    "required": [
+     "ts",
+     "source",
+     "role",
+     "verb",
+     "exit"
+    ],
+    "properties": {
+     "ts": {
+      "type": "integer"
+     },
+     "source": {
+      "enum": [
+       "socket",
+       "web",
+       "direct"
+      ]
+     },
+     "role": {
+      "enum": [
+       "local",
+       "console"
+      ]
+     },
+     "uid": {
+      "type": "integer"
+     },
+     "verb": {
+      "type": "string"
+     },
+     "args": {
+      "type": "object"
+     },
+     "confirmed": {
+      "type": "boolean"
+     },
+     "exit": {
+      "type": [
+       "integer",
+       "null"
+      ]
+     },
+     "duration_ms": {
+      "type": "integer"
+     },
+     "job": {
+      "type": [
+       "string",
+       "null"
+      ]
+     }
+    }
+   },
+   "Verb": {
+    "enum": [
+     "request",
+     "reject",
+     "approve",
+     "tick",
+     "auto-on",
+     "auto-off",
+     "panic",
+     "panic-clear",
+     "burn",
+     "reap",
+     "reap-all",
+     "reap-one",
+     "kick",
+     "revoke",
+     "party-reconcile",
+     "party-end",
+     "invite",
+     "refresh",
+     "bundle"
+    ]
+   },
+   "ActionInfo": {
+    "type": "object",
+    "properties": {
+     "verb": {
+      "$ref": "#/components/schemas/Verb"
+     },
+     "summary": {
+      "type": "string"
+     },
+     "params": {
+      "type": "object"
+     },
+     "confirm": {
+      "enum": [
+       "none",
+       "click",
+       "type:name",
+       "type:all"
+      ]
+     },
+     "timeout_seconds": {
+      "type": [
+       "integer",
+       "null"
+      ],
+      "description": "null: no timeout (panic)"
+     },
+     "arg_roles": {
+      "type": "object"
+     }
+    }
+   },
+   "ActionRequest": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+     "args": {
+      "type": "object",
+      "description": "exactly the verb's params (x-actions); any other key is a 400"
+     },
+     "confirm": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{43}$",
+      "description": "the token of the plan, single use, 60 s"
+     },
+     "typed": {
+      "type": "string",
+      "maxLength": 20,
+      "description": "for type:name the name, for type:all the word all"
+     }
+    }
+   },
+   "Plan": {
+    "type": "object",
+    "properties": {
+     "verb": {
+      "$ref": "#/components/schemas/Verb"
+     },
+     "args": {
+      "type": "object"
+     },
+     "will": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      },
+      "description": "what it will do, in sentences, from pure reads (panic: the leases it expels)"
+     },
+     "confirm": {
+      "type": "string"
+     },
+     "expires_in": {
+      "type": "integer",
+      "const": 60
+     },
+     "type_to_confirm": {
+      "type": [
+       "string",
+       "null"
+      ]
+     }
+    }
+   },
+   "Job": {
+    "type": "object",
+    "properties": {
+     "id": {
+      "type": "string"
+     },
+     "verb": {
+      "$ref": "#/components/schemas/Verb"
+     },
+     "state": {
+      "enum": [
+       "running",
+       "done",
+       "failed",
+       "timeout"
+      ]
+     },
+     "exit": {
+      "type": [
+       "integer",
+       "null"
+      ],
+      "description": "the engine's own exit code; 124 after the timeout killed the process group"
+     },
+     "output": {
+      "type": "string",
+      "description": "stdout and stderr, redacted, at most 64 KiB"
+     },
+     "started": {
+      "type": "integer"
+     },
+     "ended": {
+      "type": [
+       "integer",
+       "null"
+      ]
+     }
+    }
+   }
+  },
+  "securitySchemes": {
+   "bearer": {
+    "type": "http",
+    "scheme": "bearer",
+    "description": "role console: 32 random bytes, base64url; `mesh host console url` prints it in a link fragment"
+   }
+  }
+ },
+ "x-actions": [
+  {
+   "verb": "request",
+   "engine": "mesh host request {name} [--ip {ip}] [--note {note}]",
+   "params": {
+    "name": {
+     "type": "string",
+     "pattern": "^[a-z][a-z0-9-]{1,19}$"
+    },
+    "ip": {
+     "type": "string",
+     "maxLength": 45,
+     "pattern": "^[0-9A-Fa-f.:]+$"
+    },
+    "note": {
+     "type": "string",
+     "maxLength": 200
+    }
+   },
+   "required": [
+    "name"
+   ],
+   "confirm": "none",
+   "roles": [
+    "local",
+    "console"
+   ],
+   "arg_roles": {},
+   "timeout_seconds": 60,
+   "summary": "put someone on the waiting list"
+  },
+  {
+   "verb": "reject",
+   "engine": "mesh host reject {name} [--reason {reason}]",
+   "params": {
+    "name": {
+     "type": "string",
+     "pattern": "^[a-z][a-z0-9-]{1,19}$"
+    },
+    "reason": {
+     "type": "string",
+     "maxLength": 200
+    }
+   },
+   "required": [
+    "name"
+   ],
+   "confirm": "none",
+   "roles": [
+    "local",
+    "console"
+   ],
+   "arg_roles": {},
+   "timeout_seconds": 60,
+   "summary": "take a request off the list"
+  },
+  {
+   "verb": "approve",
+   "engine": "mesh host approve [{name}] --trust {trust}",
+   "params": {
+    "name": {
+     "type": "string",
+     "pattern": "^[a-z][a-z0-9-]{1,19}$"
+    },
+    "trust": {
+     "enum": [
+      "public",
+      "friends"
+     ],
+     "default": "public"
+    }
+   },
+   "required": [],
+   "confirm": "click",
+   "roles": [
+    "local",
+    "console"
+   ],
+   "arg_roles": {
+    "trust": {
+     "friends": [
+      "local"
+     ]
+    }
+   },
+   "timeout_seconds": 300,
+   "summary": "approve the named request or the first eligible one; trust friends (the persistent CA) is local only"
+  },
+  {
+   "verb": "tick",
+   "engine": "mesh host auto --once",
+   "params": {},
+   "required": [],
+   "confirm": "none",
+   "roles": [
+    "local",
+    "console"
+   ],
+   "arg_roles": {},
+   "timeout_seconds": 600,
+   "summary": "one tick now, the same as the timer's"
+  },
+  {
+   "verb": "auto-on",
+   "engine": "mesh host auto on",
+   "params": {},
+   "required": [],
+   "confirm": "click",
+   "roles": [
+    "local",
+    "console"
+   ],
+   "arg_roles": {},
+   "timeout_seconds": 120,
+   "summary": "open automatic admission"
+  },
+  {
+   "verb": "auto-off",
+   "engine": "mesh host auto off",
+   "params": {},
+   "required": [],
+   "confirm": "none",
+   "roles": [
+    "local",
+    "console"
+   ],
+   "arg_roles": {},
+   "timeout_seconds": 120,
+   "summary": "stop automatic approvals (expiry keeps running)"
+  },
+  {
+   "verb": "panic",
+   "engine": "mesh host panic",
+   "params": {},
+   "required": [],
+   "confirm": "click",
+   "roles": [
+    "local",
+    "console"
+   ],
+   "arg_roles": {},
+   "timeout_seconds": null,
+   "summary": "auto off, slots 0, every active lease expelled"
+  },
+  {
+   "verb": "panic-clear",
+   "engine": "mesh host panic --clear",
+   "params": {},
+   "required": [],
+   "confirm": "click",
+   "roles": [
+    "local",
+    "console"
+   ],
+   "arg_roles": {},
+   "timeout_seconds": 120,
+   "summary": "reopen admission (auto stays off)"
+  },
+  {
+   "verb": "burn",
+   "engine": "mesh host burn",
+   "params": {},
+   "required": [],
+   "confirm": "none",
+   "roles": [
+    "local",
+    "console"
+   ],
+   "arg_roles": {},
+   "timeout_seconds": 120,
+   "summary": "burn the join token of every registered player, refresh the node guard"
+  },
+  {
+   "verb": "reap",
+   "engine": "mesh host reap",
+   "params": {},
+   "required": [],
+   "confirm": "none",
+   "roles": [
+    "local",
+    "console"
+   ],
+   "arg_roles": {},
+   "timeout_seconds": 600,
+   "summary": "expel every lease that ended"
+  },
+  {
+   "verb": "reap-all",
+   "engine": "mesh host reap --all",
+   "params": {},
+   "required": [],
+   "confirm": "type:all",
+   "roles": [
+    "local",
+    "console"
+   ],
+   "arg_roles": {},
+   "timeout_seconds": 900,
+   "summary": "end every lease now"
+  },
+  {
+   "verb": "reap-one",
+   "engine": "mesh host reap --name {name}",
+   "params": {
+    "name": {
+     "type": "string",
+     "pattern": "^[a-z][a-z0-9-]{1,19}$"
+    }
+   },
+   "required": [
+    "name"
+   ],
+   "confirm": "type:name",
+   "roles": [
+    "local",
+    "console"
+   ],
+   "arg_roles": {},
+   "timeout_seconds": 300,
+   "summary": "end this lease now"
+  },
+  {
+   "verb": "kick",
+   "engine": "mesh host kick {name}",
+   "params": {
+    "name": {
+     "type": "string",
+     "pattern": "^[a-z][a-z0-9-]{1,19}$"
+    }
+   },
+   "required": [
+    "name"
+   ],
+   "confirm": "type:name",
+   "roles": [
+    "local",
+    "console"
+   ],
+   "arg_roles": {},
+   "timeout_seconds": 300,
+   "summary": "token, cordon, drain, revoke, machine, namespace"
+  },
+  {
+   "verb": "revoke",
+   "engine": "mesh host revoke {name}",
+   "params": {
+    "name": {
+     "type": "string",
+     "pattern": "^[a-z][a-z0-9-]{1,19}$"
+    }
+   },
+   "required": [
+    "name"
+   ],
+   "confirm": "type:name",
+   "roles": [
+    "local",
+    "console"
+   ],
+   "arg_roles": {},
+   "timeout_seconds": 300,
+   "summary": "blocklist the certificate everywhere, delete the node"
+  },
+  {
+   "verb": "party-reconcile",
+   "engine": "mesh host party reconcile",
+   "params": {},
+   "required": [],
+   "confirm": "none",
+   "roles": [
+    "local",
+    "console"
+   ],
+   "arg_roles": {},
+   "timeout_seconds": 120,
+   "summary": "open the parties both sides agreed to, close the rest"
+  },
+  {
+   "verb": "party-end",
+   "engine": "mesh host party end {a} {b}",
+   "params": {
+    "a": {
+     "type": "string",
+     "pattern": "^[a-z][a-z0-9-]{1,19}$"
+    },
+    "b": {
+     "type": "string",
+     "pattern": "^[a-z][a-z0-9-]{1,19}$"
+    }
+   },
+   "required": [
+    "a",
+    "b"
+   ],
+   "confirm": "click",
+   "roles": [
+    "local",
+    "console"
+   ],
+   "arg_roles": {},
+   "timeout_seconds": 120,
+   "summary": "end a party: both consents and its NetworkPolicies removed"
+  },
+  {
+   "verb": "invite",
+   "engine": "mesh host invite {name} --ttl {ttl} --trust {trust}",
+   "params": {
+    "name": {
+     "type": "string",
+     "pattern": "^[a-z][a-z0-9-]{1,19}$"
+    },
+    "ttl": {
+     "type": "string",
+     "pattern": "^([0-9]+[hms]){1,3}$",
+     "default": "2h"
+    },
+    "trust": {
+     "enum": [
+      "friends",
+      "public"
+     ],
+     "default": "friends"
+    }
+   },
+   "required": [
+    "name"
+   ],
+   "confirm": "none",
+   "roles": [
+    "local"
+   ],
+   "arg_roles": {},
+   "timeout_seconds": 300,
+   "summary": "a bundle for one player, outside the queue"
+  },
+  {
+   "verb": "refresh",
+   "engine": "mesh host refresh {name}",
+   "params": {
+    "name": {
+     "type": "string",
+     "pattern": "^(lh|cp|[a-z][a-z0-9-]{1,19})$"
+    }
+   },
+   "required": [
+    "name"
+   ],
+   "confirm": "none",
+   "roles": [
+    "local"
+   ],
+   "arg_roles": {},
+   "timeout_seconds": 120,
+   "summary": "rewrite and apply a machine's Nebula config"
+  },
+  {
+   "verb": "bundle",
+   "engine": "mesh host bundle {name}",
+   "params": {
+    "name": {
+     "type": "string",
+     "pattern": "^[a-z][a-z0-9-]{1,19}$"
+    }
+   },
+   "required": [
+    "name"
+   ],
+   "confirm": "none",
+   "roles": [
+    "local"
+   ],
+   "arg_roles": {},
+   "timeout_seconds": 60,
+   "summary": "pack the approved bundle into the outbox again"
+  }
+ ]
+}
