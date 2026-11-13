@@ -258,15 +258,15 @@ class DaemonTest(unittest.TestCase):
         for mark in ("<pem>", "<token>", "<code>", "<LH_RSH>", "<state>/ca/ca.key", "~/x"):
             self.assertIn(mark, seen, mark)
 
-    def test_methods_and_mutations_before_87(self):
+    def test_methods_and_a_mutation_asks_first(self):
         status, data, _ = self.call("POST", "/api/v1/actions/kick", b'{"args": {"name": "ana"}}', {"Content-Type": "application/json"})
-        self.assertEqual((status, json.loads(data)["error"]), (501, "not-built"))
+        self.assertEqual((status, json.loads(data)["type_to_confirm"]), (200, "ana"))   # a plan: kick needs a confirmation (#87)
         self.assertEqual(self.call("POST", "/api/v1/actions/nuke", b"{}")[0], 404)
         self.assertEqual(self.call("POST", "/api/v1/status", b"{}")[0], 405)
         self.assertEqual(self.call("GET", "/api/v1/actions/kick")[0], 405)
         for m in ("PUT", "DELETE", "PATCH", "OPTIONS"):
             self.assertEqual(self.call(m, "/api/v1/status")[0], 405, m)
-        self.assertEqual(self.engine_calls(), [])
+        self.assertEqual([c for c in self.engine_calls() if c[:2] != ["host", "leases"]], [])   # the plan reads leases, runs nothing
         status, _, r = self.call("GET", "/api/v1/health")
         self.assertEqual(r.getheader("Content-Security-Policy").split(";")[0], "default-src 'none'")
         self.assertEqual(r.getheader("X-Content-Type-Options"), "nosniff")
