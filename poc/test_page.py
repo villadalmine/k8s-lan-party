@@ -29,6 +29,7 @@ sys.path.insert(0, str(HERE / "page"))
 import page as pagemod  # noqa: E402
 import puller as pullermod  # noqa: E402
 import seal as keys  # noqa: E402
+import meshlock  # noqa: E402
 import visit  # noqa: E402
 
 HAS_OPENSSL = shutil.which("openssl") is not None
@@ -644,16 +645,9 @@ time.sleep(60)
             p.mesh("admission-status", timeout=2)
         child = int(pidfile.read_text())
         end = time.monotonic() + 5
-        while time.monotonic() < end:
-            try:
-                os.kill(child, 0)
-            except ProcessLookupError:
-                break
-            if open(f"/proc/{child}/stat").read().split(")")[-1].split()[0] == "Z":
-                break
+        while meshlock.alive(child) and time.monotonic() < end:   # a zombie counts as gone; /proc or ps (macOS)
             time.sleep(0.05)
-        else:
-            self.fail("the verb's child outlived the timeout")
+        self.assertFalse(meshlock.alive(child), "the verb's child outlived the timeout")
 
     def test_compromised_page_hostile_fields_never_reach_mesh(self):
         hostile = ["a;id", "$(touch /tmp/pwn)", "../../etc", "cp", "x\ny", "A" * 30]

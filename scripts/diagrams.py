@@ -2,12 +2,15 @@
 """docs/diagrams (issue #62): each <name>.mmd has a <name>.svg and .png carrying the source's SHA-256 (an SVG comment, a PNG tEXt chunk).
     scripts/diagrams.py check               every SVG and PNG carries the hash of its .mmd (Python only)
     scripts/diagrams.py render [NAME ...]   render with mermaid-cli (MMDC, default `mmdc`) and stamp the hash (all when no name)
+A <name>.json next to a .mmd is that diagram's mermaid config (features.json: the ELK layout) and part of its hash. mermaid-cli 11.4.2 is
+the version the committed images were rendered with (it ships the ELK layout); MMDC="npx -y @mermaid-js/mermaid-cli@11.4.2" pins it.
 """
 from __future__ import annotations
 
 import hashlib
 import os
 import re
+import shlex
 import struct
 import subprocess
 import sys
@@ -20,7 +23,9 @@ SVG_MARK = re.compile(r"\n?<!-- source-sha256: ([0-9a-f]{64}) -->\n?")
 
 
 def source_hash(mmd: Path) -> str:
-    return hashlib.sha256(mmd.read_bytes()).hexdigest()
+    """The .mmd, and the diagram's own mermaid config when it has one (<name>.json): a changed layout is a changed source too."""
+    cfg = mmd.with_suffix(".json")
+    return hashlib.sha256(mmd.read_bytes() + (b"\0" + cfg.read_bytes() if cfg.is_file() else b"")).hexdigest()
 
 
 def chunks(png: bytes) -> list[tuple[bytes, bytes]]:
@@ -68,12 +73,12 @@ def stale(directory: Path = DIR) -> list[str]:
 
 
 def render(names: list[str], directory: Path = DIR) -> None:
-    mmdc = os.environ.get("MMDC", "mmdc")
+    mmdc = shlex.split(os.environ.get("MMDC", "mmdc"))   # a path, or a command such as `npx -y ...@11.4.2`
     for mmd in [directory / f"{n}.mmd" for n in names] or sorted(directory.glob("*.mmd")):
         # a diagram's own mermaid config, when it has one (features.json: the ELK layout, wide instead of a 13000 px column)
         config = ["-c", str(mmd.with_suffix(".json"))] if mmd.with_suffix(".json").is_file() else []
         for suffix, extra in ((".svg", []), (".png", ["-b", "white", "-s", "2"])):
-            subprocess.run([mmdc, "-q", "-i", str(mmd), "-o", str(mmd.with_suffix(suffix)), *config, *extra], check=True)
+            subprocess.run([*mmdc, "-q", "-i", str(mmd), "-o", str(mmd.with_suffix(suffix)), *config, *extra], check=True)
         stamp(mmd)
         print(f"rendered {mmd.stem}: svg, png, {source_hash(mmd)[:12]}")
 

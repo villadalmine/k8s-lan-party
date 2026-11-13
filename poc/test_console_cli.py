@@ -254,6 +254,26 @@ class CliTest(DaemonCase):
         self.assertEqual(r.returncode, -signal.SIGINT, r.stderr)   # a shell loop around it stops, as with the direct command
         self.assertIn("may already be in the console daemon's queue", r.stderr)
 
+    def test_ctrl_c_during_a_plan_says_nothing_of_a_queue(self):
+        """A plan queues nothing: a Ctrl-C while the daemon works out the plan of a kick dies by SIGINT, with no word of a queue."""
+        console = self.srv.RequestHandlerClass.console
+        real, entered, release = console.act, threading.Event(), threading.Event()
+
+        def stuck(verb, body, *a):
+            if not body.get("confirm"):
+                entered.set()
+                release.wait(20)
+            return real(verb, body, *a)
+        console.act = stuck
+        self.addCleanup(setattr, console, "act", real)
+        self.addCleanup(release.set)
+        r = self.interrupted(["host", "kick", "ana"], entered.is_set)
+        self.assertEqual(r.returncode, -signal.SIGINT, r.stderr)
+        self.assertNotIn("queue", r.stderr)
+        release.set()
+        time.sleep(0.5)
+        self.assertEqual(self.mutations(), [])
+
     def test_ctrl_c_while_following_dies_by_sigint_and_the_job_goes_on(self):
         os.environ["FAKE_SLEEP"] = "3"
         self.addCleanup(os.environ.pop, "FAKE_SLEEP", None)

@@ -115,7 +115,9 @@ Like the run link, these are warnings on a push and required on the edit that pa
 
 **Diagrams cannot go stale.** Every `docs/diagrams/<name>.mmd` has a `<name>.svg` and a `<name>.png` that carry the SHA-256 of the source
 (a comment in the SVG, a `tEXt` chunk in the PNG). Change a `.mmd` and render it again: `make diagrams NAME=<name>` (needs mermaid-cli,
-`MMDC=/path/to/mmdc` or `mmdc` on the `PATH`; 12.0.0 was used). `docs/diagrams/features.mmd` is generated from `docs/FEATURES.yml`
+`MMDC=/path/to/mmdc` or `mmdc` on the `PATH`; the images were rendered with 11.4.2, which `MMDC="npx -y @mermaid-js/mermaid-cli@11.4.2"`
+pins). A `<name>.json` beside a `.mmd` is that diagram's mermaid config (`features.json`: the ELK layout, which keeps the feature graph
+wide instead of a 16000 px column) and is part of its hash. `docs/diagrams/features.mmd` is generated from `docs/FEATURES.yml`
 (`make diagrams` writes it first): the graph suite and steps -> feature -> components and files. `tests/test_diagrams.py` fails when a source
 changed and its SVG or PNG was not rendered again, or when the feature graph does not match the catalog; without mermaid-cli it compares the
 hashes only.

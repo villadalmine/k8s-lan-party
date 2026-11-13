@@ -31,6 +31,14 @@ class Diagrams(unittest.TestCase):
             (Path(t) / "who-sees-what.png").unlink()
             self.assertIn("who-sees-what.png: missing", diagrams.stale(Path(t))[0])
 
+    def test_a_changed_layout_config_is_a_changed_source(self):
+        with tempfile.TemporaryDirectory() as t:
+            for f in diagrams.DIR.glob("features.*"):
+                shutil.copy(f, t)
+            self.assertEqual(diagrams.stale(Path(t)), [])
+            (Path(t) / "features.json").write_text('{"layout": "dagre"}', encoding="utf-8")
+            self.assertEqual([p.split(":")[0] for p in diagrams.stale(Path(t))], ["features.svg", "features.png"])
+
     @unittest.skipUnless(MMDC, "mermaid-cli not installed: the hashes are checked, nothing is rendered")
     def test_the_feature_graph_renders(self):
         with tempfile.TemporaryDirectory() as t:
