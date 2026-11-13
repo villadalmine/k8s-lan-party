@@ -73,7 +73,8 @@ def stale(directory: Path = DIR) -> list[str]:
 
 
 def render(names: list[str], directory: Path = DIR) -> None:
-    mmdc = shlex.split(os.environ.get("MMDC", "mmdc"))   # a path, or a command such as `npx -y ...@11.4.2`
+    env = os.environ.get("MMDC", "mmdc")   # a path (spaces allowed), or a command such as `npx -y @mermaid-js/mermaid-cli@11.4.2`
+    mmdc = [env] if Path(env).is_file() else shlex.split(env)
     for mmd in [directory / f"{n}.mmd" for n in names] or sorted(directory.glob("*.mmd")):
         # a diagram's own mermaid config, when it has one (features.json: the ELK layout, wide instead of a 13000 px column)
         config = ["-c", str(mmd.with_suffix(".json"))] if mmd.with_suffix(".json").is_file() else []

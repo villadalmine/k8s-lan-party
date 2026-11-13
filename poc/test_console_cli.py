@@ -274,6 +274,74 @@ class CliTest(DaemonCase):
         time.sleep(0.5)
         self.assertEqual(self.mutations(), [])
 
+    def test_ctrl_c_during_the_plan_of_a_retry_says_nothing_of_a_queue(self):
+        """The plan changed once (the confirmation got 409 plan-changed): a Ctrl-C during the next plan still queues nothing."""
+        console = self.srv.RequestHandlerClass.console
+        real, entered, release, plans = console.act, threading.Event(), threading.Event(), []
+
+        def changed_then_stuck(verb, body, *a):
+            if body.get("confirm"):
+                return 409, {"error": "plan-changed", "message": "the plan changed"}
+            plans.append(1)
+            if len(plans) == 2:
+                entered.set()
+                release.wait(20)
+            return real(verb, body, *a)
+        console.act = changed_then_stuck
+        self.addCleanup(setattr, console, "act", real)
+        self.addCleanup(release.set)
+        r = self.interrupted(["host", "kick", "ana"], entered.is_set)
+        self.assertEqual(r.returncode, -signal.SIGINT, r.stderr)
+        self.assertNotIn("queue", r.stderr)
+        self.assertNotIn("goes on", r.stderr)
+        release.set()
+        time.sleep(0.5)
+        self.assertEqual(self.mutations(), [])
+
+    def test_ctrl_c_after_a_job_that_ended_plan_changed_names_no_job(self):
+        """The first job ended plan-changed (it never ran): a Ctrl-C during the next plan says nothing of that job."""
+        console = self.srv.RequestHandlerClass.console
+        act, get, entered, release, plans = console.act, console.get, threading.Event(), threading.Event(), []
+
+        def stuck_second_plan(verb, body, *a):
+            if not body.get("confirm"):
+                plans.append(1)
+                if len(plans) == 2:
+                    entered.set()
+                    release.wait(20)
+                return act(verb, body, *a)
+            return 202, {"id": "0123456789abcdef", "state": "queued", "verb": verb}
+
+        def ended_changed(path, query):
+            if path.startswith("jobs/"):
+                return 200, {"id": "0123456789abcdef", "state": "done", "error": "plan-changed", "exit": 75}, "json"
+            return get(path, query)
+        console.act, console.get = stuck_second_plan, ended_changed
+        self.addCleanup(setattr, console, "act", act)
+        self.addCleanup(setattr, console, "get", get)
+        self.addCleanup(release.set)
+        r = self.interrupted(["host", "kick", "ana"], entered.is_set)
+        self.assertEqual(r.returncode, -signal.SIGINT, r.stderr)
+        self.assertNotIn("0123456789abcdef", r.stderr)
+        self.assertNotIn("goes on", r.stderr)
+
+    def test_a_daemon_gone_after_a_call_reached_it_never_means_direct(self):
+        """The plan changed once (a call reached the daemon), then its socket is gone: exit 1, the command is not run direct."""
+        console = self.srv.RequestHandlerClass.console
+        real = console.act
+
+        def changed_and_gone(verb, body, *a):
+            if body.get("confirm"):
+                os.unlink(self.sock)   # the next connect fails: NotSent
+                return 409, {"error": "plan-changed", "message": "the plan changed"}
+            return real(verb, body, *a)
+        console.act = changed_and_gone
+        self.addCleanup(setattr, console, "act", real)
+        r = self.client(["host", "kick", "ana"])
+        self.assertEqual(r.returncode, 1, r.stderr)
+        time.sleep(0.5)
+        self.assertEqual(self.mutations(), [])
+
     def test_ctrl_c_while_following_dies_by_sigint_and_the_job_goes_on(self):
         os.environ["FAKE_SLEEP"] = "3"
         self.addCleanup(os.environ.pop, "FAKE_SLEEP", None)

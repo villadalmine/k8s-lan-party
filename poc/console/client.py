@@ -159,19 +159,24 @@ def run(a) -> int:
     if parsed is None or parsed[0] in ("tick", "panic"):   # the timer's tick and panic never go through the API (docs/CONSOLE.md)
         direct(a.mesh, words)
     verb, args = parsed
-    job: dict = {}
+    global SENDING
+    reached = False   # a call reached the daemon: from then on, never run the command a second time behind its back
+    live: dict = {}   # the job this attempt started, if any
     try:
         for _ in range(PLAN_TRIES):
+            SENDING, live = False, {}   # each attempt starts with a plan: a Ctrl-C there queues nothing
             try:
                 status, job = start(a.socket, verb, args)
             except NotSent:
-                if job:   # a call already reached the daemon: never run it a second time behind its back
+                if reached:
                     raise
                 direct(a.mesh, words)
+            reached = True
             if status != 202:
                 if status == 409 and job.get("error") == "plan-changed":
                     continue
                 return refused(status, job)
+            live = job
             job = follow(a.socket, job, verb)
             if job.get("error") != "plan-changed":
                 break
@@ -179,8 +184,8 @@ def run(a) -> int:
             print(f"mesh: the state kept changing under {verb}: try again", file=sys.stderr)
             return EX_TEMPFAIL
     except KeyboardInterrupt:
-        if job.get("id"):
-            print(f"\nmesh: {verb} goes on in the console daemon (job {job['id']})", file=sys.stderr)
+        if live.get("id"):
+            print(f"\nmesh: {verb} goes on in the console daemon (job {live['id']})", file=sys.stderr)
         elif SENDING:   # never for a Ctrl-C during a plan: a plan queues nothing
             print(f"\nmesh: {verb} may already be in the console daemon's queue: look at <state>/console/audit.jsonl", file=sys.stderr)
         sys.stderr.flush()
@@ -192,7 +197,7 @@ def run(a) -> int:
               "Look at <state>/console/audit.jsonl before you try again.", file=sys.stderr)
         return 1
     except LostJob as e:
-        print(f"mesh: {verb} goes on in the console daemon (job {job.get('id')}), but following it failed ({e}); its end will be in "
+        print(f"mesh: {verb} goes on in the console daemon (job {live.get('id')}), but following it failed ({e}); its end will be in "
               "<state>/console/audit.jsonl", file=sys.stderr)
         return 1
     except (OSError, NotSent, http.client.HTTPException) as e:
