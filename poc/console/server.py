@@ -357,9 +357,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def _route(self, method: str) -> None:
         raw, _, q = self.path.partition("?")
-        if method != "POST":
-            self.read_done()
         try:
+            if method != "POST":
+                self.read_done()   # inside the try: a GET hung up in that instant ends here too, silently
             if not raw.startswith("/api/v1/") or "//" in raw or "/../" in raw + "/" or "\\" in raw:
                 raise Refusal(404, "not-found", "no such route")
             path = raw[len("/api/v1/"):].rstrip("/")

@@ -295,6 +295,23 @@ class WebTest(DaemonCase):
         self.assertEqual(self.mutations(), [])
         self.assertFalse((self.state / "console" / "audit.jsonl").exists())
 
+    def test_a_get_hung_up_after_it_is_read_leaves_no_traceback(self):
+        """The same instant for a GET: nothing runs, nothing is answered, and the journal gets no traceback."""
+        import time
+        import unittest.mock
+        real = server.Slots.read_done
+
+        def late(srv, request):
+            time.sleep(1.5)   # the deadline (1 s) fires here
+            return real(srv, request)
+        log = io.StringIO()
+        with unittest.mock.patch.object(server, "REQUEST_READ_SECONDS", 1), unittest.mock.patch.object(server.Slots, "read_done", late), \
+                contextlib.redirect_stderr(log):
+            with self.assertRaises((http.client.RemoteDisconnected, ConnectionError)):
+                self.http("GET", "/api/v1/health")
+            time.sleep(1.5)   # the client is cut at 1 s; the handler wakes at 1.5 s and must end without a word
+        self.assertNotIn("Traceback", log.getvalue())
+
     def test_every_method_checks_the_host(self):
         for method in ("OPTIONS", "PUT", "DELETE", "PATCH"):
             self.assertEqual(self.http(method, "/api/v1/status", host="evil.example")[0], 403, method)
