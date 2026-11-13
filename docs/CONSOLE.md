@@ -37,7 +37,8 @@ the web console is the second; the bot will be the third. The API adds no behavi
   of its own: only the engine calls `kubectl`, as it does today.
 - **Not in the safety path.** The tick timer keeps calling the engine directly, so lease expiry never depends on the daemon; `mesh host
   panic` from the CLI **always** runs the engine directly, never through the API; and through the API `panic` never waits behind another
-  job (below, "Jobs, locks and timeouts").
+  job (below, "Jobs, locks and timeouts"). The public page's puller (`poc/page/puller.py`) runs `mesh` directly too (`EMESH_DIRECT=1`,
+  #88): public intake never depends on the daemon, nor takes the host's queue slots or rate limit.
 - **One environment.** Once the CLI forwards to the daemon (#88), the engine runs with the daemon's environment (its systemd unit:
   `POOL_CONFIG`, `TOKEN_TTL`, `REVOKE_WAIT`, `ADMISSION_NOTIFY_*`; and what `poc/lib.sh` reads from `$STATE`, such as `LH_RSH` in
   `$STATE/lighthouse.env`), not the operator's shell's: the client sends argv only. A
@@ -185,7 +186,7 @@ exactly as today: the person who typed the command already confirmed it.
   (`state.json`, tested with 12 concurrent writers and 8 concurrent ticks) and the node guard has its own, but `revoke.sh` (the blocklist,
   each machine's `config.yml`) and `party.py reconcile` run unlocked, so a kick from the API could race a tick. #88 adds a file lock that
   `poc/mesh` itself takes (`flock` on `$STATE/mesh.lock`) around every mutating verb, whoever calls it: the timer, the CLI direct, or a job of
-  the daemon. The daemon has no lock of its own besides that one.
+  the daemon. The daemon takes no other engine lock (its audit has a short lock of its own, below).
   The lock is taken by the **outermost** `mesh` only. The engine calls `mesh` from inside `mesh` (a `reap`, a tick, `panic` and `approve` run
   `mesh host burn`, `kick` and `invite` through admission.py), and a `flock` is not re-entrant: a nested call that tried to take it again would
   wait for its own parent forever. So the outermost `mesh` takes it, exports `EMESH_LOCK_HELD=<its pid>`, and every nested `mesh` sees the

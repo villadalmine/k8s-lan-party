@@ -550,7 +550,9 @@ class T14Report(Base):
 # --- the puller against a page that may be compromised -----------------------------------------------------------------------
 
 FAKE_MESH = r'''#!/usr/bin/env python3
-import json, sys, pathlib
+import json, os, sys, pathlib
+if os.environ.get("EMESH_DIRECT") != "1":   # the puller runs mesh direct, never through the console's daemon (#88)
+    sys.exit(8)
 d = pathlib.Path(sys.argv[0]).resolve().parent
 log = d / "argv.log"
 with open(log, "a") as f:

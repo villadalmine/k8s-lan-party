@@ -287,6 +287,7 @@ def number(query: dict, key: str, default: int, lo: int, hi: int) -> int:
 
 class Handler(BaseHTTPRequestHandler):
     console: Console = None
+    role = "local"        # the unix socket's role; a listener of another role (#89) sets its own
     server_version = "k8s-lan-party-console"
     sys_version = ""
     protocol_version = "HTTP/1.0"
@@ -342,8 +343,8 @@ class Handler(BaseHTTPRequestHandler):
                 except PageRefusal as e:
                     raise Refusal(e.status, e.error, e.message) from None
                 uid = peer_uid(self.connection)
-                status, out = self.console.act(verb, body, "local", f"uid:{uid}", "socket", uid)
-                return self._json(status, out, raw=self.console.raw_job(out, "local"))
+                status, out = self.console.act(verb, body, self.role, f"uid:{uid}", "socket", uid)
+                return self._json(status, out, raw=self.console.raw_job(out, self.role))
             if method == "POST":
                 self._drain()
             if method == "GET" and path.startswith("actions/"):
@@ -353,7 +354,7 @@ class Handler(BaseHTTPRequestHandler):
                 if kind == "text":
                     self._send(status, self.console.redact.text(body).encode(), "text/plain; version=0.0.4; charset=utf-8")
                 else:
-                    self._json(status, body, raw=self.console.raw_job(body, "local") if path.startswith("jobs/") else None)
+                    self._json(status, body, raw=self.console.raw_job(body, self.role) if path.startswith("jobs/") else None)
             elif path in ROUTES or path.startswith(("players/", "jobs/", "actions/")):
                 self._json(405, {"error": "method", "message": "not allowed here"}, {"Allow": "POST" if path.startswith("actions/") else "GET"})
             else:

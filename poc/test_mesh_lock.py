@@ -48,7 +48,8 @@ class LockTest(unittest.TestCase):
 
     def critical(self, tag: str, seconds: float = 0.6) -> str:
         """Take the lock, then write `<tag> in`, wait, `<tag> out`: overlapping sections show as two `in` in a row."""
-        return f'mesh_lock; echo "{tag} in" >>"{self.marks}"; sleep {seconds}; echo "{tag} out" >>"{self.marks}"'
+        return (f'mesh_lock; echo "{tag} in" >>"{self.marks}"; sleep {seconds}; '
+                f'echo "{tag} out $(python3 -c "import time; print(time.time())")" >>"{self.marks}"')
 
     def sections(self) -> list[str]:
         return self.marks.read_text().split("\n")[:-1]
@@ -72,6 +73,9 @@ class LockTest(unittest.TestCase):
             r = subprocess.run([BASH, "-c", f'. "{HERE}/lib.sh"; verb_class "$@"', "x", *words], env=self.env, capture_output=True,
                                text=True, timeout=10)
             self.assertEqual(r.stdout.split()[0], want, words)
+        r = subprocess.run([BASH, "-c", f'. "{HERE}/lib.sh"; verb_class "$@"', "x", "host", "reap", "--name=ana"], env=self.env,
+                           capture_output=True, text=True, timeout=10)
+        self.assertEqual(r.stdout.split(), ["registry", "reap-one"])   # argparse's --name=X form
 
     def test_c11_two_mutations_never_run_at_once(self):
         ps = [self.bash(self.critical(t)) for t in ("a", "b", "c")]
@@ -161,7 +165,8 @@ class LockTest(unittest.TestCase):
         holder.communicate(timeout=30)
         self.assertEqual(p.returncode, 0, err)
         self.assertIn("panic: on", out)
-        self.assertNotIn("a in", self.sections()[-1:])   # the holder had finished first
+        held_until = float(self.sections()[-1].split()[2])   # "a out <time>": the holder's last moment with the lock
+        self.assertGreaterEqual((adm / "state.json").stat().st_mtime, held_until)   # the panic's pass wrote after it
 
 
 if __name__ == "__main__":

@@ -104,7 +104,10 @@ class Puller:
 
     # --- mesh -----------------------------------------------------------------------------------------------------------
     def mesh(self, *args: str, timeout: int = 300) -> subprocess.CompletedProcess:
-        return subprocess.run([self.a.mesh, "host", *args], capture_output=True, text=True, timeout=timeout)
+        # direct, never through the host console's daemon (docs/CONSOLE.md): public intake must not depend on it, nor take the host's
+        # own queue slots and rate limit
+        return subprocess.run([self.a.mesh, "host", *args], capture_output=True, text=True, timeout=timeout,
+                              env=dict(os.environ, EMESH_DIRECT="1"))
 
     def status(self) -> dict:
         r = self.mesh("admission-status", "--json")

@@ -41,7 +41,8 @@
 #                                          or EMESH_CONSOLE_SOCK); reads, mutations as jobs, a web console with #89
 #   While it runs, the registry verbs typed here (request, approve, kick, reap, burn...) go through it: the same output and exit code,
 #   one audit line each (<state>/console/audit.jsonl), 75 when it is busy. EMESH_DIRECT=1 runs them here instead; the tick and `panic`
-#   always run here. Every mutating verb takes the engine's lock (<state>/mesh.lock), so two never run at once.
+#   always run here. Every mutating verb takes the engine's lock (<state>/mesh.lock), so two never run at once. Through the daemon a
+#   verb runs with the daemon's environment (its unit), not this shell's: POOL_CONFIG, TOKEN_TTL and the like set here need EMESH_DIRECT=1.
 # The CA key lives in .state/ca/ca.key: back it up; if you lose it you must re-issue every player.
 set -eu
 . "$(dirname "$0")/game-env.sh"
@@ -77,7 +78,9 @@ case "$class" in registry|mutate)
   [ "$verb" = panic ] || mesh_lock
   if [ "$class" = registry ] && [ -z "${EMESH_AUDITED:-}" ] && [ "$verb" != tick ]; then
     export EMESH_AUDITED=1; t0=${EPOCHREALTIME:-$(date +%s)}; rc=0
+    trap ':' INT   # Ctrl-C stops the verb (the child gets it from the terminal), not this layer: a half-done verb still leaves its line
     "$0" "$@" || rc=$?
+    trap - INT
     python3 "$POC/console/client.py" audit --state "$STATE" --verb "$verb" --started "${t0/,/.}" --exit "$rc" -- "$@" ||
       echo "warning: the audit line of '$verb' was not written ($STATE/console/audit.jsonl)" >&2
     exit "$rc"
