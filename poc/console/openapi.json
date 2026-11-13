@@ -1582,16 +1582,6 @@
         }
        }
       }
-     },
-     "501": {
-      "description": "before #87: mutations are not built yet (the verb exists; nothing ran)",
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/Error"
-        }
-       }
-      }
      }
     }
    }
@@ -1987,11 +1977,19 @@
      },
      "state": {
       "enum": [
+       "queued",
        "running",
        "done",
        "failed",
        "timeout"
       ]
+     },
+     "error": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "description": "plan-changed (exit 75), timeout (exit 124), engine (127) or null"
      },
      "exit": {
       "type": [
