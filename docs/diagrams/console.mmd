@@ -1,0 +1,27 @@
+flowchart LR
+  subgraph clients["Clients (the host's operator only)"]
+    cli["mesh host ... (the CLI, unchanged commands)"]
+    web["web console (browser, through an SSH tunnel)"]
+    bot["chat bot (#50, later)"]
+  end
+  subgraph host["The control-plane host"]
+    sock["unix socket, $STATE/console/api.sock (0700 dir, peer uid checked): role local"]
+    lo["127.0.0.1:8090 only, bearer token: role console"]
+    api["poc/console/server.py: /api/v1, the action registry, roles, two-phase confirm, one job at a time, redaction"]
+    eng["the engine: poc/mesh with EMESH_DIRECT=1, admission.py, party.py, revoke.sh (argv, no shell)"]
+    tick["emesh-admission.timer: mesh host auto --once (always direct)"]
+    state[("$STATE: admission ledger, events.jsonl, bundles, CA keys, console/audit.jsonl")]
+    kc["kubectl -> k3s API (Nebula IP only)"]
+  end
+  cli --> sock
+  web --> lo
+  bot -.-> lo
+  sock --> api
+  lo --> api
+  api -->|"registry verb, checked args"| eng
+  api -->|"pure reads"| state
+  api -->|"one line per mutation"| state
+  tick --> eng
+  eng --> state
+  eng --> kc
+  cli -.->|"socket gone, or panic when the API does not answer"| eng
