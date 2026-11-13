@@ -57,13 +57,25 @@ same_both_ways() { # `mesh host burn` through the daemon and with EMESH_DIRECT=1
   echo "api: $ra $a | direct: $rb $b"
   [ "$a" = "$b" ] && [ "$ra" = "$rb" ] && [ "$ra" = 0 ] && tail -2 "$AUDIT" | grep -q '"source": "socket"' && last_is direct burn
 }
-web_local_only() { # the host reaches the page and, with the link's token, the API; ana's machine cannot connect to the host on that port
-  local link tok
+web_local_only() { # the host reaches the page and, with the link's token, the API; nothing but the loopback listens on that port; ana's
+  # machine reaches the host's bridge address (a control listener there) but is refused on the web port. The host itself has no Nebula
+  # address (the lighthouse and the control plane are VMs): the underlay bridge is the only way from a player's machine to the host.
+  local link tok rc ctl=$((WEB_PORT + 1)) cpid ok=1
+  [ -n "${UNDERLAY_NET:-}" ] || { echo "UNDERLAY_NET is empty"; return 1; }
   link=$("$MESH" host console url --web "127.0.0.1:$WEB_PORT" 2>/dev/null); tok="${link##*#t=}"
-  curl -fsS -o /dev/null "http://127.0.0.1:$WEB_PORT/" &&
-    curl -fsS -H "Authorization: Bearer $tok" "http://127.0.0.1:$WEB_PORT/api/v1/health" | grep -q '"ok": true' &&
-    ! dx ana curl -sS -m 5 -o /dev/null "http://$UNDERLAY_NET.1:$WEB_PORT/" &&
-    echo "the host: page and API; ana -> $UNDERLAY_NET.1:$WEB_PORT: no connection"
+  curl -fsS -o /dev/null "http://127.0.0.1:$WEB_PORT/" || { echo "the host does not reach the page"; return 1; }
+  curl -fsS -H "Authorization: Bearer $tok" "http://127.0.0.1:$WEB_PORT/api/v1/health" | grep -q '"ok": true' ||
+    { echo "the host does not reach the API with the link's token"; return 1; }
+  [ "$(ss -Hltn "sport = :$WEB_PORT" | awk '{print $4}' | sort -u)" = "127.0.0.1:$WEB_PORT" ] ||
+    { echo "something other than 127.0.0.1 listens on $WEB_PORT:"; ss -Hltn "sport = :$WEB_PORT"; return 1; }
+  python3 -m http.server --bind "$UNDERLAY_NET.1" "$ctl" >/dev/null 2>&1 & cpid=$!
+  wait_for 10 curl -fsS -o /dev/null "http://$UNDERLAY_NET.1:$ctl/"
+  dx ana curl -sS -m 5 -o /dev/null "http://$UNDERLAY_NET.1:$ctl/" || { echo "control: ana does not reach $UNDERLAY_NET.1:$ctl"; ok=0; }
+  kill "$cpid" 2>/dev/null; wait "$cpid" 2>/dev/null
+  [ "$ok" = 1 ] || return 1
+  dx ana curl -sS -m 5 -o /dev/null "http://$UNDERLAY_NET.1:$WEB_PORT/"; rc=$?
+  echo "the host: page and API; only 127.0.0.1 listens; ana -> $UNDERLAY_NET.1:$ctl (control): reached; -> :$WEB_PORT: curl exit $rc"
+  [ "$rc" = 7 ]   # 7: connection refused; any other failure (no curl, a failed exec, a timeout) proves nothing
 }
 kick_bob() { via_confirmed "" socket kick host kick bob && ! k get node bob && ! machine_running bob; }
 tick_direct() { # as typed in a shell (no EMESH_DIRECT) with the daemon up: the tick is not sent, and its nested burn and kicks neither
@@ -90,7 +102,7 @@ step K15 "burn through the daemon and direct: the same output and exit code" sam
 step K16 "ana joins with her bundle and is Ready" play_ready ana
 step K17 "approve bob through the daemon: bob, confirmed" via_confirmed "approved bob (public)" socket approve host approve
 step K18 "bob joins with his bundle and is Ready" play_ready bob
-step K01 "the web console: the host reaches it on the loopback, a player's machine cannot connect" web_local_only
+step K01 "the web console: the host reaches it on the loopback only, a player's machine that reaches the host is refused on its port" web_local_only
 step K19 "kick bob through the daemon (the CLI types the name): node and machine gone, one audit line" kick_bob
 step K20 "the tick typed with the daemon up runs direct, its nested calls too: no audit line" tick_direct
 step K21 "the daemon is killed (SIGKILL) and leaves its socket behind, answering nothing" killed_leaves_socket

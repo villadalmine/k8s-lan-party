@@ -50,6 +50,23 @@ class AddressTest(unittest.TestCase):
             self.assertEqual(os.listdir(t), [])   # no console directory, no socket
 
 
+class BusyPortTest(unittest.TestCase):
+    @unittest.skipUnless(LINUX, "the daemon needs Linux")
+    def test_a_busy_web_port_leaves_no_socket_behind(self):
+        import socket as sk
+        import subprocess
+        import tempfile
+        taken = sk.socket()
+        taken.bind(("127.0.0.1", 0))
+        taken.listen()
+        self.addCleanup(taken.close)
+        with tempfile.TemporaryDirectory(dir="/tmp") as t:
+            r = subprocess.run([sys.executable, str(HERE / "console" / "server.py"), "serve", "--state", t, "--mesh", "/bin/false",
+                                "--web", f"127.0.0.1:{taken.getsockname()[1]}"], capture_output=True, text=True, timeout=20)
+            self.assertEqual(r.returncode, 2, r.stderr)
+            self.assertFalse((Path(t) / "console" / "api.sock").exists())
+
+
 class GateTest(unittest.TestCase):
     def test_ten_wrong_tokens_in_ten_minutes_lock_for_ten_minutes(self):
         now = [1000.0]
@@ -69,6 +86,18 @@ class GateTest(unittest.TestCase):
         self.assertFalse(g.locked())
         g.count()
         self.assertFalse(g.locked())   # the lockout started a new count
+
+    def test_a_new_token_lifts_the_lockout(self):
+        now = [0.0]
+        g = server.Gate(lambda: now[0])
+        self.assertFalse(g.locked("h1"))
+        for _ in range(10):
+            g.count()
+        self.assertTrue(g.locked("h1"))
+        self.assertFalse(g.locked("h2"))
+        for _ in range(9):
+            g.count()
+        self.assertFalse(g.locked("h2"))
 
 
 @unittest.skipUnless(LINUX, "the daemon needs Linux (SO_PEERCRED)")
@@ -209,6 +238,69 @@ class WebTest(DaemonCase):
         line = json.loads((self.state / "console" / "audit.jsonl").read_text().splitlines()[-1])
         self.assertEqual((line["source"], line["role"], line["uid"], line["verb"]), ("web", "console", None, "burn"))
         self.assertTrue(done)
+
+    def test_c05_a_new_link_lifts_the_lockout(self):
+        """Anyone on the host can reach the loopback port and send 10 wrong tokens: the operator's way out is a new link, at once."""
+        for i in range(10):
+            self.http("GET", "/api/v1/health", token=f"wrong-{i}")
+        self.assertEqual(self.http("GET", "/api/v1/health")[0], 429)
+        fresh = server.new_token(self.state)
+        self.assertEqual(self.http("GET", "/api/v1/health", token=fresh)[0], 200)
+        for i in range(9):   # a new count, not the old one carried over
+            self.http("GET", "/api/v1/health", token=f"again-{i}")
+        self.assertEqual(self.http("GET", "/api/v1/health", token=fresh)[0], 200)
+
+    def test_a_slow_client_is_hung_up_and_a_slow_plan_is_not(self):
+        """A request that is not read within REQUEST_READ_SECONDS is cut (16 drippers cannot hold the listener); the work after the
+        request is read (a plan's reads, up to 2 minutes) is not under that deadline."""
+        import socket as sk
+        import time
+        import unittest.mock
+        with unittest.mock.patch.object(server, "REQUEST_READ_SECONDS", 1):
+            drips = []
+            for _ in range(server.MAX_CONNECTIONS):
+                c = sk.create_connection(("127.0.0.1", self.port), timeout=5)
+                c.sendall(b"GET /api/v1/health HTTP/1.0\r\nHost: x")   # never finished
+                drips.append(c)
+            time.sleep(1.8)
+            self.assertEqual(self.http("GET", "/api/v1/health")[0], 200)
+            for c in drips:
+                c.close()
+            real = server.mutate.plan
+
+            def slow(*a):
+                time.sleep(2)
+                return real(*a)
+            with unittest.mock.patch.object(server.mutate, "plan", slow):
+                self.assertEqual(self.j("POST", "/api/v1/actions/kick", {"args": {"name": "ana"}})[0], 200)
+
+    def test_every_method_checks_the_host(self):
+        for method in ("OPTIONS", "PUT", "DELETE", "PATCH"):
+            self.assertEqual(self.http(method, "/api/v1/status", host="evil.example")[0], 403, method)
+            self.assertEqual(self.http(method, "/api/v1/status")[0], 405, method)
+
+    def test_health_says_the_role(self):
+        self.assertEqual(self.j("GET", "/api/v1/health")[1]["role"], "console")
+
+    def test_another_loopback_address_is_its_own_host(self):
+        try:
+            web = server.make_web(self.srv.RequestHandlerClass, ("127.0.0.2", 0))
+        except SystemExit:
+            self.skipTest("no 127.0.0.2 here")
+        threading.Thread(target=web.serve_forever, daemon=True).start()
+        self.addCleanup(web.server_close)
+        self.addCleanup(web.shutdown)
+        port = web.server_address[1]
+        c = http.client.HTTPConnection("127.0.0.2", port, timeout=10)
+        c.request("GET", "/api/v1/health", headers={"Authorization": f"Bearer {self.token}"})   # Host: 127.0.0.2:<port>
+        self.assertEqual(c.getresponse().status, 200)
+        c.close()
+
+    def test_a_leftover_temporary_file_is_never_in_the_way(self):
+        d = self.state / "console"
+        (d / f".web.token.{os.getpid()}").write_text("left by a killed run")
+        server.new_token(self.state)
+        self.assertEqual(sorted(p.name for p in d.iterdir() if p.name.startswith(".web.token.")), [f".web.token.{os.getpid()}"])
 
     # C06: the page
     def test_c06_the_page_is_served_with_page_py_headers(self):

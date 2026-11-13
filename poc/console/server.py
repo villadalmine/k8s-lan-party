@@ -40,6 +40,7 @@ import stat
 import struct
 import subprocess
 import sys
+import tempfile
 import threading
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
@@ -58,6 +59,7 @@ SUN_PATH_MAX = 107                     # bytes of a unix socket path (108 with t
 ENGINE_TIMEOUT = 60                    # seconds a read of the engine may take (it waits for the ledger's lock behind a tick)
 MAX_CONNECTIONS = 16                   # handled at once; more get a 503
 SOCKET_TIMEOUT = 10                    # a client that sends nothing for this long is dropped
+REQUEST_READ_SECONDS = 20              # the whole request (headers and body) must arrive within this, however slowly it drips
 MAX_LINES = 500
 MAX_BODY = 4096                        # page.py's limit for a request body
 NAME = re.compile(r"[a-z][a-z0-9-]{1,19}")
@@ -272,7 +274,7 @@ class Console:
                 raise Refusal(404, "no-such-job", "no such job (jobs are kept an hour)")
             return 200, job.view(self.redact), "json"
         if path == "health":
-            return 200, {"ok": True, "version": VERSION, "role": "local"}, "json"
+            return 200, {"ok": True, "version": VERSION, "role": role}, "json"
         if path == "status":
             return 200, self.status(), "json"
         if path in ("requests", "leases", "players", "parties"):
@@ -343,8 +345,14 @@ class Handler(BaseHTTPRequestHandler):
         body = json.dumps(out, sort_keys=True) + "\n"
         self._send(status, body.encode(), "application/json; charset=utf-8", extra)
 
+    def read_done(self) -> None:
+        """The request is read: from here the work may take long (a plan's reads), and the read deadline no longer applies."""
+        self.server.read_done(self.request)
+
     def _route(self, method: str) -> None:
         raw, _, q = self.path.partition("?")
+        if method != "POST":
+            self.read_done()
         try:
             if not raw.startswith("/api/v1/") or "//" in raw or "/../" in raw + "/" or "\\" in raw:
                 raise Refusal(404, "not-found", "no such route")
@@ -360,6 +368,7 @@ class Handler(BaseHTTPRequestHandler):
                     raise Refusal(404, "no-such-verb", "not a verb of the registry")
                 try:
                     body = PageHandler._body(self, MAX_BODY)
+                    self.read_done()
                 except PageRefusal as e:
                     if e.status == 415:   # refused before the body was read: read it, so a client still sending it gets our answer
                         self._drain()
@@ -418,7 +427,13 @@ def peer_uid(sock: socket.socket) -> int:
 
 
 class Slots:
-    """At most MAX_CONNECTIONS handled at once; more get a 503 at once (a mixin of both listeners)."""
+    """At most MAX_CONNECTIONS handled at once; more get a 503 at once; and a request that is not read within REQUEST_READ_SECONDS
+    is hung up (a client dripping a byte every few seconds beats the per-read timeout, not this). A mixin of both listeners."""
+    def read_done(self, request) -> None:
+        with self.timers_lock:
+            t = self.timers.pop(id(request), None)
+        if t:
+            t.cancel()
     def process_request(self, request, client_address):
         if not self.slots.acquire(blocking=False):
             try:
@@ -429,10 +444,23 @@ class Slots:
         super().process_request(request, client_address)
 
     def process_request_thread(self, request, client_address):
+        timer = threading.Timer(REQUEST_READ_SECONDS, _hang_up, (request,))
+        timer.daemon = True
+        with self.timers_lock:
+            self.timers[id(request)] = timer
+        timer.start()
         try:
             super().process_request_thread(request, client_address)
         finally:
+            self.read_done(request)
             self.slots.release()
+
+
+def _hang_up(request) -> None:
+    try:
+        request.shutdown(socket.SHUT_RDWR)
+    except OSError:
+        pass
 
 
 class Server(Slots, socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
@@ -441,6 +469,7 @@ class Server(Slots, socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
     def __init__(self, path: str, handler, uid: int):
         self.uid = uid
         self.slots = threading.BoundedSemaphore(MAX_CONNECTIONS)
+        self.timers, self.timers_lock = {}, threading.Lock()
         super().__init__(path, handler)
 
     def verify_request(self, request, client_address) -> bool:
@@ -485,11 +514,14 @@ def new_token(state: Path) -> str:
         d.mkdir(mode=0o700)
         os.chmod(d, 0o700)
     token = base64.urlsafe_b64encode(secrets.token_bytes(32)).rstrip(b"=").decode()
-    tmp = d / f".web.token.{os.getpid()}"
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    with os.fdopen(fd, "w") as f:
-        f.write(digest(token) + "\n")
-    os.replace(tmp, token_file(state))
+    fd, tmp = tempfile.mkstemp(dir=d, prefix=".web.token.")   # 0600, a fresh name: a file left by a killed run is never in the way
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(digest(token) + "\n")
+        os.replace(tmp, token_file(state))
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
     return token
 
 
@@ -499,10 +531,15 @@ class Gate:
         self.clock = clock or __import__("time").monotonic
         self.wrong: collections.deque = collections.deque()
         self.until = 0.0
+        self.seen = None   # the token hash the count is about
         self.lock = threading.Lock()
 
-    def locked(self) -> bool:
+    def locked(self, current: str = "") -> bool:
+        """Locked now? A new token (`mesh host console url` or `rotate-token` on the host) lifts the lockout and starts a new count:
+        the lockout can only be the work of someone who lacks the new token, so it says nothing about it."""
         with self.lock:
+            if current != self.seen:
+                self.seen, self.until, self.wrong = current, 0.0, collections.deque()
             return self.clock() < self.until
 
     def count(self) -> None:
@@ -518,6 +555,7 @@ class Gate:
 class WebHandler(Handler):
     role = "console"
     port = 0
+    bound = "127.0.0.1"   # the address it listens on, as a Host header writes it ([::1] for IPv6)
     gate: Gate = None
     static: dict = {}
 
@@ -528,31 +566,47 @@ class WebHandler(Handler):
         return f"web:{self.cred}", "web", None   # every web peer is 127.0.0.1 behind the tunnel: the token's hash is the caller
 
     def hosts(self) -> set[str]:
-        return {f"127.0.0.1:{self.port}", f"[::1]:{self.port}", f"localhost:{self.port}"}
+        return {f"{self.bound}:{self.port}", f"127.0.0.1:{self.port}", f"[::1]:{self.port}", f"localhost:{self.port}"}
+
+    def foreign(self) -> bool:
+        """A Host or an Origin that is not this listener's: DNS rebinding or another site. Answered 403, whatever the method."""
+        host, origin = self.headers.get("Host", ""), self.headers.get("Origin")
+        if host in self.hosts() and (origin is None or origin in {f"http://{h}" for h in self.hosts()}):
+            return False
+        self._drain()
+        self._json(403, {"error": "host", "message": f"use http://{self.bound}:{self.port}/ (through an SSH tunnel)"})
+        return True
+
+    def _other(self):
+        if not self.foreign():
+            super()._other()
+
+    do_PUT = do_DELETE = do_PATCH = do_OPTIONS = do_TRACE = do_CONNECT = _other
+
+    def stored(self) -> str:
+        try:
+            return token_file(self.console.state).read_text().strip()
+        except OSError:
+            return ""
 
     def _route(self, method: str) -> None:
-        host, origin = self.headers.get("Host", ""), self.headers.get("Origin")
-        if host not in self.hosts() or (origin is not None and origin not in {f"http://{h}" for h in self.hosts()}):
-            self._drain()   # DNS rebinding or another site: no page, no API
-            return self._json(403, {"error": "host", "message": "use http://127.0.0.1:%d/ (through an SSH tunnel)" % self.port})
+        if self.foreign():
+            return
         raw = self.path.partition("?")[0]
         if method == "GET" and raw in self.static:
             body, ctype = self.static[raw]
             return self._send(200, body, ctype)
-        if self.gate.locked():
+        want = self.stored()
+        if self.gate.locked(want):
             self._drain()
-            return self._json(429, {"error": "locked", "message": "too many wrong tokens: try again in 10 minutes, or "
-                                    "`mesh host console url` on the host"}, {"Retry-After": str(LOCKOUT)})
+            return self._json(429, {"error": "locked", "message": "too many wrong tokens: `mesh host console url` on the host makes a "
+                                    "new link, which lifts this; or wait 10 minutes"}, {"Retry-After": str(LOCKOUT)})
         auth = self.headers.get("Authorization", "")
         if not auth.startswith("Bearer "):
             self._drain()   # a page that merely points at the loopback cannot lock the operator out
             return self._json(401, {"error": "token", "message": "no token: open the link of `mesh host console url`"},
                               {"WWW-Authenticate": "Bearer"})
         given = digest(auth[len("Bearer "):].strip())
-        try:
-            want = token_file(self.console.state).read_text().strip()
-        except OSError:
-            want = ""
         if not want or not hmac.compare_digest(given, want):
             self.gate.count()
             self._drain()
@@ -569,6 +623,7 @@ class WebServer(Slots, socketserver.ThreadingMixIn, socketserver.TCPServer):
     def __init__(self, addr: tuple[str, int], handler):
         self.address_family = socket.AF_INET6 if ":" in addr[0] else socket.AF_INET
         self.slots = threading.BoundedSemaphore(MAX_CONNECTIONS)
+        self.timers, self.timers_lock = {}, threading.Lock()
         super().__init__(addr, handler)
 
 
@@ -584,6 +639,7 @@ def make_web(console_handler, addr: tuple[str, int]) -> WebServer:
     except OSError as e:
         raise fail(f"--web {addr[0]}:{addr[1]}: {e.strerror or e}") from None
     handler.port = srv.server_address[1]   # the Host a browser sends (port 0 in tests: the one the kernel chose)
+    handler.bound = f"[{addr[0]}]" if ":" in addr[0] else addr[0]
     return srv
 
 
@@ -680,7 +736,12 @@ def main(argv: list[str] | None = None) -> int:
     print(f"console: listening on {path} (role local; the host's user only)", flush=True)
     wsrv = None
     if web:
-        wsrv = make_web(srv.RequestHandlerClass, web)
+        try:
+            wsrv = make_web(srv.RequestHandlerClass, web)
+        except SystemExit:   # the port is taken: leave nothing behind
+            srv.server_close()
+            path.unlink(missing_ok=True)
+            raise
         shown = f"[{web[0]}]" if ":" in web[0] else web[0]
         print(f"console: web console on http://{shown}:{web[1]}/ (role console; `mesh host console url` prints a link)", flush=True)
         threading.Thread(target=wsrv.serve_forever, daemon=True).start()
