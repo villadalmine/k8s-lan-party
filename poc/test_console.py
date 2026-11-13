@@ -320,6 +320,14 @@ class DaemonTest(unittest.TestCase):
         self.assertEqual(r.text(f"{link}/bundles/ana and {self.state}/ca"), "<state>/bundles/ana and <state>/ca")
         self.assertEqual(r.text("code ABCDEFGHIJKLMNOPQRSTUVWXYZ typed raw"), "code <code> typed raw")
 
+    def test_short_or_embedded_lh_rsh_is_not_a_secret(self):
+        (self.state / "lighthouse.env").write_text("LH_RSH=false\n")   # what poc-nat.sh writes during its suite
+        r = server.Redactor(self.state)
+        self.assertEqual(r.text("falsely, a false start"), "falsely, a false start")
+        (self.state / "lighthouse.env").write_text("LH_RSH=ssh\\ lh-box\n")
+        r = server.Redactor(self.state)
+        self.assertEqual(r.text('run --ssh "ssh lh-box" now; xssh lh-boxy'), 'run --ssh "<LH_RSH>" now; xssh lh-boxy')
+
     def test_a_stale_socket_is_replaced(self):
         self.srv.shutdown()
         self.srv.server_close()   # the file stays, nobody answers

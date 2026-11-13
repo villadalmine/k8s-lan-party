@@ -83,7 +83,8 @@ class Redactor:
         self.literals: list[tuple[str, str]] = []
         for raw, value in (env_value(state / "lighthouse.env", "LH_RSH"), (os.environ.get("LH_RSH", ""),) * 2):
             for lit in {raw, value} - {""}:   # the file's %q form and the command it stands for (what revoke.sh prints)
-                self.literals.append((lit, "<LH_RSH>"))
+                if len(lit) >= 8:   # a one-word value (poc-nat.sh sets LH_RSH=false) is no secret, and would eat "falsely"
+                    self.literals.append((lit, "<LH_RSH>"))
         self.literals.sort(key=lambda kv: len(kv[0]), reverse=True)
         try:
             tok = (state / "page" / "puller.token").read_text(encoding="utf-8").strip()
@@ -93,8 +94,8 @@ class Redactor:
             pass
 
     def text(self, s: str) -> str:
-        for lit, rep in self.literals:
-            s = s.replace(lit, rep)
+        for lit, rep in self.literals:   # whole words only: never in the middle of a longer token
+            s = re.sub(r"(?<![\w.-])" + re.escape(lit) + r"(?![\w.-])", rep, s)
         s = PEM.sub("<pem>", s)
         s = K3S_TOKEN.sub("<token>", s)
         s = JWT.sub("<token>", s)
