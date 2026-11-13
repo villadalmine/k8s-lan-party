@@ -3,7 +3,8 @@
 #   mesh host init                         open your game: CA, lighthouse, control plane (API only on the Nebula IP)
 #   mesh host invite <name> [--ttl 2h] [--trust friends|public] [--pub FILE]   a bundle for one player (cert + config + a join token of 8 min at most)
 #                                          and their namespace play-<name> with a kubeconfig valid for the ttl (at least 11m; poc/participant.py)
-#   mesh host players                      who is in: node, Ready, certificate time left (and burns the join token of every registered node)
+#   mesh host players [--json --read-only]  who is in: node, Ready, certificate time left (and burns the join token of every registered node;
+#                                          --read-only burns nothing and leaves the node guard alone: the host console's read)
 #   mesh host burn                         delete the join token of every registered player (a k3s token is not one-time) and refresh the node guard (prints burned N)
 #   mesh host revoke <name>                the one command: blocklist the certificate on every host, reload, delete the node (idempotent; exit 5 = done everywhere but the external lighthouse could not be updated)
 #   mesh host kick <name>                  the player's API token dies, cordon, drain, revoke, remove the machine, delete play-<name>
@@ -30,15 +31,19 @@
 #   events: admission/events.jsonl; ADMISSION_NOTIFY_CMD="<command>" is called with <type> <summary> for each one (no shell)
 # LAN party mode (issue #75, DESIGN.md 14.2): two players who both agreed reach each other's namespace on the party's ports (pool.yaml)
 #   mesh host party [list]                 every consent and its state (active, waiting, refused, off), after a reconcile
+#   mesh host party list --read-only --json   the same without reconciling first (the host console)
 #   mesh host party reconcile              open the parties both sides agreed to, close the rest (the tick and every kick run it too)
 #   mesh host party end <a> <b>            end a party: both consents deleted, the NetworkPolicies removed
 #   mesh party invite|accept <peer> [--ports P/UDP,...] --as <player>   (local simulation, like play) the player's own
 #   mesh party leave [<peer>] | list --as <player>                      `edge-mesh party ...`, run on that player's machine
+# The host console (docs/CONSOLE.md, issue #85): one local API in front of these verbs
+#   mesh host console [--socket PATH]      run its daemon in the foreground: a unix socket for this user only (<state>/console/api.sock,
+#                                          or EMESH_CONSOLE_SOCK); reads now, mutations with #87, a web console with #89
 # The CA key lives in .state/ca/ca.key: back it up; if you lose it you must re-issue every player.
 set -eu
 . "$(dirname "$0")/game-env.sh"
 . "$(dirname "$0")/lib.sh"
-usage() { sed -n '2,37p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
+usage() { sed -n '2,/^# The CA key/p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
 [ $# -ge 1 ] || usage
 
 next_ip() { # first free Nebula IP from .5 up (1 lighthouse, 2 control plane, 3 and 4 are the PoC players), in the subnet of LH_NEB (stack.env,
@@ -85,14 +90,23 @@ case "$1 ${2:-}" in
     echo "bundle: $STATE/bundles/$name  (send it privately; it holds the player's key and a join token that works until the node registers or 8 min pass)"
     echo "namespace: play-$name  (the bundle's kubeconfig works there only, until $ttl from now)" ;;
   "host players")
-    printf '%-12s %-8s %s\n' PLAYER READY CERT-EXPIRES
-    for b in "$STATE"/bundles/*/; do n=$(basename "$b"); case "$n" in lh|cp) continue ;; esac
+    json=""; ro=""; shift 2
+    while [ $# -gt 0 ]; do case "$1" in --json) json=1; shift ;; --read-only) ro=1; shift ;; *) usage ;; esac; done
+    [ -n "$json" ] || printf '%-12s %-8s %s\n' PLAYER READY CERT-EXPIRES
+    rows=""
+    for b in "$STATE"/bundles/*/; do [ -d "$b" ] || continue; n=$(basename "$b"); case "$n" in lh|cp) continue ;; esac
       r=$(k get node "$n" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || true)
       e=$("$CACHE/nebula-cert" print -json -path "$b/host.crt" | python3 -c 'import sys,json;print(json.load(sys.stdin)[0]["details"]["notAfter"])')
-      printf '%-12s %-8s %s\n' "$n" "${r:-no}" "$e"
-      if [ -n "$r" ]; then token_burn "$n" || true; fi   # the node registered: its join token is not needed any more
+      if [ -n "$json" ]; then rows="$rows$n ${r:-absent} $e
+"; else printf '%-12s %-8s %s\n' "$n" "${r:-no}" "$e"; fi
+      if [ -n "$r" ] && [ -z "$ro" ]; then token_burn "$n" || true; fi   # the node registered: its join token is not needed any more
     done
-    node_guard >/dev/null 2>&1 || echo "warning: the node guard was not refreshed (run mesh host burn)" ;;
+    # names are [a-z0-9-], Ready is True/False/Unknown/absent, the date has no space: one row, three words
+    [ -z "$json" ] || printf '%s' "$rows" | python3 -c 'import sys,json;print(json.dumps([dict(zip(("name","ready","cert_expires"),l.split())) for l in sys.stdin if l.strip()]))'
+    if [ -z "$ro" ] && ! node_guard >/dev/null 2>&1; then   # on stderr with --json: stdout stays one JSON document
+      if [ -n "$json" ]; then echo "warning: the node guard was not refreshed (run mesh host burn)" >&2
+      else echo "warning: the node guard was not refreshed (run mesh host burn)"; fi
+    fi ;;
   "host burn")
     n=0
     for b in "$STATE"/bundles/*/; do p=$(basename "$b"); case "$p" in lh|cp) continue ;; esac
@@ -134,6 +148,9 @@ case "$1 ${2:-}" in
       nebula_restart "$name" && echo "refresh $name: config applied (nebula restarted: stats, listen or relay changed)"
     fi ;;
   "host down") "$POC/down.sh" ;;
+  "host console")
+    shift 2
+    exec python3 "$POC/console/server.py" serve --state "$STATE" --mesh "$POC/mesh" "$@" ;;
   "host request"|"host waitlist"|"host approve"|"host reject"|"host leases"|"host reap"|"host admission-status"|"host auto"|"host panic"|"host bundle"|"host admission-metrics")
     sub="$2"; shift 2; case "$sub" in admission-status) sub=status ;; admission-metrics) sub=metrics ;; esac
     rc=0; python3 "$POC/admission.py" --state "$STATE/admission" --config "${POOL_CONFIG:-$POC/pool.yaml}" --mesh "$POC/mesh" "$sub" "$@" || rc=$?

@@ -1,8 +1,9 @@
 # The host console: one local API, the CLI and a web console as its clients
 
 Status: **RFC of [#85](https://github.com/villadalmine/k8s-lan-party/issues/85)** (milestone v0.4.0): proposed in PR #94, decided when it
-merges and the decision is recorded in #85. Nothing in this file is built yet;
-the pieces are [#86](https://github.com/villadalmine/k8s-lan-party/issues/86) (the daemon and its reads),
+merges and the decision is recorded in #85. **Built so far: #86**, the daemon on the unix socket (role `local`) and every read
+(`mesh host console`, `poc/console/server.py`, `poc/console/actions.py`, the unit in `poc/console/deploy/`); `POST /api/v1/actions/{verb}`
+answers 501 until #87. The pieces are [#86](https://github.com/villadalmine/k8s-lan-party/issues/86) (the daemon and its reads),
 [#87](https://github.com/villadalmine/k8s-lan-party/issues/87) (mutations, confirmation, jobs, audit),
 [#88](https://github.com/villadalmine/k8s-lan-party/issues/88) (the CLI as a client),
 [#89](https://github.com/villadalmine/k8s-lan-party/issues/89) (the web console) and

@@ -114,5 +114,67 @@ class Party(unittest.TestCase):
         self.assertEqual(act["apply"], [])
 
 
+FAKE_KC = r"""#!/usr/bin/env python3
+import json, os, sys
+open(os.environ["FAKE_LOG"], "a").write(" ".join(sys.argv[1:]) + "\n")
+data = json.load(open(os.environ["FAKE_WORLD"]))
+if sys.argv[1] == "get":
+    kind = {"namespaces": "namespaces", "configmaps": "configmaps", "networkpolicies": "netpols"}[sys.argv[2]]
+    print(json.dumps(data[kind]))
+"""
+
+
+class ReadOnlyList(unittest.TestCase):
+    """`party list --read-only --json` (the host console, issue #86): only `kubectl get`, never a reconcile."""
+
+    def setUp(self):
+        import json, os, tempfile
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(__import__("shutil").rmtree, self.tmp, True)
+        kc = self.tmp / "kc"
+        kc.write_text(FAKE_KC)
+        kc.chmod(0o755)
+        cfg = self.tmp / "pool.yaml"
+        cfg.write_text("parties: 1\nparty_ports: [8080/TCP, 10666/UDP]\n")
+        # both agreed and nothing is open yet: a reconcile would apply NetworkPolicies and labels
+        w = world([ns("ana"), ns("beto")], [cm("ana", "beto", "8080/TCP"), cm("beto", "ana", "8080/TCP")])
+        (self.tmp / "world.json").write_text(json.dumps(w))
+        self.log = self.tmp / "calls"
+        os.environ.update(FAKE_LOG=str(self.log), FAKE_WORLD=str(self.tmp / "world.json"))
+        self.addCleanup(lambda: [os.environ.pop(k, None) for k in ("FAKE_LOG", "FAKE_WORLD")])
+        cert = self.tmp / "nebula-cert"   # every lease ends an hour after the epoch, long after NOW
+        cert.write_text('#!/bin/sh\necho \'[{"details": {"notAfter": "1970-01-01T01:00:00Z"}}]\'\n')
+        cert.chmod(0o755)
+        for n in ("ana", "beto"):
+            (self.tmp / "bundles" / n).mkdir(parents=True)
+            (self.tmp / "bundles" / n / "host.crt").write_text(n)
+        self.args = ["--config", str(cfg), "--bundles", str(self.tmp / "bundles"), "--nebula-cert", str(cert), "--kc", str(kc),
+                     "--now", str(NOW)]
+
+    def run_main(self, *argv):
+        import contextlib, io
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+            code = party.main([*argv, *self.args])
+        return code, out.getvalue()
+
+    def test_read_only_gets_only(self):
+        import json
+        code, out = self.run_main("list", "--read-only", "--json")
+        self.assertEqual(code, 0)
+        rows = json.loads(out)
+        self.assertEqual(sorted(r["player"] for r in rows), ["ana", "beto"])
+        verbs = {line.split()[0] for line in self.log.read_text().splitlines()}
+        self.assertEqual(verbs, {"get"})
+
+    def test_plain_list_still_reconciles(self):
+        self.run_main("list")
+        self.assertIn("apply", self.log.read_text())
+
+    def test_flags_only_with_list(self):
+        self.assertEqual(self.run_main("reconcile", "--read-only")[0], 2)
+        self.assertEqual(self.run_main("end", "ana", "beto", "--json")[0], 2)
+
+
 if __name__ == "__main__":
     unittest.main()

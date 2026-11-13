@@ -332,6 +332,35 @@ class CliTest(unittest.TestCase):
         code, out = self.cli("request", "fede", "--ip", "203.0.113.200")                  # same /24 as ana
         self.assertIn("already in the list as ana", out)
 
+    def test_console_reads_are_json_and_write_nothing(self):
+        """The host console's GETs (issue #86): --json, and --read-only writes not even the ledger's tidying nor the lock directory."""
+        self.assertEqual(self.cli("waitlist", "--json", "--read-only")[1], "[]\n")
+        self.assertFalse(self.state.exists())
+        self.cli("request", "ana", "--ip", "203.0.113.7", "--note", "hi", now=100)
+        self.cli("request", "beto", "--ip", "198.51.100.9", now=200)
+        files = {p.name: p.read_bytes() for p in self.state.iterdir()}
+        code, out = self.cli("waitlist", "--json", "--read-only", now=300)
+        self.assertEqual(code, 0)
+        rows = json.loads(out)
+        self.assertEqual([(r["position"], r["name"], r["state"], r["note"], r["requested_at"]) for r in rows],
+                         [(1, "ana", "waiting", "hi", 100), (2, "beto", "waiting", "", 200)])
+        self.assertEqual(rows[0]["identity"], "203.0.113.0/24")
+        self.assertEqual(json.loads(self.cli("leases", "--json", "--read-only", now=300)[1]), [])
+        self.assertEqual(json.loads(self.cli("status", "--json", "--read-only", now=300)[1])["waiting"], 2)
+        self.assertIn("emesh_admission_waiting 2", self.cli("metrics", "--read-only", now=300)[1])
+        self.assertEqual({p.name: p.read_bytes() for p in self.state.iterdir()}, files)
+        # a ledger directory without its lock file (copied, or made by hand): a read creates none
+        (self.state / "lock").unlink()
+        files.pop("lock")
+        self.assertEqual(json.loads(self.cli("waitlist", "--json", "--read-only", now=300)[1])[0]["name"], "ana")
+        self.assertEqual({p.name: p.read_bytes() for p in self.state.iterdir()}, files)
+        # whatever a read-only block does to the dict (a tidying on load), nothing reaches the disk and `after` never runs
+        ran = []
+        with locked_state(self.state, [lambda: ran.append(1)], write=False) as state:
+            state["requests"] = []
+        self.assertEqual({p.name: p.read_bytes() for p in self.state.iterdir()}, files)
+        self.assertEqual(ran, [])
+
     def test_bad_input_exits_2_and_writes_nothing(self):
         self.assertEqual(self.cli("request", "Bad;Name", "--ip", "203.0.113.7")[0], 2)
         self.assertEqual(self.cli("request", "ana", "--ip", "not-an-ip")[0], 2)

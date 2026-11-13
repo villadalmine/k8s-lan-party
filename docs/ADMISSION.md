@@ -108,12 +108,12 @@ Every command runs from the repository's `poc/` directory (`./mesh host --help` 
 | Command | What it does | Exit codes |
 | :--- | :--- | :--- |
 | `request <name> [--ip IP] [--note TEXT]` | adds the person to the list; prints the position, or when they become eligible and why (`cooldown`, `daily-cap`, `active-lease`). The same name and identity again: the same position. Another name from an identity already in the list: not added | 2 bad name or IP, 3 name already used |
-| `waitlist` | the list in order | |
+| `waitlist [--json] [--read-only]` | the list in order; `--json` for the host console (docs/CONSOLE.md), `--read-only` writes nothing, not even the ledger's tidying | |
 | `approve [<name>] [--trust public\|friends]` | checks a place is free and the identity is eligible (pool.py), runs `mesh host invite <name> --ttl <lease>s` (join token: `TOKEN_TTL`, 8 min at most; over that `approve` refuses, exit 2), records the lease; prints the bundle path and the end time. If the invite fails nothing is recorded | 3 not in the list, 4 nobody eligible (prints who is next and when), 5 no free place (prints which lease ends next), 6 that person is not eligible yet |
 | `reject <name> [--reason]` | takes a request off the list (idempotent) | 3 |
-| `leases` | active leases with the time left | |
+| `leases [--json] [--read-only]` | active leases with the time left (`--json`, `--read-only`: as for `waitlist`) | |
 | `reap [--all \| --name N]` | first `mesh host burn` (the join token of every registered node); then for every lease that ended (or all, or one, now): `mesh host kick`, which takes the name off the node guard and sweeps every Node not named after a live bundle, then cooldown, place freed, request `expired`, history kept. A kick that fails, or anything left to sweep, keeps the lease (and its place) for the next run | 1 a kick failed or a Node is left (the others are recorded), 3 `--name` has no active lease |
-| `admission-status` | one line for a bot or a status page | |
+| `admission-status [--json] [--read-only]` | one line for a bot or a status page; `--json` the numbers and every request (the page's puller, the console) | |
 
 `--trust public` (the default) signs with the **pool CA**, which can only mint `public` certificates; `--trust friends` signs with the persistent CA.
 

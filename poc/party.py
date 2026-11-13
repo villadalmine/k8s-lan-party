@@ -16,6 +16,7 @@ active and stops qualifying (one side left, kicked, a lease ended) deletes both 
 
     party.py reconcile --config pool.yaml --bundles DIR --nebula-cert BIN --kc KC [--quiet]   apply; prints what changed (or "unchanged")
     party.py list ...                     one row per consent: player, peer, status (after a reconcile)
+    party.py list --read-only [--json] ...   the same rows from what the cluster says now, without reconciling (the host console's read)
     party.py end <a> <b> ...              the host ends a party: both consents deleted, then a reconcile
     party.py plan --config pool.yaml --now N   stdin: {"namespaces", "configmaps", "netpols", "ends"} -> the actions as JSON (tests)
 """
@@ -151,11 +152,16 @@ def lease_ends(a) -> dict:
     return out
 
 
-def reconcile(a, cfg: dict) -> dict:
+def observe(a, cfg: dict) -> dict:
+    """The plan for the cluster as it is, from reads only (kubectl get, nebula-cert print): nothing is applied."""
     data = {"namespaces": json.loads(kc(a, "get", "namespaces", "-l", "edge-mesh/participant", "-o", "json")),
             "configmaps": json.loads(kc(a, "get", "configmaps", "-A", "-l", CONSENT, "-o", "json")),
             "netpols": json.loads(kc(a, "get", "networkpolicies", "-A", "-l", PARTY, "-o", "json")), "ends": lease_ends(a)}
-    act = plan(cfg, a.now or int(dt.datetime.now(dt.timezone.utc).timestamp()), data)
+    return plan(cfg, a.now or int(dt.datetime.now(dt.timezone.utc).timestamp()), data)
+
+
+def reconcile(a, cfg: dict) -> dict:
+    act = observe(a, cfg)
     for kind, ns, name in act["delete"]:
         kc(a, "delete", kind, name, "-n", ns, "--ignore-not-found")
     if act["apply"]:
@@ -177,22 +183,33 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--kc", default="kubectl")
     ap.add_argument("--now", type=int, default=0)
     ap.add_argument("--quiet", action="store_true")
+    ap.add_argument("--read-only", action="store_true", help="list only: what the cluster says now, without reconciling first (the host console)")
+    ap.add_argument("--json", action="store_true", help="list only: as JSON")
     a = ap.parse_args(argv)
     cfg = load_config(a.config)
     if a.cmd == "plan":
         print(json.dumps(plan(cfg, a.now, json.load(sys.stdin)), indent=1, sort_keys=True))
         return 0
+    if (a.read_only or a.json) and a.cmd != "list":
+        print("party: --read-only and --json go with list only", file=sys.stderr); return 2
     try:
-        if a.cmd == "end":
+        if a.cmd == "list" and a.read_only:
+            act = observe(a, cfg)
+        elif a.cmd == "end":
             if len(a.names) != 2 or not all(NAME.fullmatch(n) for n in a.names):
                 print("usage: mesh host party end <player> <player>"); return 2
             x, y = a.names
             kc(a, "delete", "configmap", f"party-{y}", "-n", PREFIX + x, "--ignore-not-found")
             kc(a, "delete", "configmap", f"party-{x}", "-n", PREFIX + y, "--ignore-not-found")
             print(f"party {x}+{y}: ended by the host")
-        act = reconcile(a, cfg)
+            act = reconcile(a, cfg)
+        else:
+            act = reconcile(a, cfg)
     except RuntimeError as e:
         print(f"party: {e}", file=sys.stderr); return 3
+    if a.cmd == "list" and a.json:
+        print(json.dumps([{"player": me, "peer": peer, "status": st} for me, peer, st in act["status"]], sort_keys=True))
+        return 0
     if a.cmd == "list":
         print(f"{'PLAYER':<20} {'PEER':<20} STATUS")
         for me, peer, s in act["status"]:

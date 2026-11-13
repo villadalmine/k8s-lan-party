@@ -40,6 +40,16 @@
        }
       }
      },
+     "400": {
+      "description": "a bad name, id or query",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
      "401": {
       "description": "no or wrong credential",
       "content": {
@@ -50,8 +60,68 @@
        }
       }
      },
+     "404": {
+      "description": "no such route, or no such job",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "405": {
+      "description": "another method",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
      "429": {
       "description": "too many bad tokens",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "500": {
+      "description": "the console could not answer",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "502": {
+      "description": "the engine's read failed or was not JSON",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "503": {
+      "description": "too many connections at once",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "504": {
+      "description": "the engine did not answer in time",
       "content": {
        "application/json": {
         "schema": {
@@ -81,6 +151,16 @@
        }
       }
      },
+     "400": {
+      "description": "a bad name, id or query",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
      "401": {
       "description": "no or wrong credential",
       "content": {
@@ -91,8 +171,68 @@
        }
       }
      },
+     "404": {
+      "description": "no such route, or no such job",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "405": {
+      "description": "another method",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
      "429": {
       "description": "too many bad tokens",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "500": {
+      "description": "the console could not answer",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "502": {
+      "description": "the engine's read failed or was not JSON",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "503": {
+      "description": "too many connections at once",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "504": {
+      "description": "the engine did not answer in time",
       "content": {
        "application/json": {
         "schema": {
@@ -125,6 +265,16 @@
        }
       }
      },
+     "400": {
+      "description": "a bad name, id or query",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
      "401": {
       "description": "no or wrong credential",
       "content": {
@@ -135,8 +285,68 @@
        }
       }
      },
+     "404": {
+      "description": "no such route, or no such job",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "405": {
+      "description": "another method",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
      "429": {
       "description": "too many bad tokens",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "500": {
+      "description": "the console could not answer",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "502": {
+      "description": "the engine's read failed or was not JSON",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "503": {
+      "description": "too many connections at once",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "504": {
+      "description": "the engine did not answer in time",
       "content": {
        "application/json": {
         "schema": {
@@ -169,6 +379,16 @@
        }
       }
      },
+     "400": {
+      "description": "a bad name, id or query",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
      "401": {
       "description": "no or wrong credential",
       "content": {
@@ -179,8 +399,68 @@
        }
       }
      },
+     "404": {
+      "description": "no such route, or no such job",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "405": {
+      "description": "another method",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
      "429": {
       "description": "too many bad tokens",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "500": {
+      "description": "the console could not answer",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "502": {
+      "description": "the engine's read failed or was not JSON",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "503": {
+      "description": "too many connections at once",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "504": {
+      "description": "the engine did not answer in time",
       "content": {
        "application/json": {
         "schema": {
@@ -213,6 +493,16 @@
        }
       }
      },
+     "400": {
+      "description": "a bad name, id or query",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
      "401": {
       "description": "no or wrong credential",
       "content": {
@@ -223,8 +513,68 @@
        }
       }
      },
+     "404": {
+      "description": "no such route, or no such job",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "405": {
+      "description": "another method",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
      "429": {
       "description": "too many bad tokens",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "500": {
+      "description": "the console could not answer",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "502": {
+      "description": "the engine's read failed or was not JSON",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "503": {
+      "description": "too many connections at once",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "504": {
+      "description": "the engine did not answer in time",
       "content": {
        "application/json": {
         "schema": {
@@ -254,8 +604,38 @@
        }
       }
      },
+     "400": {
+      "description": "a bad name, id or query",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
      "401": {
       "description": "no or wrong credential",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "404": {
+      "description": "no such route, or no such job",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "405": {
+      "description": "another method",
       "content": {
        "application/json": {
         "schema": {
@@ -273,6 +653,46 @@
         }
        }
       }
+     },
+     "500": {
+      "description": "the console could not answer",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "502": {
+      "description": "the engine's read failed or was not JSON",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "503": {
+      "description": "too many connections at once",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "504": {
+      "description": "the engine did not answer in time",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
      }
     },
     "parameters": [
@@ -282,7 +702,7 @@
       "required": true,
       "schema": {
        "type": "string",
-       "pattern": "^[a-z][a-z0-9-]{1,19}$"
+       "pattern": "^(?!(?:lh|cp|n1|n2)$)[a-z][a-z0-9-]{1,19}$"
       }
      }
     ]
@@ -309,6 +729,16 @@
        }
       }
      },
+     "400": {
+      "description": "a bad name, id or query",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
      "401": {
       "description": "no or wrong credential",
       "content": {
@@ -319,8 +749,68 @@
        }
       }
      },
+     "404": {
+      "description": "no such route, or no such job",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "405": {
+      "description": "another method",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
      "429": {
       "description": "too many bad tokens",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "500": {
+      "description": "the console could not answer",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "502": {
+      "description": "the engine's read failed or was not JSON",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "503": {
+      "description": "too many connections at once",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "504": {
+      "description": "the engine did not answer in time",
       "content": {
        "application/json": {
         "schema": {
@@ -353,6 +843,16 @@
        }
       }
      },
+     "400": {
+      "description": "a bad name, id or query",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
      "401": {
       "description": "no or wrong credential",
       "content": {
@@ -363,8 +863,68 @@
        }
       }
      },
+     "404": {
+      "description": "no such route, or no such job",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "405": {
+      "description": "another method",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
      "429": {
       "description": "too many bad tokens",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "500": {
+      "description": "the console could not answer",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "502": {
+      "description": "the engine's read failed or was not JSON",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "503": {
+      "description": "too many connections at once",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "504": {
+      "description": "the engine did not answer in time",
       "content": {
        "application/json": {
         "schema": {
@@ -421,6 +981,16 @@
        }
       }
      },
+     "400": {
+      "description": "a bad name, id or query",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
      "401": {
       "description": "no or wrong credential",
       "content": {
@@ -431,8 +1001,68 @@
        }
       }
      },
+     "404": {
+      "description": "no such route, or no such job",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "405": {
+      "description": "another method",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
      "429": {
       "description": "too many bad tokens",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "500": {
+      "description": "the console could not answer",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "502": {
+      "description": "the engine's read failed or was not JSON",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "503": {
+      "description": "too many connections at once",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "504": {
+      "description": "the engine did not answer in time",
       "content": {
        "application/json": {
         "schema": {
@@ -476,6 +1106,16 @@
        }
       }
      },
+     "400": {
+      "description": "a bad name, id or query",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
      "401": {
       "description": "no or wrong credential",
       "content": {
@@ -486,8 +1126,68 @@
        }
       }
      },
+     "404": {
+      "description": "no such route, or no such job",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "405": {
+      "description": "another method",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
      "429": {
       "description": "too many bad tokens",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "500": {
+      "description": "the console could not answer",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "502": {
+      "description": "the engine's read failed or was not JSON",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "503": {
+      "description": "too many connections at once",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "504": {
+      "description": "the engine did not answer in time",
       "content": {
        "application/json": {
         "schema": {
@@ -520,6 +1220,16 @@
        }
       }
      },
+     "400": {
+      "description": "a bad name, id or query",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
      "401": {
       "description": "no or wrong credential",
       "content": {
@@ -530,8 +1240,68 @@
        }
       }
      },
+     "404": {
+      "description": "no such route, or no such job",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "405": {
+      "description": "another method",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
      "429": {
       "description": "too many bad tokens",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "500": {
+      "description": "the console could not answer",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "502": {
+      "description": "the engine's read failed or was not JSON",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "503": {
+      "description": "too many connections at once",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "504": {
+      "description": "the engine did not answer in time",
       "content": {
        "application/json": {
         "schema": {
@@ -561,6 +1331,16 @@
        }
       }
      },
+     "400": {
+      "description": "a bad name, id or query",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
      "401": {
       "description": "no or wrong credential",
       "content": {
@@ -571,8 +1351,68 @@
        }
       }
      },
+     "404": {
+      "description": "no such route, or no such job",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "405": {
+      "description": "another method",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
      "429": {
       "description": "too many bad tokens",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "500": {
+      "description": "the console could not answer",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "502": {
+      "description": "the engine's read failed or was not JSON",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "503": {
+      "description": "too many connections at once",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "504": {
+      "description": "the engine did not answer in time",
       "content": {
        "application/json": {
         "schema": {
@@ -742,6 +1582,16 @@
         }
        }
       }
+     },
+     "501": {
+      "description": "before #87: mutations are not built yet (the verb exists; nothing ran)",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
      }
     }
    }
@@ -817,7 +1667,7 @@
        "properties": {
         "name": {
          "type": "string",
-         "pattern": "^[a-z][a-z0-9-]{1,19}$"
+         "pattern": "^(?!(?:lh|cp|n1|n2)$)[a-z][a-z0-9-]{1,19}$"
         },
         "end": {
          "type": "integer"
@@ -836,7 +1686,7 @@
     "properties": {
      "name": {
       "type": "string",
-      "pattern": "^[a-z][a-z0-9-]{1,19}$"
+      "pattern": "^(?!(?:lh|cp|n1|n2)$)[a-z][a-z0-9-]{1,19}$"
      },
      "position": {
       "type": "integer"
@@ -878,7 +1728,7 @@
     "properties": {
      "name": {
       "type": "string",
-      "pattern": "^[a-z][a-z0-9-]{1,19}$"
+      "pattern": "^(?!(?:lh|cp|n1|n2)$)[a-z][a-z0-9-]{1,19}$"
      },
      "start": {
       "type": "integer"
@@ -894,6 +1744,9 @@
        "public",
        "friends"
       ]
+     },
+     "identity": {
+      "type": "string"
      }
     }
    },
@@ -902,7 +1755,7 @@
     "properties": {
      "name": {
       "type": "string",
-      "pattern": "^[a-z][a-z0-9-]{1,19}$"
+      "pattern": "^(?!(?:lh|cp|n1|n2)$)[a-z][a-z0-9-]{1,19}$"
      },
      "ready": {
       "enum": [
@@ -924,7 +1777,7 @@
     "properties": {
      "name": {
       "type": "string",
-      "pattern": "^[a-z][a-z0-9-]{1,19}$"
+      "pattern": "^(?!(?:lh|cp|n1|n2)$)[a-z][a-z0-9-]{1,19}$"
      },
      "state": {
       "enum": [
@@ -946,11 +1799,11 @@
     "properties": {
      "player": {
       "type": "string",
-      "pattern": "^[a-z][a-z0-9-]{1,19}$"
+      "pattern": "^(?!(?:lh|cp|n1|n2)$)[a-z][a-z0-9-]{1,19}$"
      },
      "peer": {
       "type": "string",
-      "pattern": "^[a-z][a-z0-9-]{1,19}$"
+      "pattern": "^(?!(?:lh|cp|n1|n2)$)[a-z][a-z0-9-]{1,19}$"
      },
      "status": {
       "type": "string"
@@ -1178,7 +2031,7 @@
    "params": {
     "name": {
      "type": "string",
-     "pattern": "^[a-z][a-z0-9-]{1,19}$"
+     "pattern": "^(?!(?:lh|cp|n1|n2)$)[a-z][a-z0-9-]{1,19}$"
     },
     "ip": {
      "type": "string",
@@ -1208,7 +2061,7 @@
    "params": {
     "name": {
      "type": "string",
-     "pattern": "^[a-z][a-z0-9-]{1,19}$"
+     "pattern": "^(?!(?:lh|cp|n1|n2)$)[a-z][a-z0-9-]{1,19}$"
     },
     "reason": {
      "type": "string",
@@ -1233,7 +2086,7 @@
    "params": {
     "name": {
      "type": "string",
-     "pattern": "^[a-z][a-z0-9-]{1,19}$"
+     "pattern": "^(?!(?:lh|cp|n1|n2)$)[a-z][a-z0-9-]{1,19}$"
     },
     "trust": {
      "enum": [
@@ -1377,7 +2230,7 @@
    "params": {
     "name": {
      "type": "string",
-     "pattern": "^[a-z][a-z0-9-]{1,19}$"
+     "pattern": "^(?!(?:lh|cp|n1|n2)$)[a-z][a-z0-9-]{1,19}$"
     }
    },
    "required": [
@@ -1398,7 +2251,7 @@
    "params": {
     "name": {
      "type": "string",
-     "pattern": "^[a-z][a-z0-9-]{1,19}$"
+     "pattern": "^(?!(?:lh|cp|n1|n2)$)[a-z][a-z0-9-]{1,19}$"
     }
    },
    "required": [
@@ -1419,7 +2272,7 @@
    "params": {
     "name": {
      "type": "string",
-     "pattern": "^[a-z][a-z0-9-]{1,19}$"
+     "pattern": "^(?!(?:lh|cp|n1|n2)$)[a-z][a-z0-9-]{1,19}$"
     }
    },
    "required": [
@@ -1454,11 +2307,11 @@
    "params": {
     "a": {
      "type": "string",
-     "pattern": "^[a-z][a-z0-9-]{1,19}$"
+     "pattern": "^(?!(?:lh|cp|n1|n2)$)[a-z][a-z0-9-]{1,19}$"
     },
     "b": {
      "type": "string",
-     "pattern": "^[a-z][a-z0-9-]{1,19}$"
+     "pattern": "^(?!(?:lh|cp|n1|n2)$)[a-z][a-z0-9-]{1,19}$"
     }
    },
    "required": [
@@ -1480,7 +2333,7 @@
    "params": {
     "name": {
      "type": "string",
-     "pattern": "^[a-z][a-z0-9-]{1,19}$"
+     "pattern": "^(?!(?:lh|cp|n1|n2)$)[a-z][a-z0-9-]{1,19}$"
     },
     "ttl": {
      "type": "string",
@@ -1532,7 +2385,7 @@
    "params": {
     "name": {
      "type": "string",
-     "pattern": "^[a-z][a-z0-9-]{1,19}$"
+     "pattern": "^(?!(?:lh|cp|n1|n2)$)[a-z][a-z0-9-]{1,19}$"
     }
    },
    "required": [
