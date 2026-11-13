@@ -1,6 +1,7 @@
 # The host console: one local API, the CLI and a web console as its clients
 
-Status: **RFC, decided in [#85](https://github.com/villadalmine/k8s-lan-party/issues/85)** (milestone v0.4.0). Nothing in this file is built yet;
+Status: **RFC of [#85](https://github.com/villadalmine/k8s-lan-party/issues/85)** (milestone v0.4.0): proposed in PR #94, decided when it
+merges and the decision is recorded in #85. Nothing in this file is built yet;
 the pieces are [#86](https://github.com/villadalmine/k8s-lan-party/issues/86) (the daemon and its reads),
 [#87](https://github.com/villadalmine/k8s-lan-party/issues/87) (mutations, confirmation, jobs, audit),
 [#88](https://github.com/villadalmine/k8s-lan-party/issues/88) (the CLI as a client),
@@ -30,8 +31,12 @@ the web console is the second; the bot will be the third. The API adds no behavi
   stays the only thing on the internet, and it still holds no credential.
 - **Not a Kubernetes dashboard.** It shows the game (queue, leases, players, parties, events), not cluster objects, and it holds no kubeconfig
   of its own: only the engine calls `kubectl`, as it does today.
-- **Not in the safety path.** The tick timer keeps calling the engine directly, so lease expiry never depends on the daemon; `panic` from the
-  CLI falls back to the engine when the API does not answer.
+- **Not in the safety path.** The tick timer keeps calling the engine directly, so lease expiry never depends on the daemon; `mesh host
+  panic` from the CLI **always** runs the engine directly, never through the API; and through the API `panic` never waits behind another
+  job (below, "Jobs, locks and timeouts").
+- **One environment.** Once the CLI forwards to the daemon (#88), the engine runs with the daemon's environment (its systemd unit:
+  `POOL_CONFIG`, `TOKEN_TTL`, `REVOKE_WAIT`, `LH_RSH`, `ADMISSION_NOTIFY_*`), not the operator's shell's: the client sends argv only. A
+  variable set in the shell for one command then needs `EMESH_DIRECT=1` on that command; #88 lists the variables in the unit.
 - **The CA never moves.** The persistent CA key stays in `.state/ca/`, and no request from the web (role `console`) can make it sign.
 
 ![The host console: clients, the API, the engine and the state](diagrams/console.svg)
@@ -43,18 +48,29 @@ registry verbs through the engine and reads the state directly; the timer never 
 
 | Role | How a client gets it | Can run | Never |
 | :--- | :--- | :--- | :--- |
-| `local` | the unix socket `$STATE/console/api.sock`, in a 0700 directory, and the peer's uid (`SO_PEERCRED`) equal to the daemon's | the whole registry | what is not in the registry (below) |
+| `local` | the unix socket `$STATE/console/api.sock` (or `EMESH_CONSOLE_SOCK`), in a 0700 directory, and the peer's uid (`SO_PEERCRED`) equal to the daemon's | the whole registry | what is not in the registry (below) |
 | `console` | `127.0.0.1:8090` (or `[::1]`), `Authorization: Bearer <token>` | the registry minus the verbs marked local only | `approve --trust friends`, `invite`, `bundle`, `refresh` (the persistent CA, a private key, a running machine's config); init, down, lighthouse, page server, participants |
 
 The chat bot of #50 will be a `console` client with a token of its own; whether it gets a narrower role is decided there.
 
+**The socket.** A unix socket path has at most 107 bytes. With `EMESH_STATE` deep in a home directory `$STATE/console/api.sock` can be
+longer: the daemon then refuses to start (exit 2) and says to set `EMESH_CONSOLE_SOCK` (for example under `$XDG_RUNTIME_DIR`, which is 0700
+and the user's own); the CLI reads the same variable.
+
 **The web listener.** `mesh host console --web 127.0.0.1:8090`. The address must be a loopback address (`127.0.0.0/8` or `::1`); `0.0.0.0`,
 `::`, the Nebula IP, a LAN address or a name that resolves to one of them are refused at start (exit 2). The bearer token is 32 random bytes
 (base64url); the daemon keeps only its SHA-256 in `$STATE/console/web.token.sha256` (0600) and compares with `hmac.compare_digest`.
-`mesh host console url` makes a new token (the old one dies) and prints `http://127.0.0.1:8090/#t=<token>`: the token is in the fragment, so
-it never reaches a server log or a `Referer`; the page moves it into memory and removes it from the address bar. `mesh host console
-rotate-token` kills it without making a new link. 10 wrong tokens in 10 minutes give 429 to everyone on the web listener for 10 minutes (the
-socket is not affected, so the host is never locked out).
+
+The token's life: `mesh host console url` makes a new token (the old one dies at once) and prints it **once**, in a link
+`http://127.0.0.1:8090/#t=<token>`. "One-time" means the link: the token itself is a bearer token, valid until the next `url`,
+`rotate-token` or a restart of the daemon (a restart forgets nothing on disk but the daemon can no longer print it, so a new `url` is needed
+anyway). The fragment never reaches a server log or a `Referer`; the page moves the token into `sessionStorage` (a reload of the tab keeps
+working, closing the tab forgets it) and removes it from the address bar. `mesh host console rotate-token` kills it without a new link. The
+token never reaches the engine: not in its argv, not in its environment.
+
+Bad tokens: only a **wrong** token counts (a request with no `Authorization` header is a plain 401 and counts nothing, so a page that merely
+points at the loopback cannot lock the operator out). 10 wrong tokens in 10 minutes give 429 on the web listener for 10 minutes, the right
+token too; the socket is not affected, so `mesh host console rotate-token` always works.
 
 **From another machine** (the recipe, with a screenshot, lands with #89):
 
@@ -83,7 +99,7 @@ simulation of a player's machine, not host actions.
 | `host request <name>` | mutates | low | `request` | none | local, console |
 | `host reject <name>` | mutates | low | `reject` | none | local, console |
 | `host approve [<name>] --trust public` | mutates, signs with the pool CA | high: a stranger joins | `approve` | click | local, console |
-| `host approve ... --trust friends` | mutates, signs with the **persistent CA** | high | `approve` with `trust: friends` | click | local |
+| `host approve ... --trust friends` | mutates, signs with the **persistent CA** | high | `approve` with `trust: friends` (`x-actions`: `arg_roles`) | click | local |
 | `host auto --once` | mutates (the tick) | low: what the timer does every minute | `tick` | none | local, console |
 | `host auto on` | mutates | high: approvals without a human | `auto-on` | click | local, console |
 | `host auto off` | mutates | none: closing is always safe | `auto-off` | none | local, console |
@@ -104,6 +120,8 @@ simulation of a player's machine, not host actions.
 | `host init` | creates the CA, the lighthouse, the control plane | | **never**: the daemon lives in the state it creates | | |
 | `host down` | removes everything, the state too | | **never**: it would delete the daemon's own socket and audit | | |
 | `play`, `party ... --as` | local simulation | | **never** | | |
+| `host console [--web ADDR]` (new, #86) | runs the daemon | | **never**: it is the daemon | | |
+| `host console url`, `host console rotate-token` (new, #89) | write the web token's hash | | **never**: only on the host, direct, so a stolen token cannot mint the next one | | |
 
 Also never through the API: `poc/lighthouse-vps.sh` and `poc/page/page-server.sh` (they hold ssh commands to other servers),
 `poc/participants.py sync` (the persistent CA and the signed participant files), `poc/issue.sh`, `poc/up.sh` and `poc/down.sh`.
@@ -142,7 +160,8 @@ A verb whose *confirm* is not `none` runs in two calls:
 
 1. `POST /api/v1/actions/panic` with `{"args": {}}` runs nothing. It answers 200 with a **plan**: what will happen, in sentences, computed
    from pure reads (`panic`: "auto off; slots 0; expel 2 leases: alice (ends 14:05), bob (ends 14:40); empty the outbox"), and a `confirm`
-   token: 32 random bytes, valid **60 seconds, once**, bound to the verb, the args, the caller (role and peer) and a hash of the plan.
+   token: 32 random bytes, valid **60 seconds, once**, bound to the verb, the args, the caller's credential (the socket's uid, or the hash of
+   the web token in use: behind the SSH tunnel every web peer is 127.0.0.1, so the address would prove nothing) and a hash of the plan.
 2. The same call with `"confirm": "<token>"` (and for `type:*` also `"typed": "<the name>"` or `"typed": "all"`) starts the job. If the state
    changed since the plan (another lease, a lease gone) the plan's hash no longer matches: 409, and a new plan is needed.
 
@@ -154,19 +173,32 @@ exactly as today: the person who typed the command already confirmed it.
 
 - A mutation is a **job**: the engine started with `start_new_session` (its own process group), stdout and stderr captured (64 KiB at most),
   an id of 16 hex characters, kept for one hour in memory.
-- **One mutation at a time** through the API (a global lock): a second one gets 409 `busy`, never a queue. Against the timer the engine
-  already protects itself (the ledger's lock in admission.py, tested with 12 concurrent writers and 8 concurrent ticks); the daemon adds
-  nothing there.
-- Each verb has a **timeout** (`timeout_seconds` in the registry: 30 s for a switch, up to 900 s for `reap-all`). When it passes the whole
-  process group is killed and the job ends with exit 124, like `timeout(1)`.
+- **One lock, in the engine, for everybody.** Today only part of the engine is locked: admission.py holds a lock on its ledger
+  (`state.json`, tested with 12 concurrent writers and 8 concurrent ticks) and the node guard has its own, but `revoke.sh` (the blocklist,
+  each machine's `config.yml`) and `party.py reconcile` run unlocked, so a kick from the API could race a tick. #88 adds a file lock that
+  `poc/mesh` itself takes (`flock` on `$STATE/mesh.lock`) around every mutating verb, whoever calls it: the timer, the CLI direct, or a job of
+  the daemon. The daemon has no lock of its own besides that one.
+- **Jobs wait their turn, like the CLI does.** The daemon runs one job at a time, in order; while one runs, up to 4 more wait in a queue
+  (a fifth gets 409 `busy`). A job that waits behaves like a direct command waiting for the lock, so the CLI through the API keeps the same
+  output and exit code (#88); the client shows `waiting for <verb> (job ...)` on stderr while it waits.
+- **`panic` never waits behind a job.** It skips the daemon's queue and starts at once; it then waits only for the engine's lock, which a
+  tick or a kick holds for one pass. #87 also makes `panic` commit its switch (auto off, panic on: `auto.json` and the event) **before** its
+  first kick: today admission.py writes the ledger and the switch only at the end of the locked pass, so a `panic` killed half way would have
+  expelled people and still leave panic off.
+- Each verb has a **timeout** (`timeout_seconds` in the registry, counted from the moment the job starts, not while it waits: 120 s for a
+  switch, up to 900 s for `reap-all`). When it passes the process group gets SIGTERM, then SIGKILL 30 s later, and the job ends with exit
+  124, like `timeout(1)`. The engine's lock is a `flock` and dies with the process. `panic` has no timeout.
 - Rate limit on mutations: 30 a minute per role.
 
 ## Audit
 
 Every mutation writes one JSON line to `$STATE/console/audit.jsonl` (0600): time, source (`socket`, `web` or `direct`), role, peer uid,
 verb, args (free text cut to 200 characters), whether it was confirmed, exit code, duration, job id. **Through the API or direct**: with #88,
-`poc/mesh` writes the line itself for a registry verb run with `EMESH_DIRECT` set by a person (the tick does not write one: its facts are
-already in `admission/events.jsonl`, once a minute would drown the rest). The file is bounded (1 MiB, one old copy kept).
+`poc/mesh` writes the line itself for every registry verb it runs directly (source `direct`), and the daemon writes it for its jobs (source
+`socket` or `web`; the engine it starts does not write a second one). One verb is left out by its name, not by who ran it: `auto --once`, the
+tick, whose facts are already in `admission/events.jsonl` (a line a minute would drown the rest); a tick run from the console is the
+registry verb `tick` and is audited. Every writer appends one line with a single `O_APPEND` write, under `$STATE/mesh.lock`, which is also
+where the file is rotated (1 MiB, one old copy kept), so two writers never interleave or lose a line.
 
 A mutation by the `console` role also fires the admission notify hook (`ADMISSION_NOTIFY_CMD`, docs/ADMISSION.md) with the event
 `console_action` and a summary (`kick alice: exit 0`), so the host learns about a click from the web on the same channel as the pool's
@@ -181,12 +213,13 @@ Job output, audit lines, notify summaries and every response pass through one re
 | the value of `LH_RSH` (the ssh command to the external lighthouse) | `poc/revoke.sh` prints it in its warning when the sync fails | `<LH_RSH>` |
 | a PEM block (`-----BEGIN ...-----` to `-----END ...-----`) | a key or certificate printed by a tool | `<pem>` |
 | a k3s join token (`K10...::...`), a ServiceAccount token (`eyJ...`) | a kubeconfig or an error | `<token>` |
-| the page puller's token, the console's own token | environment, error messages | `<token>` |
+| the page puller's token (the daemon reads the file `$STATE/page/puller.token` at start and redacts its value) | environment, error messages | `<token>` |
 | a claim code of the page | puller output | `<code>` |
 | the state directory and any home directory | paths in messages | `<state>`, `~` (the same rule as `poc/page/whatsnew/showcase.py`) |
 
 Identities (a visitor's IP) are not redacted: the host sees them in `mesh host waitlist` today, and the console is the host. The notify hook
 keeps its own rule (no identity unless `ADMISSION_NOTIFY_IP=1`). #87 has a leak test that plants each of these in a fake engine's output.
+The console's own web token is not in this list because it never reaches the engine (above); the daemon keeps only its hash.
 
 ## Threats and their tests
 
@@ -200,23 +233,26 @@ issue that builds each test is in brackets.
 | 2 | another local user on the host uses the socket | 0700 directory, and the peer's uid (`SO_PEERCRED`) must be the daemon's, else the connection is closed | C02 [#86] |
 | 3 | DNS rebinding from the operator's browser (a site that resolves to 127.0.0.1) | `Host` must be `127.0.0.1:<port>`, `[::1]:<port>` or `localhost:<port>`; an `Origin`, when sent, must be the same; else 403 | C03 [#89] |
 | 4 | CSRF from another site in the same browser | a bearer header, never a cookie; JSON bodies only (a form cannot send them); no CORS headers, `OPTIONS` 405 | C04 [#89] |
-| 5 | the web token guessed, stolen or replayed | 256 bits; only its SHA-256 on disk; compared in constant time; in the link's fragment (no log, no `Referer`), then out of the address bar; `rotate-token`; 10 bad tokens: 429 for 10 minutes | C05 [#89] |
+| 5 | the web token guessed, stolen or replayed | 256 bits; only its SHA-256 on disk; compared in constant time; in the link's fragment (no log, no `Referer`), then out of the address bar; `rotate-token` (on the host only); 10 wrong tokens: 429 for 10 minutes, a missing one counts nothing | C05 [#89] |
 | 6 | XSS in the console through a player's name, a note, an event or job output | names are `[a-z][a-z0-9-]`, notes have no control characters; the page uses `textContent` only, one script of its own, page.py's CSP (`default-src 'none'`, no inline script, `frame-ancestors 'none'`) | C06 [#89] |
 | 7 | command injection through a verb's arguments | the registry has typed parameters; names match the engine's rule; the engine is an argument list, never a shell; hostile values (`;`, `$()`, backticks, newlines, `../`, `--flag`) refused before the engine and checked again by it; a mutation test (the call made with `shell=True`) fails the suite | C07 [#87] |
 | 8 | the web reaches the persistent CA or a private key | the role is checked on the server for every call: `console` cannot run `approve --trust friends`, `invite`, `bundle` or `refresh`, nor anything outside the registry | C08 [#87] |
 | 9 | an accidental or forced destructive click | two phases: a plan first, then a token bound to verb, args, caller and plan; 60 s, single use; the name typed for kick, revoke and reap | C09 [#87] |
 | 10 | a confirm token replayed, or used for something else | single use; bound to verb, args and caller; a different plan is 409 | C10 [#87] |
-| 11 | two mutations race | one global lock (409 busy); the engine's own ledger lock against the timer | C11 [#87] |
-| 12 | a hung engine call holds the lock forever | a timeout per verb; the process group is killed, exit 124, the lock is freed | C12 [#87] |
+| 11 | two mutations race (the API, the CLI direct and the timer) | one `flock` taken by `poc/mesh` around every mutating verb, whoever calls it; the daemon runs one job at a time | C11 [#87, #88] |
+| 12 | a hung engine call holds the lock forever | a timeout per verb from the job's start; SIGTERM then SIGKILL to the process group, exit 124; the `flock` dies with the process | C12 [#87] |
+| 12b | panic is slowed or lost: queued behind a long job, or killed half way | `panic` skips the daemon's queue and has no timeout; the CLI's `panic` is always direct; `panic` commits its switch before its first kick | C12b [#87, #88] |
 | 13 | a secret leaks through output, audit, notify or a response | the redaction step (above) on every path out; a leak test plants each secret | C13 [#86, #87] |
 | 14 | a read changes the game (a token burned, a party reconciled) | pure-read engine modes; a recording fake engine fails the test if a GET writes a file or runs a mutating `kubectl` | C14 [#86] |
-| 15 | the daemon is down when it matters | the timer calls the engine directly (expiry never needs the daemon); `mesh host panic` falls back to the engine when the API does not answer; the CLI works without the daemon | C15 [#88], K02: the timer expires a lease with the daemon stopped [#88] |
+| 15 | the daemon is down or busy when it matters | the timer calls the engine directly (expiry never needs the daemon); `mesh host panic` is always direct; the CLI works without the daemon (no socket: direct) | C15 [#88], K02: the timer expires a lease with the daemon stopped [#88] |
 | 16 | denial of service of the daemon | page.py's limits (body size, connections, read timeouts); 30 mutations a minute; the socket keeps working when the web listener is rate limited | C16 [#86] |
 | 17 | odd inputs | random bodies, values and paths against every route: no 5xx, the daemon keeps answering | C17 [#86, #87] |
 
 **What stays open (honest gaps).** Whoever has the operator's laptop with an open tunnel and the token has the `console` role until the token
 is rotated: it can kick, reap and panic, not sign. Anyone who is the host's user can edit `audit.jsonl`: it records, it does not prove. The
-console is as safe as the host's SSH; it adds no second factor.
+console is as safe as the host's SSH; it adds no second factor. The daemon runs as the host's user, the one that can read the CA key in
+`.state/ca/`: a bug in the daemon that let a request read a file would expose it. That is why the daemon is small, standard library only,
+reads only the files named here, and runs nothing outside the registry; the CA key is not one of the files it reads.
 
 ## Decisions (recorded in #85)
 

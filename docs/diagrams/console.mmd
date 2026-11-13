@@ -24,4 +24,4 @@ flowchart LR
   tick --> eng
   eng --> state
   eng --> kc
-  cli -.->|"socket gone, or panic when the API does not answer"| eng
+  cli -.->|"no socket, EMESH_DIRECT=1, or panic (always direct)"| eng

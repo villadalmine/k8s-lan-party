@@ -12,13 +12,15 @@
   }
  ],
  "security": [
-  {
-   "peer": []
-  },
+  {},
   {
    "bearer": []
   }
  ],
+ "x-transport": {
+  "local": "a unix socket, $STATE/console/api.sock or EMESH_CONSOLE_SOCK; no credential: the peer's uid (SO_PEERCRED) must be the daemon's (OpenAPI has no scheme for it)",
+  "console": "127.0.0.1 or ::1 only, Authorization: Bearer <token>"
+ },
  "paths": {
   "/api/v1/health": {
    "get": {
@@ -782,24 +784,10 @@
    },
    "Status": {
     "type": "object",
+    "description": "admission.py status --json without its requests list (GET /requests has them), plus last_tick read from admission/last-tick",
     "properties": {
-     "slots_total": {
+     "now": {
       "type": "integer"
-     },
-     "slots_used": {
-      "type": "integer"
-     },
-     "waiting": {
-      "type": "integer"
-     },
-     "eligible_now": {
-      "type": "integer"
-     },
-     "next_end": {
-      "type": [
-       "integer",
-       "null"
-      ]
      },
      "auto": {
       "type": "boolean"
@@ -807,11 +795,39 @@
      "panic": {
       "type": "boolean"
      },
+     "slots_total": {
+      "type": "integer"
+     },
+     "slots_used": {
+      "type": "integer"
+     },
+     "lease_seconds": {
+      "type": "integer"
+     },
+     "waiting": {
+      "type": "integer"
+     },
+     "eligible": {
+      "type": "integer"
+     },
+     "leases": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "properties": {
+        "name": {
+         "type": "string",
+         "pattern": "^[a-z][a-z0-9-]{1,19}$"
+        },
+        "end": {
+         "type": "integer"
+        }
+       }
+      }
+     },
      "last_tick": {
-      "type": [
-       "integer",
-       "null"
-      ]
+      "type": "integer",
+      "description": "0 = never"
      }
     }
    },
@@ -893,8 +909,9 @@
        "True",
        "False",
        "Unknown",
-       "no"
-      ]
+       "absent"
+      ],
+      "description": "the Node's Ready condition; absent = no Node of that name (the CLI prints no)"
      },
      "cert_expires": {
       "type": "string",
@@ -1044,7 +1061,14 @@
       ]
      },
      "timeout_seconds": {
-      "type": "integer"
+      "type": [
+       "integer",
+       "null"
+      ],
+      "description": "null: no timeout (panic)"
+     },
+     "arg_roles": {
+      "type": "object"
      }
     }
    },
@@ -1144,12 +1168,6 @@
     "type": "http",
     "scheme": "bearer",
     "description": "role console: 32 random bytes, base64url; `mesh host console url` prints it in a link fragment"
-   },
-   "peer": {
-    "type": "apiKey",
-    "in": "header",
-    "name": "X-Unused",
-    "description": "role local: the unix socket, the peer's uid (SO_PEERCRED) must be the daemon's; no header"
    }
   }
  },
@@ -1164,7 +1182,8 @@
     },
     "ip": {
      "type": "string",
-     "maxLength": 45
+     "maxLength": 45,
+     "pattern": "^[0-9A-Fa-f.:]+$"
     },
     "note": {
      "type": "string",
@@ -1179,6 +1198,7 @@
     "local",
     "console"
    ],
+   "arg_roles": {},
    "timeout_seconds": 60,
    "summary": "put someone on the waiting list"
   },
@@ -1203,6 +1223,7 @@
     "local",
     "console"
    ],
+   "arg_roles": {},
    "timeout_seconds": 60,
    "summary": "take a request off the list"
   },
@@ -1228,6 +1249,13 @@
     "local",
     "console"
    ],
+   "arg_roles": {
+    "trust": {
+     "friends": [
+      "local"
+     ]
+    }
+   },
    "timeout_seconds": 300,
    "summary": "approve the named request or the first eligible one; trust friends (the persistent CA) is local only"
   },
@@ -1241,6 +1269,7 @@
     "local",
     "console"
    ],
+   "arg_roles": {},
    "timeout_seconds": 600,
    "summary": "one tick now, the same as the timer's"
   },
@@ -1254,7 +1283,8 @@
     "local",
     "console"
    ],
-   "timeout_seconds": 30,
+   "arg_roles": {},
+   "timeout_seconds": 120,
    "summary": "open automatic admission"
   },
   {
@@ -1267,7 +1297,8 @@
     "local",
     "console"
    ],
-   "timeout_seconds": 30,
+   "arg_roles": {},
+   "timeout_seconds": 120,
    "summary": "stop automatic approvals (expiry keeps running)"
   },
   {
@@ -1280,7 +1311,8 @@
     "local",
     "console"
    ],
-   "timeout_seconds": 600,
+   "arg_roles": {},
+   "timeout_seconds": null,
    "summary": "auto off, slots 0, every active lease expelled"
   },
   {
@@ -1293,7 +1325,8 @@
     "local",
     "console"
    ],
-   "timeout_seconds": 30,
+   "arg_roles": {},
+   "timeout_seconds": 120,
    "summary": "reopen admission (auto stays off)"
   },
   {
@@ -1306,6 +1339,7 @@
     "local",
     "console"
    ],
+   "arg_roles": {},
    "timeout_seconds": 120,
    "summary": "burn the join token of every registered player, refresh the node guard"
   },
@@ -1319,6 +1353,7 @@
     "local",
     "console"
    ],
+   "arg_roles": {},
    "timeout_seconds": 600,
    "summary": "expel every lease that ended"
   },
@@ -1332,6 +1367,7 @@
     "local",
     "console"
    ],
+   "arg_roles": {},
    "timeout_seconds": 900,
    "summary": "end every lease now"
   },
@@ -1352,6 +1388,7 @@
     "local",
     "console"
    ],
+   "arg_roles": {},
    "timeout_seconds": 300,
    "summary": "end this lease now"
   },
@@ -1372,6 +1409,7 @@
     "local",
     "console"
    ],
+   "arg_roles": {},
    "timeout_seconds": 300,
    "summary": "token, cordon, drain, revoke, machine, namespace"
   },
@@ -1392,6 +1430,7 @@
     "local",
     "console"
    ],
+   "arg_roles": {},
    "timeout_seconds": 300,
    "summary": "blocklist the certificate everywhere, delete the node"
   },
@@ -1405,6 +1444,7 @@
     "local",
     "console"
    ],
+   "arg_roles": {},
    "timeout_seconds": 120,
    "summary": "open the parties both sides agreed to, close the rest"
   },
@@ -1430,6 +1470,7 @@
     "local",
     "console"
    ],
+   "arg_roles": {},
    "timeout_seconds": 120,
    "summary": "end a party: both consents and its NetworkPolicies removed"
   },
@@ -1461,6 +1502,7 @@
    "roles": [
     "local"
    ],
+   "arg_roles": {},
    "timeout_seconds": 300,
    "summary": "a bundle for one player, outside the queue"
   },
@@ -1480,6 +1522,7 @@
    "roles": [
     "local"
    ],
+   "arg_roles": {},
    "timeout_seconds": 120,
    "summary": "rewrite and apply a machine's Nebula config"
   },
@@ -1499,6 +1542,7 @@
    "roles": [
     "local"
    ],
+   "arg_roles": {},
    "timeout_seconds": 60,
    "summary": "pack the approved bundle into the outbox again"
   }
