@@ -149,6 +149,8 @@ class RegistryTest(unittest.TestCase):
         self.assertTrue(all(v["why"] for v in shown.values() if not v["allowed"]) and not any(v["why"] for v in shown.values() if v["allowed"]))
         local = {v["verb"]: v["allowed"] for v in actions.verbs("local")}
         self.assertEqual({k for k, ok in local.items() if not ok}, {"init", "down"})
+        self.assertEqual([c["value"] for v in actions.verbs("console") for c in v["closed_values"]], ["friends"])
+        self.assertEqual([c for v in actions.verbs("local") for c in v["closed_values"]], [])
         self.assertEqual(set(shown) - {"init", "down"}, set(actions.REGISTRY))
 
 

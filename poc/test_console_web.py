@@ -378,7 +378,14 @@ class WebTest(DaemonCase):
             self.assertIn(status, (403, 404), verb)   # 403 not for this role; 404 not a verb of the registry (init, down)
         self.assertEqual(self.mutations(), [])
         js = (STATIC / "console.js").read_text()
-        self.assertIn("b.disabled = true;\n    b.title = v.why;", js)   # the page never gives a host-only verb a click handler
+        host_only = js[js.index("async function loadHostOnly"):js.index("function openAction")]
+        self.assertIn("b.disabled = true;", host_only)
+        self.assertNotIn("addEventListener", host_only)   # the page never gives a host-only verb a click handler
+        approve = next(v for v in verbs if v["verb"] == "approve")
+        self.assertEqual(approve["closed_values"], [{"param": "trust", "value": "friends", "why": approve["closed_values"][0]["why"],
+                                                     "command": "mesh host approve [<name>] --trust friends"}])
+        self.assertEqual(self.j("POST", "/api/v1/actions/approve", {"args": {"trust": "friends"}})[0], 403)
+        self.assertNotIn("asked[", js)   # a Map: a player named constructor is not an inherited property
 
     def test_the_link_token_leaves_the_address_bar(self):
         js = (STATIC / "console.js").read_text()

@@ -207,10 +207,19 @@ def command(a: Action) -> str:
     return re.sub(r"\{([a-z]+)\}", r"<\1>", a.engine)
 
 
+def closed(a: Action, role: str) -> list[dict]:
+    """The argument values of an allowed verb that this role may still not send (approve --trust friends for the web)."""
+    if role not in a.roles:
+        return []
+    return [{"param": k, "value": v, "command": re.sub(r"<" + k + r">", v, command(a)), "why": WHY_LOCAL}
+            for k, m in a.arg_roles.items() for v, roles in m.items() if role not in roles]
+
+
 def verbs(role: str) -> list[dict]:
     """GET /api/v1/verbs: every verb of the host, with who may run it. `allowed` is for the caller's role; a client draws what is not
     allowed as disabled, with `why` and the `command` to type on the host. It is a description: the check is argv()'s, at each POST."""
     out = [{"verb": a.verb, "summary": a.summary, "command": command(a), "roles": list(a.roles), "allowed": role in a.roles,
-            "why": None if role in a.roles else WHY_LOCAL} for a in REGISTRY.values()]
-    out += [{"verb": verb, "summary": summary, "command": cmd, "roles": [], "allowed": False, "why": why} for verb, cmd, summary, why in HOST_ONLY]
+            "why": None if role in a.roles else WHY_LOCAL, "closed_values": closed(a, role)} for a in REGISTRY.values()]
+    out += [{"verb": verb, "summary": summary, "command": cmd, "roles": [], "allowed": False, "why": why, "closed_values": []}
+            for verb, cmd, summary, why in HOST_ONLY]
     return out

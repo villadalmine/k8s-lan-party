@@ -5,7 +5,7 @@
 
 const $ = (id) => document.getElementById(id);
 const POLL_MS = 5000, JOB_MS = 1000;
-const asked = {};   // player -> the last activity answer
+const asked = new Map();   // player -> the last activity answer
 let view = "status", timer = null, current = null;   // current: {verb, action, args, plan}
 
 function token() {
@@ -103,17 +103,18 @@ function players(rows) {   // the list, and per player a button that asks the cl
   t.querySelector("tr").appendChild(el("th", "activity"));
   [...t.querySelectorAll("tr")].slice(1).forEach((tr, i) => {
     const td = el("td"), b = el("button", "check"), name = (rows[i] || {}).name;
+    tr.appendChild(td);
+    if (typeof name !== "string") return;
     b.type = "button";
     b.addEventListener("click", async () => {
       b.disabled = true;
       const r = await api("GET", "players/" + encodeURIComponent(name) + "/activity");
-      asked[name] = r.status === 200 ? r.data.state + (r.data.why ? ": " + r.data.why : "") : (r.data && r.data.message) || "HTTP " + r.status;
-      td.replaceChildren(el("span", asked[name] + " "), b);
+      asked.set(name, r.status === 200 ? r.data.state + (r.data.why ? ": " + r.data.why : "") : (r.data && r.data.message) || "HTTP " + r.status);
+      td.replaceChildren(el("span", asked.get(name) + " "), b);
       b.disabled = false;
     });
-    if (asked[name]) td.appendChild(el("span", asked[name] + " "));   // the view is drawn again every few seconds: keep the last answer
+    if (asked.has(name)) td.appendChild(el("span", asked.get(name) + " "));   // the view is drawn again every few seconds: keep the last answer
     td.appendChild(b);
-    tr.appendChild(td);
   });
   return wrap;
 }
@@ -150,7 +151,11 @@ async function loadHostOnly() {   // what this role may not run: on the page, ne
   const { status, data } = await api("GET", "verbs");
   const box = $("hostverbs");
   box.replaceChildren();
-  const rows = status === 200 && Array.isArray(data) ? data.filter((v) => !v.allowed) : [];
+  const rows = [];
+  (status === 200 && Array.isArray(data) ? data : []).forEach((v) => {
+    if (!v.allowed) rows.push(v);
+    (v.closed_values || []).forEach((c) => rows.push({ verb: v.verb + " " + c.param + " " + c.value, summary: v.summary, command: c.command, why: c.why }));
+  });
   $("hostonly").hidden = rows.length === 0;
   rows.forEach((v) => {
     const row = el("div", null, "hostverb"), b = el("button", v.verb), text = el("div");
