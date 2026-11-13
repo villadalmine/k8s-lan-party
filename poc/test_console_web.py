@@ -256,7 +256,8 @@ class WebTest(DaemonCase):
         import socket as sk
         import time
         import unittest.mock
-        with unittest.mock.patch.object(server, "REQUEST_READ_SECONDS", 1):
+        log = io.StringIO()
+        with unittest.mock.patch.object(server, "REQUEST_READ_SECONDS", 1), contextlib.redirect_stderr(log):
             drips = []
             for _ in range(server.MAX_CONNECTIONS):
                 c = sk.create_connection(("127.0.0.1", self.port), timeout=5)
@@ -273,6 +274,26 @@ class WebTest(DaemonCase):
                 return real(*a)
             with unittest.mock.patch.object(server.mutate, "plan", slow):
                 self.assertEqual(self.j("POST", "/api/v1/actions/kick", {"args": {"name": "ana"}})[0], 200)
+        self.assertNotIn("Traceback", log.getvalue())   # a hung-up client is one line in the journal, not a traceback each
+
+    def test_a_request_hung_up_after_its_body_starts_no_job(self):
+        """The deadline fires in the instant between the body's last byte and the handler's next step: no job behind the client's back."""
+        import time
+        import unittest.mock
+        real = server.PageHandler._body
+
+        def late(handler, limit):
+            out = real(handler, limit)
+            time.sleep(1.5)   # the deadline (1 s) fires here
+            return out
+        with unittest.mock.patch.object(server, "REQUEST_READ_SECONDS", 1), unittest.mock.patch.object(server.PageHandler, "_body", late):
+            with self.assertRaises((http.client.RemoteDisconnected, ConnectionError)):
+                self.http("POST", "/api/v1/actions/burn", {"args": {}})
+        end = time.monotonic() + 5   # long enough for a job that was submitted to run and leave its audit line
+        while time.monotonic() < end and not (self.state / "console" / "audit.jsonl").exists():
+            time.sleep(0.1)
+        self.assertEqual(self.mutations(), [])
+        self.assertFalse((self.state / "console" / "audit.jsonl").exists())
 
     def test_every_method_checks_the_host(self):
         for method in ("OPTIONS", "PUT", "DELETE", "PATCH"):
