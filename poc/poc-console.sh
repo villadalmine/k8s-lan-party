@@ -5,6 +5,8 @@
 # must never depend on the daemon does not: the tick runs direct (its nested calls too), a daemon killed with its socket left behind changes
 # nothing for the CLI, a lease still ends with the daemon stopped (K02), and `panic` is always direct. Needs a Linux host with Incus. PASS/FAIL
 # per step; identical across runs. ADM_LEASE (seconds, default 900): long enough for two VMs to join in ana's lease. KEEP=1 leaves the VMs up.
+# The daemon also serves the web console (#89) on the host's loopback, port WEB_PORT (default 18090): K01 checks that a player's machine
+# cannot reach it while the host can, with the token of `mesh host console url`.
 set -u
 export RUNTIME=incus MAX_VMS=4 CNI=flannel
 . "$(dirname "$0")/lib.sh"
@@ -22,6 +24,7 @@ SOCK="$STATE/console/api.sock"
 AUDIT="$STATE/console/audit.jsonl"
 ADM="$STATE/admission/state.json"
 CONSOLE_PID=""
+WEB_PORT="${WEB_PORT:-18090}"
 
 ready() { [ "$(k get node "$1" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null)" = True ]; }
 out_has() { local want="$1"; shift; local o; o=$("$@" 2>&1); echo "$o"; echo "$o" | grep -qF -- "$want"; }
@@ -33,7 +36,7 @@ s.sendall(b"GET /api/v1/health HTTP/1.0\r\nHost: localhost\r\n\r\n")
 sys.exit(0 if b'"ok": true' in s.recv(4096) else 1)
 PY
 }
-daemon_up() { "$MESH" host console >>"$LOG" 2>&1 & CONSOLE_PID=$!; wait_for 30 answers; }
+daemon_up() { "$MESH" host console --web "127.0.0.1:$WEB_PORT" >>"$LOG" 2>&1 & CONSOLE_PID=$!; wait_for 30 answers; }
 daemon_stop() { [ -z "$CONSOLE_PID" ] || { kill "$CONSOLE_PID" 2>/dev/null; wait "$CONSOLE_PID" 2>/dev/null; CONSOLE_PID=""; }; [ ! -S "$SOCK" ]; }
 lines() { [ -f "$AUDIT" ] && wc -l <"$AUDIT" || echo 0; }
 last_is() { # last_is <source> <verb> [confirmed]: the audit's last line
@@ -53,6 +56,14 @@ same_both_ways() { # `mesh host burn` through the daemon and with EMESH_DIRECT=1
   b=$(EMESH_DIRECT=1 "$MESH" host burn 2>&1); rb=$?
   echo "api: $ra $a | direct: $rb $b"
   [ "$a" = "$b" ] && [ "$ra" = "$rb" ] && [ "$ra" = 0 ] && tail -2 "$AUDIT" | grep -q '"source": "socket"' && last_is direct burn
+}
+web_local_only() { # the host reaches the page and, with the link's token, the API; ana's machine cannot connect to the host on that port
+  local link tok
+  link=$("$MESH" host console url --web "127.0.0.1:$WEB_PORT" 2>/dev/null); tok="${link##*#t=}"
+  curl -fsS -o /dev/null "http://127.0.0.1:$WEB_PORT/" &&
+    curl -fsS -H "Authorization: Bearer $tok" "http://127.0.0.1:$WEB_PORT/api/v1/health" | grep -q '"ok": true' &&
+    ! dx ana curl -sS -m 5 -o /dev/null "http://$UNDERLAY_NET.1:$WEB_PORT/" &&
+    echo "the host: page and API; ana -> $UNDERLAY_NET.1:$WEB_PORT: no connection"
 }
 kick_bob() { via_confirmed "" socket kick host kick bob && ! k get node bob && ! machine_running bob; }
 tick_direct() { # as typed in a shell (no EMESH_DIRECT) with the daemon up: the tick is not sent, and its nested burn and kicks neither
@@ -79,6 +90,7 @@ step K15 "burn through the daemon and direct: the same output and exit code" sam
 step K16 "ana joins with her bundle and is Ready" play_ready ana
 step K17 "approve bob through the daemon: bob, confirmed" via_confirmed "approved bob (public)" socket approve host approve
 step K18 "bob joins with his bundle and is Ready" play_ready bob
+step K01 "the web console: the host reaches it on the loopback, a player's machine cannot connect" web_local_only
 step K19 "kick bob through the daemon (the CLI types the name): node and machine gone, one audit line" kick_bob
 step K20 "the tick typed with the daemon up runs direct, its nested calls too: no audit line" tick_direct
 step K21 "the daemon is killed (SIGKILL) and leaves its socket behind, answering nothing" killed_leaves_socket
