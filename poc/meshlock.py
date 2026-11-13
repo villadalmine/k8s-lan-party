@@ -4,12 +4,15 @@ whoever calls it (the timer, the CLI direct, a job of the console daemon), taken
 
 The lock is held by a small holder process, not by a file descriptor the whole process tree inherits: a process that outlives the command
 (an ssh ControlPersist master started by `LH_RSH`, a daemonized helper) would otherwise keep the lock for hours. The holder takes the lock,
-writes the pid it serves to `mesh.lock.owner`, prints `locked`, and keeps the lock until that pid is gone (it polls every 0.1 s) or until it
-is killed itself: it runs in the caller's process group, so the console daemon's timeout (SIGKILL to the group) frees it too.
+writes the pid it serves and its own pid to `mesh.lock.owner`, prints `locked`, and keeps the lock until that pid is gone (it polls every
+0.1 s) or until it is killed itself: it runs in the caller's process group, so the console daemon's timeout (SIGKILL to the group) frees it too.
 
 A nested `mesh` (the engine calls `mesh` from inside `mesh`: a tick's kicks, approve's invite) sees `EMESH_LOCK_HELD=<pid>` and runs without
-locking, but only when the marker holds: the lock is held now (a non-blocking `flock` fails), the owner file names that pid, and that pid is
-one of the nested call's ancestors. A marker set by hand, or left in an environment, fails the check and the lock is taken as usual.
+locking, but only when the marker holds: the lock is held now (a non-blocking `flock` fails), the owner file names that pid and a holder
+that still runs, and that pid is one of the nested call's ancestors. A marker set by hand, or left in an environment, fails the check and
+the lock is taken as usual. The holder's pid is what makes the owner file trustworthy: a holder removes the file before it lets the lock
+go, and one that was killed leaves a file naming a dead holder; so a file that is not the current holder's, read in the moment between
+the next holder taking the lock and rewriting the file, is never trusted.
 
     meshlock.py hold <lockfile> <pid>     hold the lock for <pid> (prints "locked" once it is held)
     meshlock.py held <lockfile> <pid>     exit 0 when <pid> holds the lock and is an ancestor of this process, else 1
@@ -77,17 +80,19 @@ def take(lockfile: Path, pid: int) -> int:
     fd = os.open(lockfile, os.O_RDWR | os.O_CREAT, 0o600)
     fcntl.flock(fd, fcntl.LOCK_EX)
     tmp = owner_path(lockfile).with_suffix(f".{os.getpid()}")
-    tmp.write_text(f"{pid}\n")
+    tmp.write_text(f"{pid} {os.getpid()}\n")
     os.replace(tmp, owner_path(lockfile))
     return fd
 
 
 def held_by(lockfile: Path, pid: int, me: int | None = None) -> bool:
-    """True when the lock is held now, the owner file names `pid`, and `pid` is an ancestor of `me` (this process by default)."""
+    """True when the lock is held now, the owner file names `pid` and a holder that runs, and `pid` is an ancestor of `me` (this process
+    by default)."""
     try:
-        if int(owner_path(lockfile).read_text().strip()) != pid:
-            return False
+        served, holder = (int(w) for w in owner_path(lockfile).read_text().split())
     except (OSError, ValueError):
+        return False
+    if served != pid or not alive(holder):
         return False
     if pid not in ancestors(me if me is not None else os.getpid()):
         return False
@@ -107,10 +112,12 @@ def held_by(lockfile: Path, pid: int, me: int | None = None) -> bool:
 
 
 def hold(lockfile: Path, pid: int) -> int:
-    take(lockfile, pid)
+    fd = take(lockfile, pid)
     print("locked", flush=True)
     while alive(pid):
         time.sleep(POLL)
+    owner_path(lockfile).unlink(missing_ok=True)   # still under the lock: the next holder writes its own
+    os.close(fd)
     return 0
 
 

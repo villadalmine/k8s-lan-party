@@ -194,7 +194,9 @@ exactly as today: the person who typed the command already confirmed it.
   wait for its own parent forever. So the outermost `mesh` takes it, exports `EMESH_LOCK_HELD=<its pid>`, and every nested `mesh` sees the
   marker and runs without locking. The marker alone is not trusted (anyone can set a variable): a `mesh` that sees it checks that the lock
   really is held now (a non-blocking `flock` on `$STATE/mesh.lock` fails), that `$STATE/mesh.lock.owner` (written under the lock) names that
-  pid, and that the pid is one of its own ancestors; otherwise it takes the lock as usual.
+  pid and a holder process that still runs, and that the pid is one of its own ancestors; otherwise it takes the lock as usual. A holder
+  removes the owner file before it lets the lock go, and a killed one leaves a file naming a dead holder, so the file left by the last
+  holder is never trusted, not even in the moment between the next holder taking the lock and writing its own (a race CI caught).
   **Built (#88) with a holder process**, not with a descriptor the whole process tree inherits: any process that outlived the command (an
   ssh ControlPersist master started through `LH_RSH`, a daemonized helper) would have kept such a descriptor, and the lock, for hours.
   `poc/meshlock.py hold` takes the `flock`, prints `locked`, and keeps it while the `mesh` it serves runs (it polls every 0.1 s; a zombie
