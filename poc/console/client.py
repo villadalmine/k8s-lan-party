@@ -64,6 +64,9 @@ class MaybeRan(Exception):
     """A call that starts a job was sent, and no answer came back: the job may run. Never run it again behind its back."""
 
 
+SENDING = False   # set right before a call that starts a job: a Ctrl-C from then on may land after the daemon took it
+
+
 class LostJob(Exception):
     """The job started, and following it failed: it goes on in the daemon."""
 
@@ -113,6 +116,8 @@ def start(sock: str, verb: str, args: dict) -> tuple[int, dict]:
     body = {"args": args, "confirm": out["confirm"]}
     if out.get("type_to_confirm"):
         body["typed"] = out["type_to_confirm"]
+    global SENDING
+    SENDING = True
     try:
         return call(sock, "POST", f"actions/{verb}", body)
     except (OSError, http.client.HTTPException) as e:   # NotSent included: the plan was answered, so the daemon was there
@@ -121,6 +126,8 @@ def start(sock: str, verb: str, args: dict) -> tuple[int, dict]:
 
 def started(sock: str, verb: str, args: dict) -> tuple[int, dict]:
     """start() for a verb with no confirmation: its one POST starts the job."""
+    global SENDING
+    SENDING = True
     try:
         return call(sock, "POST", f"actions/{verb}", {"args": args})
     except NotSent:
@@ -153,11 +160,9 @@ def run(a) -> int:
         direct(a.mesh, words)
     verb, args = parsed
     job: dict = {}
-    sending = False
     try:
         for _ in range(PLAN_TRIES):
             try:
-                sending = True   # from here a Ctrl-C may land after the daemon took the job; once it answers, the job has an id
                 status, job = start(a.socket, verb, args)
             except NotSent:
                 if job:   # a call already reached the daemon: never run it a second time behind its back
@@ -176,7 +181,7 @@ def run(a) -> int:
     except KeyboardInterrupt:
         if job.get("id"):
             print(f"\nmesh: {verb} goes on in the console daemon (job {job['id']})", file=sys.stderr)
-        elif sending:
+        elif SENDING:   # never for a Ctrl-C during a plan: a plan queues nothing
             print(f"\nmesh: {verb} may already be in the console daemon's queue: look at <state>/console/audit.jsonl", file=sys.stderr)
         sys.stderr.flush()
         signal.signal(signal.SIGINT, signal.SIG_DFL)   # die by SIGINT, as the direct command would: a shell loop around it stops too
