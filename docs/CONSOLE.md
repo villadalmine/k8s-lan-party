@@ -86,14 +86,16 @@ again: a lost link needs a new `url`. The fragment never reaches a server log or
 rotate-token` kills it without a new link. Both commands run on the host only, directly, never through the API, so a stolen token cannot
 mint the next one. The token never reaches the engine: not in its argv, not in its environment.
 
-Host and Origin: the `Host` header must be `127.0.0.1:<port>`, `[::1]:<port>` or `localhost:<port>` (the port the daemon listens on), and
-an `Origin`, when the browser sends one, must be `http://` and one of those; anything else is 403, the page included, so a site that makes
+Host and Origin: the `Host` header must be the address the daemon listens on, `127.0.0.1`, `[::1]` or `localhost`, with its port, and an
+`Origin`, when the browser sends one, must be `http://` and one of those; anything else is 403, for every method, the page included, so a site that makes
 its name resolve to 127.0.0.1 (DNS rebinding) gets nothing. There are no CORS headers (`OPTIONS` is 405), no cookie, and the API reads
 JSON bodies only (415 for a form).
 
 Bad tokens: only a **wrong** token counts (a request with no `Authorization` header is a plain 401 and counts nothing, so a page that merely
 points at the loopback cannot lock the operator out). 10 wrong tokens in 10 minutes give 429 on the web listener's API for 10 minutes, the
-right token too (the page still loads and says so); the socket is not affected, so `mesh host console url` always works.
+right token too (the page still loads and says so). Anyone on the host can reach a loopback port, so the way out is immediate: a new token
+(`mesh host console url` or `rotate-token`, on the host) lifts the lockout and starts a new count. The socket is not affected, so those
+commands always work.
 
 **From another machine.** Nothing new is opened on the host: an SSH tunnel brings the loopback port to your machine. Use the **same port**
 on both ends, because the daemon checks the `Host` header against its own port.
@@ -333,8 +335,9 @@ issue that builds each test is in brackets.
 | 13 | a secret leaks through output, audit, notify or a response | the redaction step (above) on every path out; a leak test plants each secret | C13 [#86, #87] |
 | 14 | a read changes the game (a token burned, a party reconciled) | pure-read engine modes; a recording fake engine fails the test if a GET writes a file or runs a mutating `kubectl` | C14 [#86] |
 | 15 | the daemon is down or busy when it matters | the timer calls the engine directly (expiry never needs the daemon); `mesh host panic` is always direct; the CLI works without the daemon (no socket: direct) | C15 [#88]: `poc/test_console_cli.py` (no socket, a socket with no daemon: direct), K02: the timer expires a lease with the daemon stopped [#88] |
-| 16 | denial of service of the daemon | page.py's limits (body size, connections, read timeouts); 30 mutations a minute; the socket keeps working when the web listener is rate limited | C16 [#86] |
+| 16 | denial of service of the daemon | page.py's limits (body size, 16 connections, read timeouts) and a deadline for reading a whole request (20 s: a client that drips a byte at a time is hung up; the work after the request is read, such as a plan's reads, is not under it); 30 mutations a minute; the socket keeps working when the web listener is rate limited | C16 [#86], `a_slow_client_is_hung_up...` [#89] |
 | 17 | odd inputs | random bodies, values and paths against every route: no 5xx, the daemon keeps answering | C17 [#86, #87] |
+| 18 | another user on the host reaches the web port (a loopback TCP port has no peer uid, unlike the socket) | the token (256 bits) for anything but the page; 10 wrong tokens lock the web API, and `mesh host console url` (on the host, the operator's user) lifts it at once with a new token; the read deadline and the connection limit of row 16 | `a_new_link_lifts_the_lockout` [#89]; what stays open: such a user can keep the web console busy or locked (not the socket, not the CLI) |
 
 **What stays open (honest gaps).** Whoever has the operator's laptop with an open tunnel and the token has the `console` role until the token
 is rotated: it can kick, reap and panic, not sign. Anyone who is the host's user can edit `audit.jsonl`: it records, it does not prove. The
