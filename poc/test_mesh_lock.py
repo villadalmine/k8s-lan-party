@@ -110,7 +110,7 @@ class LockTest(unittest.TestCase):
         """Nobody holds the lock, and the owner file left behind names an ancestor of both callers: they still take turns."""
         self.state.mkdir(parents=True, exist_ok=True)
         (self.state / "mesh.lock").touch()
-        (self.state / "mesh.lock.owner").write_text(f"{os.getpid()} {os.getpid()}\n")   # even naming a live "holder"
+        (self.state / "mesh.lock.owner").write_text(f"{os.getpid()} 1\n")   # even naming a live "holder" (a reused pid)
         ps = [self.bash(self.critical(t), EMESH_LOCK_HELD=str(os.getpid())) for t in ("a", "b")]
         for p in ps:
             p.communicate(timeout=30)
@@ -132,6 +132,13 @@ class LockTest(unittest.TestCase):
         self.assertFalse(meshlock.held_by(lock, os.getpid()))
         meshlock.owner_path(lock).write_text(f"{os.getpid()} {os.getpid()}\n")   # the same file, its holder alive: trusted
         self.assertTrue(meshlock.held_by(lock, os.getpid()))
+        child = subprocess.Popen(["sleep", "30"])
+        self.addCleanup(child.wait)
+        self.addCleanup(child.kill)
+        meshlock.owner_path(lock).write_text(f"{os.getpid()} {child.pid}\n")   # a holder that is our child: trusted
+        self.assertTrue(meshlock.held_by(lock, os.getpid()))
+        meshlock.owner_path(lock).write_text(f"{os.getpid()} 1\n")   # alive, but not ours: a dead holder's pid reused
+        self.assertFalse(meshlock.held_by(lock, os.getpid()))
         meshlock.owner_path(lock).write_text(f"{os.getpid()}\n")   # the old format, or a file written by hand
         self.assertFalse(meshlock.held_by(lock, os.getpid()))
 

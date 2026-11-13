@@ -12,7 +12,8 @@ locking, but only when the marker holds: the lock is held now (a non-blocking `f
 that still runs, and that pid is one of the nested call's ancestors. A marker set by hand, or left in an environment, fails the check and
 the lock is taken as usual. The holder's pid is what makes the owner file trustworthy: a holder removes the file before it lets the lock
 go, and one that was killed leaves a file naming a dead holder; so a file that is not the current holder's, read in the moment between
-the next holder taking the lock and rewriting the file, is never trusted.
+the next holder taking the lock and rewriting the file, is never trusted. The holder must also belong to the pid it serves (be that
+process, as in admission.py, or its child, as in lib.sh), so a dead holder's pid taken by an unrelated process does not pass either.
 
     meshlock.py hold <lockfile> <pid>     hold the lock for <pid> (prints "locked" once it is held)
     meshlock.py held <lockfile> <pid>     exit 0 when <pid> holds the lock and is an ancestor of this process, else 1
@@ -92,8 +93,8 @@ def held_by(lockfile: Path, pid: int, me: int | None = None) -> bool:
         served, holder = (int(w) for w in owner_path(lockfile).read_text().split())
     except (OSError, ValueError):
         return False
-    if served != pid or not alive(holder):
-        return False
+    if served != pid or not alive(holder) or (holder != pid and parent_of(holder) != pid):
+        return False   # the holder is the served process itself (admission.py) or its child (lib.sh): a reused pid is neither
     if pid not in ancestors(me if me is not None else os.getpid()):
         return False
     try:
