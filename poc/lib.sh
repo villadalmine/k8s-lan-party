@@ -141,12 +141,14 @@ verb_class() {
 mesh_lock() { # the engine's lock, taken by the outermost `mesh` only: a holder process (poc/meshlock.py) keeps it until this shell ends.
   # A nested `mesh` trusts EMESH_LOCK_HELD only when that pid really holds the lock and is one of its ancestors.
   if [ -n "${EMESH_LOCK_HELD:-}" ] && python3 "$POC/meshlock.py" held "$STATE/mesh.lock" "$EMESH_LOCK_HELD"; then return 0; fi
-  local ok=""
+  local ok="" me="${BASHPID:-$$}"
+  # the holder serves the shell that forks it ($BASHPID: in a subshell, the subshell, which is then the holder's parent and the nested
+  # calls' ancestor; bash 3.2 has no BASHPID, so there mesh_lock must run in the top-level shell, as poc/mesh does)
   # the holder's stderr is not ours: a caller reading our output to its end would otherwise wait for the holder too
-  exec 7< <(exec python3 "$POC/meshlock.py" hold "$STATE/mesh.lock" "$$" 2>/dev/null)
+  exec 7< <(exec python3 "$POC/meshlock.py" hold "$STATE/mesh.lock" "$me" 2>/dev/null)
   read -r ok <&7 || true
   [ "$ok" = locked ] || { echo "the engine lock $STATE/mesh.lock could not be taken" >&2; exit 1; }
-  export EMESH_LOCK_HELD=$$
+  export EMESH_LOCK_HELD=$me
 }
 with_guard_lock() { # with_guard_lock <command...>: one writer of the node guard at a time (a hand invite or revoke against the reap timer)
   local l="$STATE/guard.lock" i=0 rc pid
