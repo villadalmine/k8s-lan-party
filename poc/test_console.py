@@ -335,14 +335,24 @@ class DaemonTest(unittest.TestCase):
             c.connect(str(self.sock))
             idle.append(c)
             self.addCleanup(c.close)
-        import time
-        time.sleep(0.3)
-        status = self.call("GET", "/api/v1/health")[0]
-        self.assertEqual(status, 503)
+        self.assertEqual(self.until(503), 503)   # the accept loop hands both idle clients a slot, then refuses the third
         for c in idle:
             c.close()
-        time.sleep(0.3)
-        self.assertEqual(self.get("health")[0], 200)
+        self.assertEqual(self.until(200), 200)   # their handlers see EOF and free the slots
+
+    def until(self, want: int, seconds: float = 10) -> int:
+        """Poll /health until it answers `want` (no fixed sleep: a loaded CI runner is slow), or return the last answer."""
+        import time
+        end, status = time.monotonic() + seconds, None
+        while time.monotonic() < end:
+            try:
+                status = self.call("GET", "/api/v1/health")[0]
+            except OSError:
+                status = None
+            if status == want:
+                break
+            time.sleep(0.05)
+        return status
 
     def test_c17_odd_inputs_never_5xx(self):
         rng = random.Random(86)

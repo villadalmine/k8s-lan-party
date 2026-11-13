@@ -23,7 +23,7 @@ shift; [ "$1" = -i ] && shift; shift
 case "$1 $2 $3" in
   "kubectl get node") [ "$4" = alice ] && echo True || exit 1 ;;
   "k3s token list") echo "TOKEN TTL EXPIRES"; echo "tokali 7m x"; echo "tokbob 7m x" ;;
-  "kubectl apply -f"|"kubectl create configmap") cat >/dev/null 2>&1; exit 0 ;;
+  "kubectl apply -f") cat >/dev/null 2>&1; exit 0 ;;   # only apply reads stdin (a pipe from create --dry-run, or a file)
 esac
 exit 0
 '''
@@ -60,7 +60,8 @@ class PlayersRead(unittest.TestCase):
                         EMESH_CACHE=str(cache), FAKE_LOG=str(self.log))
 
     def mesh(self, *args: str) -> subprocess.CompletedProcess:
-        return subprocess.run([BASH, str(POC / "mesh"), "host", "players", *args], env=self.env, capture_output=True, text=True, timeout=60)
+        return subprocess.run([BASH, str(POC / "mesh"), "host", "players", *args], env=self.env, capture_output=True, text=True, timeout=60,
+                              stdin=subprocess.DEVNULL)   # never the runner's stdin: a stub that reads it would wait forever
 
     def calls(self) -> str:
         return self.log.read_text() if self.log.exists() else ""
