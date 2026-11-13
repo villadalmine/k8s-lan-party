@@ -53,6 +53,7 @@ class ConsoleSpecTest(unittest.TestCase):
             if verb == "panic":
                 self.assertIsNone(a["timeout_seconds"])                 # panic is never killed half way
             else:
+                self.assertIsInstance(a["timeout_seconds"], int, verb)
                 self.assertGreater(a["timeout_seconds"], 0, verb)
 
     def test_every_engine_template_is_a_real_mesh_verb(self):

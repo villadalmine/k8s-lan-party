@@ -35,7 +35,8 @@ the web console is the second; the bot will be the third. The API adds no behavi
   panic` from the CLI **always** runs the engine directly, never through the API; and through the API `panic` never waits behind another
   job (below, "Jobs, locks and timeouts").
 - **One environment.** Once the CLI forwards to the daemon (#88), the engine runs with the daemon's environment (its systemd unit:
-  `POOL_CONFIG`, `TOKEN_TTL`, `REVOKE_WAIT`, `LH_RSH`, `ADMISSION_NOTIFY_*`), not the operator's shell's: the client sends argv only. A
+  `POOL_CONFIG`, `TOKEN_TTL`, `REVOKE_WAIT`, `ADMISSION_NOTIFY_*`; and what `poc/lib.sh` reads from `$STATE`, such as `LH_RSH` in
+  `$STATE/lighthouse.env`), not the operator's shell's: the client sends argv only. A
   variable set in the shell for one command then needs `EMESH_DIRECT=1` on that command; #88 lists the variables in the unit.
 - **The CA never moves.** The persistent CA key stays in `.state/ca/`, and no request from the web (role `console`) can make it sign.
 
@@ -178,13 +179,26 @@ exactly as today: the person who typed the command already confirmed it.
   each machine's `config.yml`) and `party.py reconcile` run unlocked, so a kick from the API could race a tick. #88 adds a file lock that
   `poc/mesh` itself takes (`flock` on `$STATE/mesh.lock`) around every mutating verb, whoever calls it: the timer, the CLI direct, or a job of
   the daemon. The daemon has no lock of its own besides that one.
+  The lock is taken by the **outermost** `mesh` only. The engine calls `mesh` from inside `mesh` (a `reap`, a tick, `panic` and `approve` run
+  `mesh host burn`, `kick` and `invite` through admission.py), and a `flock` is not re-entrant: a nested call that tried to take it again would
+  wait for its own parent forever. So the outermost `mesh` takes it, exports `EMESH_LOCK_HELD=1`, and every nested `mesh` sees the marker and
+  runs without locking; the lock's file descriptor is inherited by the whole process tree and released when the outermost process ends. On
+  a system without `flock(1)` (macOS) the same rule applies to the fallback `with_guard_lock` already uses in `poc/lib.sh` (a symbolic link
+  holding the owner's pid, taken over only when stale). The node guard's own lock stays, nested inside this one.
 - **Jobs wait their turn, like the CLI does.** The daemon runs one job at a time, in order; while one runs, up to 4 more wait in a queue
   (a fifth gets 409 `busy`). A job that waits behaves like a direct command waiting for the lock, so the CLI through the API keeps the same
-  output and exit code (#88); the client shows `waiting for <verb> (job ...)` on stderr while it waits.
-- **`panic` never waits behind a job.** It skips the daemon's queue and starts at once; it then waits only for the engine's lock, which a
-  tick or a kick holds for one pass. #87 also makes `panic` commit its switch (auto off, panic on: `auto.json` and the event) **before** its
-  first kick: today admission.py writes the ledger and the switch only at the end of the locked pass, so a `panic` killed half way would have
-  expelled people and still leave panic off.
+  output and exit code (#88); the client shows `waiting for <verb> (job ...)` on stderr while it waits. The one difference: the fifth
+  caller's 409 makes the CLI exit 75 (`EX_TEMPFAIL`, "busy: 4 jobs waiting, try again"), where a direct command would just have waited.
+  A confirmed job's plan is checked again **when the job starts**, not only when it is queued: if the state changed while it waited, the job
+  does not run and ends `plan-changed` (exit 75 too); the web console shows the new plan, and the CLI, whose person already confirmed by
+  typing the command, asks for a new plan and confirms it itself.
+- **`panic` never waits in the daemon's queue**, and its switch does not wait for anybody. Today admission.py writes the ledger and the
+  switch only at the end of its locked pass, so a `panic` killed half way would have expelled people and still left panic off, and a `panic`
+  started during a long `reap-all` would only close admission when that pass ended. #87 splits it: `panic` first writes the switch (auto
+  off, panic on, in `auto.json`, atomically, under a short lock of that file alone, with its event), outside the engine's lock; every pass
+  that starts after that sees it, and a pass already running does not overwrite it (admission.py writes `auto.json` only when the pass
+  itself changed the switch; it may still finish the approvals of the pass it began with the old switch). Then `panic` takes the engine's lock to expel: **that part still waits** for the pass that holds it, as long as
+  that pass lasts (900 s at most, a `reap-all`). The switch is immediate; the expulsions are not.
 - Each verb has a **timeout** (`timeout_seconds` in the registry, counted from the moment the job starts, not while it waits: 120 s for a
   switch, up to 900 s for `reap-all`). When it passes the process group gets SIGTERM, then SIGKILL 30 s later, and the job ends with exit
   124, like `timeout(1)`. The engine's lock is a `flock` and dies with the process. `panic` has no timeout.
@@ -195,7 +209,9 @@ exactly as today: the person who typed the command already confirmed it.
 Every mutation writes one JSON line to `$STATE/console/audit.jsonl` (0600): time, source (`socket`, `web` or `direct`), role, peer uid,
 verb, args (free text cut to 200 characters), whether it was confirmed, exit code, duration, job id. **Through the API or direct**: with #88,
 `poc/mesh` writes the line itself for every registry verb it runs directly (source `direct`), and the daemon writes it for its jobs (source
-`socket` or `web`; the engine it starts does not write a second one). One verb is left out by its name, not by who ran it: `auto --once`, the
+`socket` or `web`). One line per action, not per process: whoever writes the line exports `EMESH_AUDITED=1` (a marker of its own,
+because `EMESH_DIRECT=1` is also set by people), and a `mesh` that sees it writes nothing; so the engine the daemon starts, and the nested
+`kick` and `burn` inside a `reap`, add no line of their own. One verb is left out by its name, not by who ran it: `auto --once`, the
 tick, whose facts are already in `admission/events.jsonl` (a line a minute would drown the rest); a tick run from the console is the
 registry verb `tick` and is audited. Every writer appends one line with a single `O_APPEND` write, under `$STATE/mesh.lock`, which is also
 where the file is rotated (1 MiB, one old copy kept), so two writers never interleave or lose a line.
@@ -241,7 +257,8 @@ issue that builds each test is in brackets.
 | 10 | a confirm token replayed, or used for something else | single use; bound to verb, args and caller; a different plan is 409 | C10 [#87] |
 | 11 | two mutations race (the API, the CLI direct and the timer) | one `flock` taken by `poc/mesh` around every mutating verb, whoever calls it; the daemon runs one job at a time | C11 [#87, #88] |
 | 12 | a hung engine call holds the lock forever | a timeout per verb from the job's start; SIGTERM then SIGKILL to the process group, exit 124; the `flock` dies with the process | C12 [#87] |
-| 12b | panic is slowed or lost: queued behind a long job, or killed half way | `panic` skips the daemon's queue and has no timeout; the CLI's `panic` is always direct; `panic` commits its switch before its first kick | C12b [#87, #88] |
+| 12b | panic is slowed or lost: queued behind a long job, or killed half way | `panic` skips the daemon's queue and has no timeout; the CLI's `panic` is always direct; the switch is written first, outside the engine's lock (immediate); the expulsions then wait for the pass holding the lock (honest: up to 900 s behind a `reap-all`) | C12b [#87, #88] |
+| 12c | a nested `mesh` deadlocks on the engine's lock | only the outermost `mesh` locks; `EMESH_LOCK_HELD=1` for every nested call; the same with the no-`flock` fallback | C12c [#88]: a tick that reaps and kicks finishes |
 | 13 | a secret leaks through output, audit, notify or a response | the redaction step (above) on every path out; a leak test plants each secret | C13 [#86, #87] |
 | 14 | a read changes the game (a token burned, a party reconciled) | pure-read engine modes; a recording fake engine fails the test if a GET writes a file or runs a mutating `kubectl` | C14 [#86] |
 | 15 | the daemon is down or busy when it matters | the timer calls the engine directly (expiry never needs the daemon); `mesh host panic` is always direct; the CLI works without the daemon (no socket: direct) | C15 [#88], K02: the timer expires a lease with the daemon stopped [#88] |
