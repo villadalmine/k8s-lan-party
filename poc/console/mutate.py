@@ -7,10 +7,14 @@ changed meanwhile the job does not run (`plan-changed`, exit 75).
 
 Jobs run one at a time, in order, with at most 4 waiting (a fifth caller: 409 busy). `panic` skips the queue and has no timeout. A job
 is the engine started as an argument list (never a shell) in its own process group, with EMESH_DIRECT=1 and EMESH_AUDITED=1; at its
-timeout the group gets SIGTERM, then SIGKILL 30 s later, and the job ends with exit 124. Its output (64 KiB at most) is redacted.
+timeout the group gets SIGTERM, then SIGKILL 30 s later, and the job ends with exit 124. Its stdout and stderr are kept apart and together
+(`output`, in the order they came; 64 KiB each at most); a `console` caller sees them redacted, a `local` caller (the host's own user, the
+CLI of #88) sees them as the engine printed them (a decision recorded in #85).
 
-Every job writes one line to <state>/console/audit.jsonl (0600), appended with one write under <state>/mesh.lock, where the file is
-also rotated (1 MiB, one old copy). A job of the `console` role also calls the admission notify hook with `console_action`.
+Every job writes one line to <state>/console/audit.jsonl (0600), appended with one write under <state>/console/audit.lock, where the
+file is also rotated (1 MiB, one old copy); `poc/mesh` writes the same line for what it runs directly (source `direct`, #88). The audit
+has a lock of its own, held for one write: the engine's lock (`mesh.lock`) is held as long as a command runs, up to 900 s. A job of the
+`console` role also calls the admission notify hook with `console_action`.
 """
 from __future__ import annotations
 
@@ -119,12 +123,19 @@ class Job:
         self.id = secrets.token_hex(8)
         self.verb, self.argv, self.role, self.source, self.uid, self.args = verb, argv, role, source, uid, args
         self.confirmed, self.timeout, self.recheck = confirmed, timeout, recheck
-        self.state, self.exit, self.output, self.error = "queued", None, "", None
+        self.state, self.exit, self.error = "queued", None, None
+        self.output, self.stdout, self.stderr = "", "", ""
         self.created, self.started, self.ended = time.time(), None, None
+        self.proc: subprocess.Popen | None = None
         self.done = threading.Event()
 
+    def raw(self) -> dict:
+        """The engine's own words, for a `local` caller only."""
+        return {"output": self.output, "stdout": self.stdout, "stderr": self.stderr}
+
     def view(self, redact) -> dict:
-        return {"id": self.id, "verb": self.verb, "state": self.state, "exit": self.exit, "output": redact(self.output),
+        return {"id": self.id, "verb": self.verb, "state": self.state, "exit": self.exit,
+                **{k: redact(v) for k, v in self.raw().items()},
                 "started": int(self.started) if self.started else None, "ended": int(self.ended) if self.ended else None,
                 "error": self.error}
 
@@ -191,12 +202,22 @@ class Runner:
             self._run(job)
         except Exception as e:
             print(f"console: job {job.id} ({job.verb}) failed inside the daemon: {e.__class__.__name__}", file=sys.stderr)
-            if not job.done.is_set():
-                job.exit = job.exit if job.exit is not None else 1
-                job.error = job.error or "internal"
-                job.ended = job.ended or time.time()
-                job.state = "failed"
-                job.done.set()
+            if job.done.is_set():
+                return
+            if job.proc is not None and job.proc.poll() is None:   # never two engines at once: the next job waits for this one to be gone
+                try:
+                    self._kill(job.proc)
+                except Exception:
+                    pass
+            job.exit = job.exit if job.exit is not None else 1
+            job.error = job.error or "internal"
+            job.ended = job.ended or time.time()
+            try:
+                self.audit(job)
+            except Exception:
+                pass
+            job.state = "failed"
+            job.done.set()
 
     def _run(self, job: Job) -> None:
         job.started = time.time()
@@ -212,29 +233,40 @@ class Runner:
         job.state = "running"
         env = dict(os.environ, EMESH_DIRECT="1", EMESH_AUDITED="1")
         try:
-            p = subprocess.Popen([str(self.mesh), *job.argv], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            p = subprocess.Popen([str(self.mesh), *job.argv], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                  env=env, start_new_session=True)
         except OSError:
             job.exit, job.error = 127, "engine"
             return self._finish(job, "failed")
-        chunks, size = [], 0
+        job.proc = p
+        streams: dict[str, list[bytes]] = {"stdout": [], "stderr": [], "output": []}
+        sizes = dict.fromkeys(streams, 0)
+        both = threading.Lock()
 
-        def read():
-            nonlocal size
-            for chunk in iter(lambda: p.stdout.read(4096), b""):
-                if size < OUTPUT_MAX:
-                    chunks.append(chunk[:OUTPUT_MAX - size])
-                    size += len(chunks[-1])
-        reader = threading.Thread(target=read, daemon=True)
-        reader.start()
+        def keep(name: str, chunk: bytes) -> None:
+            if sizes[name] < OUTPUT_MAX:
+                streams[name].append(chunk[:OUTPUT_MAX - sizes[name]])
+                sizes[name] += len(streams[name][-1])
+
+        def read(name: str, pipe) -> None:   # the pipe keeps draining past the cap, so the engine never blocks on a full pipe
+            for chunk in iter(lambda: pipe.read1(4096), b""):
+                with both:
+                    keep(name, chunk)
+                    keep("output", chunk)
+        readers = [threading.Thread(target=read, args=(n, getattr(p, n)), daemon=True) for n in ("stdout", "stderr")]
+        for r in readers:
+            r.start()
         try:
             job.exit = p.wait(timeout=job.timeout)
             final = "done" if job.exit == 0 else "failed"
         except subprocess.TimeoutExpired:
             self._kill(p)
             job.exit, job.error, final = 124, "timeout", "timeout"
-        reader.join(5)
-        job.output = b"".join(chunks).decode("utf-8", "replace")
+        for r in readers:
+            r.join(5)
+        with both:
+            for name, chunks in streams.items():
+                setattr(job, name, b"".join(chunks).decode("utf-8", "replace"))
         self._finish(job, final)
 
     def _kill(self, p: subprocess.Popen) -> None:
@@ -283,7 +315,7 @@ def write_audit(state: Path, line: str, tlock: threading.Lock) -> None:
     d = state / "console"
     d.mkdir(mode=0o700, exist_ok=True)
     path = d / "audit.jsonl"
-    with tlock, open(state / "mesh.lock", "a+") as lock:
+    with tlock, os.fdopen(os.open(d / "audit.lock", os.O_RDWR | os.O_CREAT, 0o600), "r+") as lock:
         if fcntl:
             fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
         try:

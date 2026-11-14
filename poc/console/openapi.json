@@ -2000,7 +2000,15 @@
      },
      "output": {
       "type": "string",
-      "description": "stdout and stderr, redacted, at most 64 KiB"
+      "description": "stdout and stderr together, in the order they came, at most 64 KiB; redacted except for the local role (#85)"
+     },
+     "stdout": {
+      "type": "string",
+      "description": "the engine's stdout alone, at most 64 KiB; redacted except for the local role (the CLI prints it on its stdout, #88)"
+     },
+     "stderr": {
+      "type": "string",
+      "description": "the engine's stderr alone, at most 64 KiB; redacted except for the local role"
      },
      "started": {
       "type": [

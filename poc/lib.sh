@@ -117,6 +117,39 @@ guard_names() { # name=nebula-ip of the names the node guard admits: a live bund
       printf '%s\n' "$pws" | grep -qx "secret/$n.node-password.k3s"; then echo "$l"; fi
   done
 }
+# The outermost layer of `mesh` (docs/CONSOLE.md, "Jobs, locks and timeouts", issue #88). verb_class prints "<class> <verb>" for a `mesh`
+# argument list: `registry` (a verb of poc/console/actions.py: locked, audited, sent to the console daemon when it runs), `mutate` (locked
+# only: players and party list without --read-only, which burn tokens or reconcile), `read` (nothing) or `free` (init, down, the console
+# itself and the local simulation: not locked, they start or remove what the lock lives in). The verb is the registry's name, or "-".
+# poc/test_mesh_lock.py checks that every registry verb is classified as one here.
+verb_class() {
+  local a="${1:-} ${2:-}" rest=" $* "
+  case "$a" in
+    "host invite") echo "registry invite" ;; "host burn") echo "registry burn" ;; "host revoke") echo "registry revoke" ;;
+    "host kick") echo "registry kick" ;; "host refresh") echo "registry refresh" ;; "host bundle") echo "registry bundle" ;;
+    "host request") echo "registry request" ;; "host reject") echo "registry reject" ;; "host approve") echo "registry approve" ;;
+    "host players") case "$rest" in *" --read-only "*) echo "read -" ;; *) echo "mutate -" ;; esac ;;
+    "host reap") case "$rest" in *" --all "*) echo "registry reap-all" ;; *" --name "*|*" --name="*) echo "registry reap-one" ;; *) echo "registry reap" ;; esac ;;
+    "host auto") case "${3:-}" in --once) echo "registry tick" ;; on) echo "registry auto-on" ;; off) echo "registry auto-off" ;; *) echo "read -" ;; esac ;;
+    "host panic") case "$rest" in *" --clear "*) echo "registry panic-clear" ;; *) echo "registry panic" ;; esac ;;
+    "host party") case "${3:-list}" in reconcile) echo "registry party-reconcile" ;; end) echo "registry party-end" ;;
+      *) case "$rest" in *" --read-only "*) echo "read -" ;; *) echo "mutate -" ;; esac ;; esac ;;
+    "host init"|"host down"|"host console"|"party "*|"play "*) echo "free -" ;;
+    *) echo "read -" ;;
+  esac
+}
+mesh_lock() { # the engine's lock, taken by the outermost `mesh` only: a holder process (poc/meshlock.py) keeps it until this shell ends.
+  # A nested `mesh` trusts EMESH_LOCK_HELD only when that pid really holds the lock and is one of its ancestors.
+  if [ -n "${EMESH_LOCK_HELD:-}" ] && python3 "$POC/meshlock.py" held "$STATE/mesh.lock" "$EMESH_LOCK_HELD"; then return 0; fi
+  local ok="" me="${BASHPID:-$$}"
+  # the holder serves the shell that forks it ($BASHPID: in a subshell, the subshell, which is then the holder's parent and the nested
+  # calls' ancestor; bash 3.2 has no BASHPID, so there mesh_lock must run in the top-level shell, as poc/mesh does)
+  # the holder's stderr is not ours: a caller reading our output to its end would otherwise wait for the holder too
+  exec 7< <(exec python3 "$POC/meshlock.py" hold "$STATE/mesh.lock" "$me" 2>/dev/null)
+  read -r ok <&7 || true
+  [ "$ok" = locked ] || { echo "the engine lock $STATE/mesh.lock could not be taken" >&2; exit 1; }
+  export EMESH_LOCK_HELD=$me
+}
 with_guard_lock() { # with_guard_lock <command...>: one writer of the node guard at a time (a hand invite or revoke against the reap timer)
   local l="$STATE/guard.lock" i=0 rc pid
   if [ -z "${EMESH_NO_FLOCK:-}" ] && command -v flock >/dev/null 2>&1; then (flock 9 && "$@") 9>"$l"; return; fi

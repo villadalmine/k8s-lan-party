@@ -28,6 +28,7 @@ import io
 import ipaddress
 import json
 import os
+import signal
 import ssl
 import subprocess
 import sys
@@ -104,7 +105,19 @@ class Puller:
 
     # --- mesh -----------------------------------------------------------------------------------------------------------
     def mesh(self, *args: str, timeout: int = 300) -> subprocess.CompletedProcess:
-        return subprocess.run([self.a.mesh, "host", *args], capture_output=True, text=True, timeout=timeout)
+        # direct, never through the host console's daemon (docs/CONSOLE.md): public intake must not depend on it, nor take the host's
+        # own queue slots and rate limit
+        # its own process group, killed whole at the timeout: killing only `mesh` would free the engine's lock while the verb it runs
+        # in a child goes on (poc/meshlock.py watches the outermost mesh)
+        p = subprocess.Popen([self.a.mesh, "host", *args], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                             env=dict(os.environ, EMESH_DIRECT="1"), start_new_session=True)
+        try:
+            out, err = p.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            os.killpg(p.pid, signal.SIGKILL)
+            p.communicate()
+            raise
+        return subprocess.CompletedProcess(p.args, p.returncode, out, err)
 
     def status(self) -> dict:
         r = self.mesh("admission-status", "--json")
