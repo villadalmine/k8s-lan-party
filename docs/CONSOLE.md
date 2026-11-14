@@ -173,7 +173,7 @@ the socket and on the loopback; only the role differs.
 | `GET /api/v1/health` | the daemon answers, its version and the caller's role; calls no engine |
 | `GET /api/v1/status` | places used and total, waiting, eligible now, next to end, auto, panic, last tick |
 | `GET /api/v1/requests`, `/leases`, `/players`, `/players/{name}/activity`, `/parties` | the lists, from pure reads |
-| `GET /api/v1/verbs` | every verb of the host with `allowed` for the caller's role; for the others `why`, and the `command` to type on the host (`invite`, `bundle`, `refresh`, and `init` and `down`, which no role runs). A description for a client to draw disabled buttons: the refusal is each POST's (#103) |
+| `GET /api/v1/verbs` | every registry verb, plus `init` and `down`, with `allowed` for the caller's role; for the others `why`, and the `command` to type on the host (`invite`, `bundle`, `refresh`, and `init` and `down`, which no role runs). A description for a client to draw disabled buttons: the refusal is each POST's (#103) |
 | `GET /api/v1/events?since=&limit=`, `GET /api/v1/audit?limit=` | the last lines of each log (at most 500) |
 | `GET /api/v1/metrics` | the admission metrics, Prometheus text, no identities |
 | `GET /api/v1/actions` | the registry entries the caller's role may run: verb, params, confirmation, timeout |

@@ -21,6 +21,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE / "console"))
 sys.path.insert(0, str(HERE))
+import actions  # noqa: E402
 import server  # noqa: E402
 from test_console import UnixHTTP  # noqa: E402
 from test_console_actions import LINUX, DaemonCase  # noqa: E402
@@ -373,16 +374,17 @@ class WebTest(DaemonCase):
         self.assertEqual(status, 200)
         closed = {v["verb"] for v in verbs if not v["allowed"]}
         self.assertEqual(closed, {"invite", "bundle", "refresh", "init", "down"})
+        expected = {"invite": 403, "bundle": 403, "refresh": 403, "init": 404, "down": 404}   # 403 not this role's; 404 not in the registry
         for verb in sorted(closed):
             status, body = self.j("POST", f"/api/v1/actions/{verb}", {"args": {"name": "ana"}})
-            self.assertIn(status, (403, 404), verb)   # 403 not for this role; 404 not a verb of the registry (init, down)
+            self.assertEqual(status, expected[verb], verb)
         self.assertEqual(self.mutations(), [])
         js = (STATIC / "console.js").read_text()
         host_only = js[js.index("async function loadHostOnly"):js.index("function openAction")]
         self.assertIn("b.disabled = true;", host_only)
         self.assertNotIn("addEventListener", host_only)   # the page never gives a host-only verb a click handler
         approve = next(v for v in verbs if v["verb"] == "approve")
-        self.assertEqual(approve["closed_values"], [{"param": "trust", "value": "friends", "why": approve["closed_values"][0]["why"],
+        self.assertEqual(approve["closed_values"], [{"param": "trust", "value": "friends", "why": actions.WHY_LOCAL,
                                                      "command": "mesh host approve [<name>] --trust friends"}])
         self.assertEqual(self.j("POST", "/api/v1/actions/approve", {"args": {"trust": "friends"}})[0], 403)
         self.assertNotIn("asked[", js)   # a Map: a player named constructor is not an inherited property
