@@ -2,8 +2,9 @@
 
 Status: **RFC of [#85](https://github.com/villadalmine/k8s-lan-party/issues/85)** (milestone v0.4.0): proposed in PR #94, decided when it
 merges and the decision is recorded in #85. **Built so far: #86**, the daemon on the unix socket (role `local`) and every read
-(`mesh host console`, `poc/console/server.py`, `poc/console/actions.py`, the unit in `poc/console/deploy/`); `POST /api/v1/actions/{verb}`
-answers 501 until #87. The pieces are [#86](https://github.com/villadalmine/k8s-lan-party/issues/86) (the daemon and its reads),
+(`mesh host console`, `poc/console/server.py`, `poc/console/actions.py`, the unit in `poc/console/deploy/`), and **#87**, the mutations:
+plans and confirm tokens, the job queue and panic's own lane, timeouts, the audit log and the `console_action` notify
+(`poc/console/mutate.py`), and `panic` writing its switch before it waits for the ledger (`poc/admission.py`). The pieces are [#86](https://github.com/villadalmine/k8s-lan-party/issues/86) (the daemon and its reads),
 [#87](https://github.com/villadalmine/k8s-lan-party/issues/87) (mutations, confirmation, jobs, audit),
 [#88](https://github.com/villadalmine/k8s-lan-party/issues/88) (the CLI as a client),
 [#89](https://github.com/villadalmine/k8s-lan-party/issues/89) (the web console) and
@@ -165,7 +166,10 @@ A verb whose *confirm* is not `none` runs in two calls:
    token: 32 random bytes, valid **60 seconds, once**, bound to the verb, the args, the caller's credential (the socket's uid, or the hash of
    the web token in use: behind the SSH tunnel every web peer is 127.0.0.1, so the address would prove nothing) and a hash of the plan.
 2. The same call with `"confirm": "<token>"` (and for `type:*` also `"typed": "<the name>"` or `"typed": "all"`) starts the job. If the state
-   changed since the plan (another lease, a lease gone) the plan's hash no longer matches: 409, and a new plan is needed.
+   changed since the plan (another lease, a lease gone) the plan's hash no longer matches: 409, and a new plan is needed. The typed text is
+   checked before the token is spent, so a typo costs no new plan. **`panic` is the exception**: its plan is shown, but it is not compared
+   again at the confirm nor when the job starts: whatever the leases are by then, panic expels them all, and it must never be refused for
+   being late. A second `panic` while one runs gets that same job (one panic at a time).
 
 The web console shows the plan in a dialog: one click for `click` (panic is one click on purpose: it has to be fast), the name typed for
 `kick`, `revoke` and `reap-one`, the word `all` for `reap-all`. The CLI (#88) runs both calls itself, so `mesh host kick alice` behaves

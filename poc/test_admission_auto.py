@@ -421,6 +421,94 @@ class SwitchTest(Base):
         self.assertEqual(self.leases(), ["caro"])
         self.assertEqual([k for k, _ in self.kinds()].count("panic"), 1)
 
+    def test_panic_closes_before_the_ledger_lock_is_free(self):
+        """docs/CONSOLE.md (#87): panic writes its switch before it waits for the ledger's lock (a long reap holding it); then it expels."""
+        import threading, time
+        self.ask("ana")
+        self.ok("auto", "on")
+        self.ok("auto", "--once", now=1)
+        held, done = threading.Event(), threading.Event()
+
+        def hold():   # another command's pass, holding the ledger lock
+            with admission.locked_state(self.state):
+                held.set()
+                done.wait(10)
+        t = threading.Thread(target=hold)
+        t.start()
+        held.wait(5)
+        result = {}
+        p = threading.Thread(target=lambda: result.update(out=self.cli("panic", now=10)))
+        p.start()
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and not json.loads((self.state / "auto.json").read_text())["panic"]:
+            time.sleep(0.02)
+        sw = json.loads((self.state / "auto.json").read_text())
+        self.assertEqual((sw["panic"], sw["enabled"]), (True, False))   # closed while the lock is still held
+        self.assertEqual(self.leases(), ["ana"])                         # nobody expelled yet
+        done.set()
+        t.join(); p.join(10)
+        self.assertEqual(result["out"][0], 0)
+        self.assertIn("panic: on | expelled 1", result["out"][1])          # first: not "(already)", one panic event
+        self.assertEqual(self.leases(), [])
+        self.assertEqual([k for k, _ in self.kinds()].count("panic"), 1)
+
+    def test_a_pass_that_began_before_a_panic_does_not_undo_it(self):
+        """A tick reads the switch with auto on; a panic is written during its pass; the tick's commit keeps panic on, auto off."""
+        self.ask("ana", "beto")
+        self.ok("auto", "on")
+        orig = self._invite
+
+        def invite_then_panic(name, ttl, trust):   # in the middle of the tick's pass, someone presses panic
+            admission.update_auto(self.state, {"enabled": False, "panic": True})
+            return orig(name, ttl, trust)
+        self._invite = invite_then_panic
+        self.ok("auto", "--once", now=1)
+        sw = json.loads((self.state / "auto.json").read_text())
+        self.assertEqual((sw["panic"], sw["enabled"]), (True, False))
+        self._invite = orig
+        self.assertIn("panic: on (already)", self.ok("panic", now=2))   # the expulsions still run; no second event
+        self.assertEqual(self.leases(), [])
+
+    def test_a_pass_that_changes_the_switch_keeps_a_panic_written_after_its_read(self):
+        """`auto off` reads the switch (auto on, no panic); a panic is written right after that read; `auto off` commits only the
+        key it changed (enabled), so panic stays on. Writing its whole stale copy would put panic: false back."""
+        self.ok("auto", "on", now=1)
+        real, once = admission.read_auto, []
+
+        def read_then_panic(d):
+            sw = real(d)
+            if not once:   # the first read is the pass's own; then someone presses panic
+                once.append(1)
+                admission.read_auto = real
+                admission.update_auto(self.state, {"enabled": False, "panic": True, "changed_at": 2})
+            return sw
+        admission.read_auto = read_then_panic
+        self.addCleanup(setattr, admission, "read_auto", real)
+        self.ok("auto", "off", now=3)
+        sw = json.loads((self.state / "auto.json").read_text())
+        self.assertEqual((sw["panic"], sw["enabled"]), (True, False))
+
+    def test_a_panic_that_raced_a_clear_is_set_again(self):
+        """panic on; a new panic writes its switch early (already on: not first), then a `panic --clear` commits before the panic's pass
+        takes the ledger's lock. The pass sees panic off: it sets it again, with its event, instead of leaving admission open."""
+        self.ok("panic", now=1)
+        n = [k for k, _ in self.kinds()].count("panic")
+        real = admission.update_auto
+
+        def early_write_then_clear(d, changes):
+            before = real(d, changes)
+            admission.update_auto = real
+            real(d, {"panic": False, "changed_at": 2})   # the clear's commit lands between the early write and the lock
+            return before
+        admission.update_auto = early_write_then_clear
+        self.addCleanup(setattr, admission, "update_auto", real)
+        out = self.ok("panic", now=3)
+        self.assertIn("panic: on |", out)
+        self.assertNotIn("(already)", out)
+        sw = json.loads((self.state / "auto.json").read_text())
+        self.assertEqual((sw["panic"], sw["enabled"]), (True, False))
+        self.assertEqual([k for k, _ in self.kinds()].count("panic"), n + 1)
+
     def test_panic_tries_a_failed_kick_again_on_every_tick(self):
         self.ask("ana")
         self.ok("auto", "on")

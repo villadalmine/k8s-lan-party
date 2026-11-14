@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
-"""The host console's API daemon (docs/CONSOLE.md; issue #86: the daemon and its reads).
+"""The host console's API daemon (docs/CONSOLE.md; issues #86 and #87: the daemon, its reads and its mutations).
 
 It listens on a unix socket in the host's state directory and answers only the host's own user (the peer's uid, SO_PEERCRED, must be
-this process's): role `local`. It runs the engine (`poc/mesh`, with EMESH_DIRECT=1) as an argument list, never a shell, and only its
-pure reads; every response passes through one redaction step. Mutations (`POST /api/v1/actions/{verb}`) come with #87 and answer 501
-until then; the web listener comes with #89.
+this process's): role `local`. It runs the engine (`poc/mesh`, with EMESH_DIRECT=1) as an argument list, never a shell: for a GET only
+pure reads; every response passes through one redaction step. Mutations are registry verbs run as jobs, with a plan and a confirm token
+for the dangerous ones (#87, poc/console/mutate.py); the web listener comes with #89.
 
     server.py serve --state DIR [--mesh PATH] [--socket PATH]     (`mesh host console` runs it in the foreground)
 
     GET /api/v1/health | status | requests | leases | players | players/{name}/activity | parties | events | audit | metrics | actions
     GET /api/v1/jobs/{id}
+
+    POST /api/v1/actions/{verb}   {"args": {...}} -> a job (202), or a plan and a confirm token (200); again with
+                                  {"args": ..., "confirm": "<token>", "typed": "<name>|all"} -> the job (poc/console/mutate.py)
 
 Python standard library only (and poc/page/page.py's security headers and strict body rules, by import). Linux: SO_PEERCRED.
 """
@@ -37,7 +40,8 @@ POC = HERE.parent
 for _p in (HERE, POC / "page", POC):
     sys.path.insert(0, str(_p))
 import actions  # noqa: E402
-from page import SECURITY_HEADERS  # noqa: E402
+import mutate  # noqa: E402
+from page import SECURITY_HEADERS, Handler as PageHandler, Refusal as PageRefusal  # noqa: E402
 
 VERSION = "0.1.0"
 SUN_PATH_MAX = 107                     # bytes of a unix socket path (108 with the terminating NUL)
@@ -134,9 +138,41 @@ def env_value(path: Path, key: str) -> tuple[str, str]:
 # --- the console: reads -------------------------------------------------------------------------------------------------------
 
 class Console:
-    def __init__(self, state: Path, mesh: Path, given: Path | None = None):
+    def __init__(self, state: Path, mesh: Path, given: Path | None = None, kill_grace: int = mutate.KILL_GRACE):
         self.state, self.mesh = state, mesh
         self.redact = Redactor(state, given)
+        self.plans = mutate.Plans()
+        self.runner = mutate.Runner(state, mesh, self.redact, mutate.console_notify, kill_grace)
+
+    def reads(self, route: str):
+        return self.status() if route == "status" else self.read(route)
+
+    def act(self, verb: str, body, role: str, cred: str, source: str, uid: int) -> tuple[int, dict]:
+        """POST /api/v1/actions/{verb}: (status, body). Everything is checked before anything runs."""
+        if not isinstance(body, dict) or set(body) - {"args", "confirm", "typed"}:
+            raise Refusal(400, "bad-body", 'the body is {"args": {...}} and, to confirm, "confirm" and "typed"')
+        args = body.get("args", {})
+        argv = actions.argv(verb, args, role)   # unknown verb 404, role 403, bad args 400
+        a = actions.REGISTRY[verb]
+        self.runner.rate(role)
+        if a.confirm == "none":
+            job = mutate.Job(verb, argv, role, source, uid, args, False, a.timeout_seconds)
+            return 202, self.runner.submit(job).view(self.redact)
+        if "confirm" not in body:
+            will = mutate.plan(verb, args, self.reads)
+            tok = self.plans.issue(verb, args, cred, mutate.plan_hash(will))
+            typed = {"type:name": args.get("name"), "type:all": "all"}.get(a.confirm)
+            return 200, {"verb": verb, "args": args, "will": will, "confirm": tok, "expires_in": mutate.CONFIRM_SECONDS,
+                         "type_to_confirm": typed}
+        typed = {"type:name": args.get("name"), "type:all": "all"}.get(a.confirm)
+        if typed is not None and body.get("typed") != typed:   # before the token is spent: a typo does not cost a new plan
+            raise Refusal(400, "typed", f"type {typed!r} to confirm")
+        want = self.plans.redeem(body["confirm"], verb, args, cred)
+        if verb != "panic" and mutate.plan_hash(mutate.plan(verb, args, self.reads)) != want:   # panic: whatever the leases now
+            raise Refusal(409, "plan-changed", "the state changed since the plan: ask for a new one")
+        recheck = lambda: mutate.plan_hash(mutate.plan(verb, args, self.reads)) == want   # noqa: E731 - again when the job starts
+        job = mutate.Job(verb, argv, role, source, uid, args, True, a.timeout_seconds, None if verb == "panic" else recheck)
+        return 202, self.runner.submit(job).view(self.redact)
 
     def engine(self, args: list[str]) -> subprocess.CompletedProcess:
         env = dict(os.environ, EMESH_DIRECT="1")
@@ -208,7 +244,10 @@ class Console:
         if len(parts) == 2 and parts[0] == "jobs":
             if not JOB.fullmatch(parts[1]):
                 raise Refusal(400, "bad-job", "a job id is 16 hex characters")
-            raise Refusal(404, "no-such-job", "no such job (mutations come with #87)")
+            job = self.runner.get(parts[1])
+            if job is None:
+                raise Refusal(404, "no-such-job", "no such job (jobs are kept an hour)")
+            return 200, job.view(self.redact), "json"
         if path == "health":
             return 200, {"ok": True, "version": VERSION, "role": "local"}, "json"
         if path == "status":
@@ -281,6 +320,20 @@ class Handler(BaseHTTPRequestHandler):
                 query = parse_qs(q, keep_blank_values=True, strict_parsing=bool(q), max_num_fields=4)
             except ValueError:
                 raise Refusal(400, "bad-query", "the query string is not valid") from None
+            if method == "POST" and path.startswith("actions/"):
+                verb = path[len("actions/"):]
+                if verb not in actions.REGISTRY:
+                    self._drain()
+                    raise Refusal(404, "no-such-verb", "not a verb of the registry")
+                try:
+                    body = PageHandler._body(self, MAX_BODY)
+                except PageRefusal as e:
+                    if e.status == 415:   # refused before the body was read: read it, so a client still sending it gets our answer
+                        self._drain()
+                    raise Refusal(e.status, e.error, e.message) from None
+                uid = peer_uid(self.connection)
+                status, out = self.console.act(verb, body, "local", f"uid:{uid}", "socket", uid)
+                return self._json(status, out)
             if method == "POST":
                 self._drain()
             if method == "GET" and path.startswith("actions/"):
@@ -291,16 +344,11 @@ class Handler(BaseHTTPRequestHandler):
                     self._send(status, self.console.redact.text(body).encode(), "text/plain; version=0.0.4; charset=utf-8")
                 else:
                     self._json(status, body)
-            elif method == "POST" and path.startswith("actions/"):
-                verb = path[len("actions/"):]
-                if verb not in actions.REGISTRY:
-                    raise Refusal(404, "no-such-verb", "not a verb of the registry")
-                raise Refusal(501, "not-built", "mutations through the console come with issue #87; use mesh directly")
             elif path in ROUTES or path.startswith(("players/", "jobs/", "actions/")):
                 self._json(405, {"error": "method", "message": "not allowed here"}, {"Allow": "POST" if path.startswith("actions/") else "GET"})
             else:
                 raise Refusal(404, "not-found", "no such route")
-        except Refusal as e:
+        except (Refusal, actions.Refused) as e:
             self._json(e.status, {"error": e.error, "message": e.message})
         except Exception as e:   # never a traceback to the client
             sys.stderr.write(f"error: {e.__class__.__name__}\n")

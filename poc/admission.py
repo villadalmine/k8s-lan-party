@@ -228,6 +228,23 @@ def read_auto(state_dir: Path) -> dict:
     return {**AUTO_DEFAULT, **data}
 
 
+def update_auto(state_dir: Path, changes: dict) -> dict:
+    """Apply only these keys to <state>/auto.json, under a short lock of its own (auto.lock), read-modify-write, atomically; returns
+    the switch as it was before. The ledger's pass commits only the keys it changed, and `panic` writes its switch FIRST, before the
+    ledger's lock (docs/CONSOLE.md, "Jobs, locks and timeouts"): so a pass that began before a panic never puts `panic: false` or
+    `enabled: true` back, and a panic is closed the moment it is asked, not when a long reap ends."""
+    state_dir.mkdir(parents=True, exist_ok=True)
+    with open(state_dir / "auto.lock", "a+") as lock:
+        _lock(lock)
+        try:
+            before = read_auto(state_dir)
+            if changes and {**before, **changes} != before:
+                write_atomic(state_dir / "auto.json", {**before, **changes})
+            return before
+        finally:
+            _unlock(lock)
+
+
 # --- events: the log and the notify hook --------------------------------------------------------------------------------
 
 class Events:
@@ -741,6 +758,8 @@ def status_json(cfg: dict, led: Ledger, auto: dict) -> dict:
 def run(a, cfg: dict) -> int:
     d = Path(a.state)
     after: list = []
+    if a.cmd == "panic" and not a.clear:   # the switch first, outside the ledger's lock: closed now, expelled when the lock is ours
+        a.panic_first = not update_auto(d, {"enabled": False, "panic": True})["panic"]
     with locked_state(d, after, write=not getattr(a, "read_only", False)) as state:
         auto = read_auto(d)
         saved = dict(auto)
@@ -753,8 +772,9 @@ def run(a, cfg: dict) -> int:
             state.update(led.dump())
 
         def commit() -> None:   # under the lock, right after state.json: the switch, the log, the heartbeat
-            if auto != saved:
-                write_atomic(d / "auto.json", auto)
+            changed = {k: v for k, v in auto.items() if saved.get(k) != v}
+            if changed:   # only what this pass changed: a panic written meanwhile stays
+                update_auto(d, changed)
             flush_events(d, led.events.pending, led.now, led.pool.retention(), cfg.get("events_max_lines", 5000))
             if a.cmd == "auto" and a.once and last_tick(d) != led.now:
                 write_atomic(d / "last-tick", f"{led.now}\n".encode())
@@ -881,7 +901,8 @@ def command(a, cfg: dict, led: Ledger, auto: dict, state_dir: Path) -> int:
             else:
                 print("panic: was not on")
             return 0
-        first = not auto["panic"]
+        # first if it was off before our early write, or if it is off now (a panic --clear committed in between): then it is set again
+        first = getattr(a, "panic_first", False) or not auto["panic"]
         if first:
             auto.update(enabled=False, panic=True, changed_at=led.now)
             led.closed = True

@@ -1524,7 +1524,7 @@
       }
      },
      "409": {
-      "description": "busy: another mutation is running; or the plan changed since it was shown",
+      "description": "busy: 4 jobs already wait; or the plan changed since it was shown",
       "content": {
        "application/json": {
         "schema": {
@@ -1575,16 +1575,6 @@
      },
      "429": {
       "description": "rate limit",
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/Error"
-        }
-       }
-      }
-     },
-     "501": {
-      "description": "before #87: mutations are not built yet (the verb exists; nothing ran)",
       "content": {
        "application/json": {
         "schema": {
@@ -1987,11 +1977,19 @@
      },
      "state": {
       "enum": [
+       "queued",
        "running",
        "done",
        "failed",
        "timeout"
       ]
+     },
+     "error": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "description": "plan-changed (exit 75), timeout (exit 124), engine (127), audit (ran, but its audit line was not written), internal or null"
      },
      "exit": {
       "type": [
@@ -2005,7 +2003,11 @@
       "description": "stdout and stderr, redacted, at most 64 KiB"
      },
      "started": {
-      "type": "integer"
+      "type": [
+       "integer",
+       "null"
+      ],
+      "description": "null while queued"
      },
      "ended": {
       "type": [
