@@ -2,7 +2,8 @@
 
 Status: **RFC of [#99](https://github.com/villadalmine/k8s-lan-party/issues/99)** (milestone v0.6.0). Nothing here is built except
 #103's first piece (`GET /verbs`, PR #107, built ahead of this decision because it changes no rule: it only shows what v0.4.0 already
-refuses). It is decided when its PR merges and the decision is recorded in #99; until then #100 to #102 stay blocked. It builds on the host console of v0.4.0
+refuses; #103 itself stays blocked for merge until this decision). It is decided when its PR merges and the decision is recorded in
+#99; until then #100 to #102 stay blocked. It builds on the host console of v0.4.0
 ([CONSOLE.md](CONSOLE.md)), and changes none of that document's decisions unless a row of *Decisions* below says so.
 
 ## What was asked
@@ -84,8 +85,12 @@ player's eyes and change whom is Odamex's documented behaviour, **to be confirme
     Nebula: the host could read them. So it is used **only for the host's own views**, which run on the host's own machines anyway. Players
     get no `pods/portforward` (their Role today has `pods/log` and `pods/exec` only, `poc/participant.py`), and none is added.
   - **the pod's own IP, from the watcher's own node**: the player daemon runs on the node where the pod is pinned and connects to the
-    pod's IP directly. Cilium lets a node reach its own pods (allow-localhost, its default), and the party NetworkPolicy already refuses
-    every other node and pod, so the stream port answers on that node and nowhere else. No relay, nothing through the host, **no
+    pod's IP directly. Cilium lets a node reach its own pods (`allow-localhost`, `always` by default under Kubernetes; `poc/cilium.sh`
+    will pin it so a chart default cannot change it), and the pool and party NetworkPolicies already refuse every other node and every pod
+    of another namespace, so the stream port answers on that node and nowhere else. It is not a new power: the node's owner already
+    reaches every pod on their node (golden rule 1). Because every process of every user on that node can reach the pod's IP, the
+    pod's stream and input endpoints demand a secret: the player daemon writes a random one into the pod's environment when it creates
+    the pod, and the pod refuses any request without it. No relay, nothing through the host, **no
     `hostPort` and no change to Pod Security** (it is enforced per namespace by labels, and `hostPort` is a baseline control: an
     exception would be a new trust boundary, not a small one). It is **the path for every player's views and for playing**.
 
@@ -106,8 +111,8 @@ player's eyes and change whom is Odamex's documented behaviour, **to be confirme
 - **Cost.** One game client per view: CPU on the watcher's side (a software renderer at 320x200), and the server's bandwidth per
   client. The watcher's namespace quota is the real cap: today a player has 1000m CPU in all (`poc/pool.yaml`, 500m per container),
   and the quota counts limits: a robot client's is 400m, a server's 300m. A player who neither hosts nor plays has room for two
-  spectators at the robot's size; one who plays (400m) for one; one who hosts and plays (700m) for none. A spectator needs no more than
-  a smaller limit than the robot's (no input, one view), to be measured in the spike. More views need a bigger quota, which is the host's
+  spectators at the robot's size; one who plays (400m) for one; one who hosts and plays (700m) for none. A spectator should fit a smaller
+  limit than the robot's (no input, one view), to be measured in the spike. More views need a bigger quota, which is the host's
   to give. The page offers one view at a time.
 
 **Decisions asked (D2, D3):**
@@ -168,7 +173,8 @@ poc-lighthouse and poc-weakness); the issue that builds each is in brackets.
 | 6 | someone watches a game without a party | a view is a game client: no party, no path (NetworkPolicy) | WB01: a watcher with no party gets no frame (as DM's "a third player connects nothing") [#101] |
 | 7 | someone is watched without knowing | the server announces spectators; the join text says games can be watched | WB02: the server log and a player's log name the spectator [#101] |
 | 8 | a view shows more than the game (a screen, a desktop) | the frames come from the watcher's own spectator client, never from the watched machine | WB03: the watched player's node runs no new pod and no new listener [#101] |
-| 9 | the picture or the keys leave the machine | between the tab and the local daemon, the loopback; between a player's pod and that player's daemon, the pod's IP reached from the player's own node only (D7); the party carries only the game's UDP; players have no `pods/portforward` | WB04: the stream port answers from the pod's own node and from no other node or pod, no pod has a `hostPort`, and a player's `kubectl port-forward` is a 403 [#101, #102] |
+| 9 | the picture or the keys leave the machine | between the tab and the local daemon, the loopback; between a player's pod and that player's daemon, the pod's IP reached from the player's own node only (D7); the party carries only the game's UDP; players have no `pods/portforward` | WB04: the stream port answers from the pod's own node and from no other node and no pod of another namespace, no pod has a `hostPort`, Cilium's `allow-localhost` is `always` on every agent, and a player's `kubectl port-forward` is a 403 [#101, #102] |
+| 16 | another user or program on the player's node reads the frames or types into the game through the pod's IP | the pod's stream and input endpoints refuse a request without the per-pod secret the player daemon set at creation | WB08: a request without the secret, or with another pod's, is refused [#101, #102] |
 | 10 | the page pulls code from the network | C06 unchanged; a vendored viewer is pinned and hashed | C06 extended to the new files [#102] |
 | 11 | many views exhaust the server or the watcher | the watcher's namespace quota (`poc/pool.yaml`) caps the spectator pods; spectators count against the server's client limit | WB05 [#101] |
 | 12 | a new public surface | none is added: the only change near the page server is the join text of D3 (`poc/page/page.py`) | the privacy gate of the public page, unchanged |
