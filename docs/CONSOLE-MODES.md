@@ -1,7 +1,8 @@
 # The console for everyone: host mode, player mode, the game in the browser
 
-Status: **RFC of [#99](https://github.com/villadalmine/k8s-lan-party/issues/99)** (milestone v0.6.0). Nothing here is built. It is decided
-when its PR merges and the decision is recorded in #99; until then #100 to #103 stay blocked. It builds on the host console of v0.4.0
+Status: **RFC of [#99](https://github.com/villadalmine/k8s-lan-party/issues/99)** (milestone v0.6.0). Nothing here is built except
+#103's first piece (`GET /verbs`, PR #107, built ahead of this decision because it changes no rule: it only shows what v0.4.0 already
+refuses). It is decided when its PR merges and the decision is recorded in #99; until then #100 to #102 stay blocked. It builds on the host console of v0.4.0
 ([CONSOLE.md](CONSOLE.md)), and changes none of that document's decisions unless a row of *Decisions* below says so.
 
 ## What was asked
@@ -80,11 +81,13 @@ player's eyes and change whom is Odamex's documented behaviour, **to be confirme
   spectator is a **pod in the watcher's namespace, pinned to the watcher's own node**, like the robots of poc-doom. Its frames then have to
   reach the watcher's console on that machine. There are two ways, and the rule of this RFC picks between them (**D7**):
   - `kubectl port-forward` to the pod sends the frames, and for playing the keys, through the API server, that is through the host, over
-    Nebula: the host could read them. So it is used **only for the host's own views**, which are on the host's machine anyway. Players
+    Nebula: the host could read them. So it is used **only for the host's own views**, which run on the host's own machines anyway. Players
     get no `pods/portforward` (their Role today has `pods/log` and `pods/exec` only, `poc/participant.py`), and none is added.
-  - a `hostPort` on the watcher's own node, bound to `127.0.0.1`: no relay, nothing through the host. It is **the path for every
-    player's views and for playing**. It needs a narrow exception to PSS restricted for the spectator and game-client pods only (the
-    `hostPort` field, the loopback address checked by an admission rule), and a rule that the port is never on a Nebula or LAN address.
+  - **the pod's own IP, from the watcher's own node**: the player daemon runs on the node where the pod is pinned and connects to the
+    pod's IP directly. Cilium lets a node reach its own pods (allow-localhost, its default), and the party NetworkPolicy already refuses
+    every other node and pod, so the stream port answers on that node and nowhere else. No relay, nothing through the host, **no
+    `hostPort` and no change to Pod Security** (it is enforced per namespace by labels, and `hostPort` is a baseline control: an
+    exception would be a new trust boundary, not a small one). It is **the path for every player's views and for playing**.
 
   Only the game's own UDP crosses the party; a player's picture and keys never leave the player's node. Threat 9 holds that.
 - **Watching is a party.** A spectator is a client of the server, and the server is reachable only through a party both sides accepted.
@@ -102,8 +105,10 @@ player's eyes and change whom is Odamex's documented behaviour, **to be confirme
   is never a capture of that player's screen, desktop or keys.
 - **Cost.** One game client per view: CPU on the watcher's side (a software renderer at 320x200), and the server's bandwidth per
   client. The watcher's namespace quota is the real cap: today a player has 1000m CPU in all (`poc/pool.yaml`, 500m per container),
-  a robot client asks 400m and a server 300m, so a player who hosts a game has room for one spectator, and one who does not for two.
-  More views need a bigger quota, which is the host's to give. The page offers one view at a time.
+  and the quota counts limits: a robot client's is 400m, a server's 300m. A player who neither hosts nor plays has room for two
+  spectators at the robot's size; one who plays (400m) for one; one who hosts and plays (700m) for none. A spectator needs no more than
+  a smaller limit than the robot's (no input, one view), to be measured in the spike. More views need a bigger quota, which is the host's
+  to give. The page offers one view at a time.
 
 **Decisions asked (D2, D3):**
 - D2: the host watches **through a party** (the server's owner accepts it once), not by its cluster-admin power. The golden rule says the
@@ -118,7 +123,7 @@ without a proxy that turns WebSockets into UDP (a new network path into a party:
 
 So the game client stays a native program on a virtual screen, exactly as the robots run today: a pod in the player's namespace, pinned to
 the player's own node (the party admits nothing else). The player's console shows that screen in the tab and sends the tab's keys and
-mouse back. Between the pod and the console the path is the player's loopback `hostPort` of D7, never a port-forward through the host: the keys
+mouse back. Between the pod and the console the path is the pod's IP from the player's own node (D7), never a port-forward through the host: the keys
 stay on the player's node.
 
 | Way to carry the screen and the input | For | Against |
@@ -163,7 +168,7 @@ poc-lighthouse and poc-weakness); the issue that builds each is in brackets.
 | 6 | someone watches a game without a party | a view is a game client: no party, no path (NetworkPolicy) | WB01: a watcher with no party gets no frame (as DM's "a third player connects nothing") [#101] |
 | 7 | someone is watched without knowing | the server announces spectators; the join text says games can be watched | WB02: the server log and a player's log name the spectator [#101] |
 | 8 | a view shows more than the game (a screen, a desktop) | the frames come from the watcher's own spectator client, never from the watched machine | WB03: the watched player's node runs no new pod and no new listener [#101] |
-| 9 | the picture or the keys leave the machine | between the tab and the local daemon, the loopback; between a player's pod and that player's daemon, a `hostPort` on `127.0.0.1` of the player's own node (D7); the party carries only the game's UDP; players have no `pods/portforward` | WB04: the spectator and game-client pods' `hostPort` is bound to `127.0.0.1` only (an admission rule refuses any other `hostIP`), nothing listens on a Nebula or LAN address, and a player's `kubectl port-forward` is a 403 [#101, #102] |
+| 9 | the picture or the keys leave the machine | between the tab and the local daemon, the loopback; between a player's pod and that player's daemon, the pod's IP reached from the player's own node only (D7); the party carries only the game's UDP; players have no `pods/portforward` | WB04: the stream port answers from the pod's own node and from no other node or pod, no pod has a `hostPort`, and a player's `kubectl port-forward` is a 403 [#101, #102] |
 | 10 | the page pulls code from the network | C06 unchanged; a vendored viewer is pinned and hashed | C06 extended to the new files [#102] |
 | 11 | many views exhaust the server or the watcher | the watcher's namespace quota (`poc/pool.yaml`) caps the spectator pods; spectators count against the server's client limit | WB05 [#101] |
 | 12 | a new public surface | none is added: the only change near the page server is the join text of D3 (`poc/page/page.py`) | the privacy gate of the public page, unchanged |
@@ -176,8 +181,8 @@ poc-lighthouse and poc-weakness); the issue that builds each is in brackets.
 1. **#99** this RFC, decided.
 2. **#103** host mode: `GET /verbs` (each verb, allowed or not for the caller, with why), disabled verbs on the page, the new read views.
 3. **#100** player mode: `edge-mesh console`, its reads and the party verbs, on the same page.
-4. **Spike** (inside #101): one spectator view of a live `poc-doom` match in a tab through the loopback `hostPort`; the numbers (CPU,
-   bandwidth, frames per second).
+4. **#101, first:** the stream path of D7 (the daemon on the pod's node reaching the pod's IP, WB04), then the **spike**: one spectator
+   view of a live `poc-doom` match in a tab through it; the numbers (CPU, bandwidth, frames per second, a spectator's real CPU).
 5. **#101** watching: the host's watcher identity (D6), views, the cap, the announcements, WB01 to WB05.
 6. **#102** playing: the spike of A against B, then the chosen one; start and stop of the game server.
 
@@ -191,7 +196,7 @@ poc-lighthouse and poc-weakness); the issue that builds each is in brackets.
 | D4 | May the page vendor a pinned noVNC if our own input path is not playable? | **Yes**, after the spike, under the public page's rule |
 | D5 | Does player mode count down from the token's own expiry, with no new write by the engine? | **Yes**: the token's `exp` is the lease's end |
 | D6 | Does the host get a watcher identity in the party model (a `watch-host` namespace on an `own` node, never the control plane, that the owner can accept, admitted by `party.py`)? | **Yes**, built in #101 before any host view; without it D2 cannot hold |
-| D7 | May a player's views and game client use a loopback `hostPort` (a narrow PSS exception for those pods, `hostIP` 127.0.0.1 enforced), with port-forward kept for the host's own views only? | **Yes.** The alternative, a port-forward for players, sends their picture and keys through the host and is refused |
+| D7 | Do a player's views and game client reach the player's console only through the pod's IP from the player's own node (no `hostPort`, Pod Security unchanged), with port-forward kept for the host's own views? | **Yes.** A port-forward for players sends their picture and keys through the host and is refused; a `hostPort` would need a Pod Security exception |
 
 ## Out of this milestone
 
