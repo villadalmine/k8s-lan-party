@@ -330,6 +330,8 @@ reads only the files named here, and runs nothing outside the registry; the CA k
 
 ## Relations
 
+- [CONSOLE-MODES.md](CONSOLE-MODES.md) (#99): the RFC of v0.6.0 that extends this console to a player mode and to watching and
+  playing the game.
 - [#50](https://github.com/villadalmine/k8s-lan-party/issues/50): the chat bot becomes the third client of this API, as a `console` client
   with its own token.
 - [#48](https://github.com/villadalmine/k8s-lan-party/issues/48): its operator view (the queue, the leases, the events) is this console; its
