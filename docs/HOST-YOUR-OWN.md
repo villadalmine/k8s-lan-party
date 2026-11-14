@@ -264,7 +264,7 @@ without it every command works as before.
 ```
 
 - **The CLI does not change.** With the daemon running, `./mesh host kick alice` typed in a shell goes through it: you see the same output
-  and get the same exit code, and the action is in `<state>/console/audit.jsonl`. The timer's tick and `panic` never go through it, so a
+  and get the same exit code, and the action is in `.state/console/audit.jsonl`. The timer's tick and `panic` never go through it, so a
   lease still ends, and panic still works, with the daemon stopped. `EMESH_DIRECT=1` runs a command directly.
 - **The web console** listens on the loopback only. From your laptop, open an SSH tunnel with the same port on both ends, then the link:
 
@@ -273,10 +273,12 @@ without it every command works as before.
   ssh you@your-host 'cd <the clone>/poc && ./mesh host console url'
   ```
 
-  It shows the queue, the leases, the players and the audit, with a button per action. Kick, revoke and reap show their plan and ask
-  for the name; panic is one click. It cannot invite, sign with the persistent CA or read a private key: those stay in your shell.
+  Its tabs are Status, Queue, Leases, Players, Parties, Events, Audit and Actions, with a button per action. Kick, revoke and ending
+  one lease show their plan and ask you to type the name; ending every lease asks for `all`; panic is one click. It cannot invite,
+  approve with `--trust friends`, sign with the persistent CA or read a private key: those stay in your shell.
 - **As a service:** `poc/console/deploy/emesh-console.service` (copy it, fill in your user and the clone, and put the variables the engine
-  reads in it: with the daemon running, the engine runs with the unit's environment, not your shell's).
+  reads in it: with the daemon running, the engine runs with the unit's environment, not your shell's). Its active `ExecStart` starts
+  the socket only; for the web console use the commented `ExecStart` with `--web 127.0.0.1:8090` instead.
 
 ![The web console's status view](images/console-status.png)
 
