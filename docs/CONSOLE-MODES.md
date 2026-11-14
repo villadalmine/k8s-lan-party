@@ -174,20 +174,20 @@ poc-lighthouse and poc-weakness); the issue that builds each is in brackets.
 | 7 | someone is watched without knowing | the server announces spectators; the join text says games can be watched | WB02: the server log and a player's log name the spectator [#101] |
 | 8 | a view shows more than the game (a screen, a desktop) | the frames come from the watcher's own spectator client, never from the watched machine | WB03: the watched player's node runs no new pod and no new listener [#101] |
 | 9 | the picture or the keys leave the machine | between the tab and the local daemon, the loopback; between a player's pod and that player's daemon, the pod's IP reached from the player's own node only (D7); the party carries only the game's UDP; players have no `pods/portforward` | WB04: the stream port answers from the pod's own node and from no other node and no pod of another namespace, no pod has a `hostPort`, Cilium's `allow-localhost` is `always` on every agent, and a player's `kubectl port-forward` is a 403 [#101, #102] |
-| 16 | another user or program on the player's node reads the frames or types into the game through the pod's IP | the pod's stream and input endpoints refuse a request without the per-pod secret the player daemon set at creation | WB08: a request without the secret, or with another pod's, is refused [#101, #102] |
 | 10 | the page pulls code from the network | C06 unchanged; a vendored viewer is pinned and hashed | C06 extended to the new files [#102] |
 | 11 | many views exhaust the server or the watcher | the watcher's namespace quota (`poc/pool.yaml`) caps the spectator pods; spectators count against the server's client limit | WB05 [#101] |
 | 12 | a new public surface | none is added: the only change near the page server is the join text of D3 (`poc/page/page.py`) | the privacy gate of the public page, unchanged |
 | 13 | the game image comes from somewhere new | built on the player's machine by `poc/doom/build.sh`; no registry | WB06: the player's node pulls nothing for the game pod (`imagePullPolicy: Never` kept), and the build checks every fetched source against the hashes of `doom.env` [#102] |
 | 14 | the page's input reaches the player's real screen | the daemon injects only into the pod's virtual display (`DISPLAY=:99` fixed in the pod); it has no access to the player's own display | WB07: a key sent from the tab changes nothing outside the pod [#102] |
 | 15 | a web page in the player's browser drives the player daemon (DNS rebinding, a cross-site POST) | the C03 check of v0.4.0 (Host and Origin must be the loopback address and port) in the player daemon too | PM05 [#100] |
+| 16 | another user or program on the player's node reads the frames or types into the game through the pod's IP | the pod's stream and input endpoints refuse a request without the per-pod secret the player daemon set at creation | WB08: a request without the secret, or with another pod's, is refused [#101, #102] |
 
 ## The pieces, in order
 
 1. **#99** this RFC, decided.
 2. **#103** host mode: `GET /verbs` (each verb, allowed or not for the caller, with why), disabled verbs on the page, the new read views.
 3. **#100** player mode: `edge-mesh console`, its reads and the party verbs, on the same page.
-4. **#101, first:** the stream path of D7 (the daemon on the pod's node reaching the pod's IP, WB04), then the **spike**: one spectator
+4. **#101, first:** the stream path of D7 (the daemon on the pod's node reaching the pod's IP behind the per-pod secret, WB04 and WB08), then the **spike**: one spectator
    view of a live `poc-doom` match in a tab through it; the numbers (CPU, bandwidth, frames per second, a spectator's real CPU).
 5. **#101** watching: the host's watcher identity (D6), views, the cap, the announcements, WB01 to WB05.
 6. **#102** playing: the spike of A against B, then the chosen one; start and stop of the game server.
