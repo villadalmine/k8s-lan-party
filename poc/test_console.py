@@ -240,8 +240,7 @@ class DaemonTest(unittest.TestCase):
 
     def test_c14_a_get_changes_no_file_and_runs_only_pure_reads(self):
         before = snapshot(self.state)
-        for p in ("health", "status", "requests", "leases", "players", "parties", "metrics", "actions", "verbs", "events", "audit",
-                  "players/ana/activity", "jobs/0123456789abcdef"):
+        for p in server.ROUTES + ("players/ana/activity", "jobs/0123456789abcdef"):   # every GET route, so a new one is covered
             self.get(p)
             self.call("HEAD", "/api/v1/" + p)
         self.assertEqual(snapshot(self.state), before)

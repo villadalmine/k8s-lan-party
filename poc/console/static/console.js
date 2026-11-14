@@ -115,6 +115,8 @@ function players(rows) {   // the list, and per player a button that asks the cl
       try {
         const r = await api("GET", "players/" + encodeURIComponent(name) + "/activity");
         asked.set(name, r.status === 200 ? r.data.state + (r.data.why ? ": " + r.data.why : "") : (r.data && r.data.message) || "HTTP " + r.status);
+      } catch (e) {
+        asked.set(name, "the console did not answer: " + e.message);
       } finally {
         checking.delete(name);
       }
