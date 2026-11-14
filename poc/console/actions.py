@@ -204,7 +204,7 @@ WHY_LOCAL = "it signs with the persistent CA, or writes a private key or a runni
 
 def command(a: Action) -> str:
     """The engine string as a person types it: `mesh host kick <name>`."""
-    return re.sub(r"\{([a-z]+)\}", r"<\1>", a.engine)
+    return re.sub(r"\{(\w+)\}", r"<\1>", a.engine)
 
 
 def closed(a: Action, role: str) -> list[dict]:
@@ -216,7 +216,7 @@ def closed(a: Action, role: str) -> list[dict]:
 
 
 def verbs(role: str) -> list[dict]:
-    """GET /api/v1/verbs: every verb of the host, with who may run it. `allowed` is for the caller's role; a client draws what is not
+    """GET /api/v1/verbs: every registry verb, plus init and down, with who may run it. `allowed` is for the caller's role; a client draws what is not
     allowed as disabled, with `why` and the `command` to type on the host. It is a description: the check is argv()'s, at each POST."""
     out = [{"verb": a.verb, "summary": a.summary, "command": command(a), "roles": list(a.roles), "allowed": role in a.roles,
             "why": None if role in a.roles else WHY_LOCAL, "closed_values": closed(a, role)} for a in REGISTRY.values()]

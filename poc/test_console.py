@@ -240,7 +240,7 @@ class DaemonTest(unittest.TestCase):
 
     def test_c14_a_get_changes_no_file_and_runs_only_pure_reads(self):
         before = snapshot(self.state)
-        for p in ("health", "status", "requests", "leases", "players", "parties", "metrics", "actions", "events", "audit",
+        for p in ("health", "status", "requests", "leases", "players", "parties", "metrics", "actions", "verbs", "events", "audit",
                   "players/ana/activity", "jobs/0123456789abcdef"):
             self.get(p)
             self.call("HEAD", "/api/v1/" + p)

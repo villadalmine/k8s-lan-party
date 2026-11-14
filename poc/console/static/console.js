@@ -6,6 +6,7 @@
 const $ = (id) => document.getElementById(id);
 const POLL_MS = 5000, JOB_MS = 1000;
 const asked = new Map();   // player -> the last activity answer
+const checking = new Set();   // players whose activity is being asked now: one question at a time each
 let view = "status", timer = null, current = null;   // current: {verb, action, args, plan}
 
 function token() {
@@ -106,12 +107,18 @@ function players(rows) {   // the list, and per player a button that asks the cl
     tr.appendChild(td);
     if (typeof name !== "string") return;
     b.type = "button";
+    b.disabled = checking.has(name);
     b.addEventListener("click", async () => {
+      if (checking.has(name)) return;
+      checking.add(name);
       b.disabled = true;
-      const r = await api("GET", "players/" + encodeURIComponent(name) + "/activity");
-      asked.set(name, r.status === 200 ? r.data.state + (r.data.why ? ": " + r.data.why : "") : (r.data && r.data.message) || "HTTP " + r.status);
-      td.replaceChildren(el("span", asked.get(name) + " "), b);
-      b.disabled = false;
+      try {
+        const r = await api("GET", "players/" + encodeURIComponent(name) + "/activity");
+        asked.set(name, r.status === 200 ? r.data.state + (r.data.why ? ": " + r.data.why : "") : (r.data && r.data.message) || "HTTP " + r.status);
+      } finally {
+        checking.delete(name);
+      }
+      poll();   // the view may have been drawn again while we waited: draw it from the answers, not into a node that left the page
     });
     if (asked.has(name)) td.appendChild(el("span", asked.get(name) + " "));   // the view is drawn again every few seconds: keep the last answer
     td.appendChild(b);
@@ -154,7 +161,7 @@ async function loadHostOnly() {   // what this role may not run: on the page, ne
   const rows = [];
   (status === 200 && Array.isArray(data) ? data : []).forEach((v) => {
     if (!v.allowed) rows.push(v);
-    (v.closed_values || []).forEach((c) => rows.push({ verb: v.verb + " " + c.param + " " + c.value, summary: v.summary, command: c.command, why: c.why }));
+    (v.closed_values || []).forEach((c) => rows.push({ verb: v.verb + " --" + c.param + " " + c.value, summary: v.summary, command: c.command, why: c.why }));
   });
   $("hostonly").hidden = rows.length === 0;
   rows.forEach((v) => {
