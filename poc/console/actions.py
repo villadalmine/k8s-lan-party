@@ -191,3 +191,35 @@ def describe(role: str) -> list[dict]:
     return [{"verb": a.verb, "summary": a.summary, "params": a.params, "required": list(a.required), "confirm": a.confirm,
              "timeout_seconds": a.timeout_seconds, "arg_roles": {k: {v: list(r) for v, r in m.items()} for k, m in a.arg_roles.items()}}
             for a in REGISTRY.values() if role in a.roles]
+
+
+# The host's verbs that are never in the registry (docs/CONSOLE.md, the verb table): shown by GET /verbs so that a client can say where they
+# are typed, never run through the API.
+HOST_ONLY = (
+    ("init", "mesh host init", "create the CA, the lighthouse and the control plane", "the daemon lives in the state this creates"),
+    ("down", "mesh host down", "remove everything, the state too", "it would delete the daemon's own socket and audit log"),
+)
+WHY_LOCAL = "it signs with the persistent CA, or writes a private key or a running machine's configuration: typed on the host only"
+
+
+def command(a: Action) -> str:
+    """The engine string as a person types it: `mesh host kick <name>`."""
+    return re.sub(r"\{(\w+)\}", r"<\1>", a.engine)
+
+
+def closed(a: Action, role: str) -> list[dict]:
+    """The argument values of an allowed verb that this role may still not send (approve --trust friends for the web)."""
+    if role not in a.roles:
+        return []
+    return [{"param": k, "value": v, "command": re.sub(r"<" + k + r">", v, command(a)), "why": WHY_LOCAL}
+            for k, m in a.arg_roles.items() for v, roles in m.items() if role not in roles]
+
+
+def verbs(role: str) -> list[dict]:
+    """GET /api/v1/verbs: every registry verb, plus init and down, with who may run it. `allowed` is for the caller's role; a client draws what is not
+    allowed as disabled, with `why` and the `command` to type on the host. It is a description: the check is argv()'s, at each POST."""
+    out = [{"verb": a.verb, "summary": a.summary, "command": command(a), "roles": list(a.roles), "allowed": role in a.roles,
+            "why": None if role in a.roles else WHY_LOCAL, "closed_values": closed(a, role)} for a in REGISTRY.values()]
+    out += [{"verb": verb, "summary": summary, "command": cmd, "roles": [], "allowed": False, "why": why, "closed_values": []}
+            for verb, cmd, summary, why in HOST_ONLY]
+    return out

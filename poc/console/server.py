@@ -12,7 +12,7 @@ the only thing kept (<state>/console/web.token.sha256), Host and Origin checks, 
     server.py url --state DIR [--web ADDR]       a new web token (the old one dies), printed once in a link: `mesh host console url`
     server.py rotate-token --state DIR           a new web token, never printed: the old one dies (`mesh host console rotate-token`)
 
-    GET /api/v1/health | status | requests | leases | players | players/{name}/activity | parties | events | audit | metrics | actions
+    GET /api/v1/health | status | requests | leases | players | players/{name}/activity | parties | events | audit | metrics | actions | verbs
     GET /api/v1/jobs/{id}
 
     POST /api/v1/actions/{verb}   {"args": {...}} -> a job (202), or a plan and a confirm token (200); again with
@@ -77,7 +77,7 @@ BAD_TOKENS, BAD_WINDOW, LOCKOUT = 10, 600, 600   # 10 wrong web tokens in 10 min
 STATIC = HERE / "static"
 STATIC_FILES = {"/": ("index.html", "text/html; charset=utf-8"), "/console.js": ("console.js", "application/javascript; charset=utf-8"),
                 "/console.css": ("console.css", "text/css; charset=utf-8")}
-ROUTES = ("health", "status", "requests", "leases", "players", "parties", "events", "audit", "metrics", "actions")
+ROUTES = ("health", "status", "requests", "leases", "players", "parties", "events", "audit", "metrics", "actions", "verbs")
 
 
 class HungUp(Exception):
@@ -287,6 +287,8 @@ class Console:
             return 200, self.read("metrics"), "text"
         if path == "actions":
             return 200, actions.describe(role), "json"
+        if path == "verbs":
+            return 200, actions.verbs(role), "json"
         if path in ("events", "audit"):
             limit = number(query, "limit", 100, 1, MAX_LINES)
             since = number(query, "since", 0, 0, 2 ** 40) if path == "events" else 0

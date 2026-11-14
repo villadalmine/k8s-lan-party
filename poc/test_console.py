@@ -142,6 +142,16 @@ class RegistryTest(unittest.TestCase):
                 actions.argv(verb, {}, "local")
             self.assertEqual(e.exception.status, 404)
         self.assertEqual({a["verb"] for a in actions.describe("console")} & {"invite", "bundle", "refresh"}, set())
+        # GET /verbs shows them to the console role as not allowed, with where to type them; init and down are never anybody's
+        shown = {v["verb"]: v for v in actions.verbs("console")}
+        self.assertEqual({k for k, v in shown.items() if not v["allowed"]}, {"invite", "bundle", "refresh", "init", "down"})
+        self.assertEqual(shown["invite"]["command"], "mesh host invite <name> --ttl <ttl> --trust <trust>")
+        self.assertTrue(all(v["why"] for v in shown.values() if not v["allowed"]) and not any(v["why"] for v in shown.values() if v["allowed"]))
+        local = {v["verb"]: v["allowed"] for v in actions.verbs("local")}
+        self.assertEqual({k for k, ok in local.items() if not ok}, {"init", "down"})
+        self.assertEqual([c["value"] for v in actions.verbs("console") for c in v["closed_values"]], ["friends"])
+        self.assertEqual([c for v in actions.verbs("local") for c in v["closed_values"]], [])
+        self.assertEqual(set(shown) - {"init", "down"}, set(actions.REGISTRY))
 
 
 @unittest.skipUnless(LINUX, "the daemon needs Linux (SO_PEERCRED)")
@@ -230,8 +240,7 @@ class DaemonTest(unittest.TestCase):
 
     def test_c14_a_get_changes_no_file_and_runs_only_pure_reads(self):
         before = snapshot(self.state)
-        for p in ("health", "status", "requests", "leases", "players", "parties", "metrics", "actions", "events", "audit",
-                  "players/ana/activity", "jobs/0123456789abcdef"):
+        for p in server.ROUTES + ("players/ana/activity", "jobs/0123456789abcdef"):   # every GET route, so a new one is covered
             self.get(p)
             self.call("HEAD", "/api/v1/" + p)
         self.assertEqual(snapshot(self.state), before)
