@@ -65,27 +65,56 @@ The chat bot of #50 will be a `console` client with a token of its own; whether 
 longer: the daemon then refuses to start (exit 2) and says to set `EMESH_CONSOLE_SOCK` (for example under `$XDG_RUNTIME_DIR`, which is 0700
 and the user's own); the CLI reads the same variable.
 
-**The web listener.** `mesh host console --web 127.0.0.1:8090`. The address must be a loopback address (`127.0.0.0/8` or `::1`); `0.0.0.0`,
-`::`, the Nebula IP, a LAN address or a name that resolves to one of them are refused at start (exit 2). The bearer token is 32 random bytes
-(base64url); the daemon keeps only its SHA-256 in `$STATE/console/web.token.sha256` (0600) and compares with `hmac.compare_digest`.
+**The web listener** (built in #89). `mesh host console --web 127.0.0.1:8090`. The address must be a loopback IP literal (`127.0.0.0/8` or
+`[::1]`) with a port; `0.0.0.0`, `::`, the Nebula IP, a LAN address and every name (`localhost` included: what a name resolves to can change)
+are refused at start (exit 2), before the socket is created. The page is three static files (`poc/console/static/`: `index.html`,
+`console.js`, `console.css`), served from memory with page.py's headers and CSP: no build, no framework, no third-party file, no inline
+script or style, and everything that came from the server is written with `textContent`. The page itself needs no token (it holds
+nothing); every `/api/v1/` call on this listener does. The API is the socket's, with role `console`: `GET /actions` lists only the verbs
+that role may run, and the job output it sees is redacted (only the `local` role, on the socket, sees the raw output, the #85 decision).
 
-The token's life: `mesh host console url` makes a new token (the old one dies at once) and prints it **once**, in a link
-`http://127.0.0.1:8090/#t=<token>`. "One-time" means the link: the token itself is a bearer token, valid until the next `url`,
-`rotate-token` or a restart of the daemon (a restart forgets nothing on disk but the daemon can no longer print it, so a new `url` is needed
-anyway). The fragment never reaches a server log or a `Referer`; the page moves the token into `sessionStorage` (a reload of the tab keeps
-working, closing the tab forgets it) and removes it from the address bar. `mesh host console rotate-token` kills it without a new link. The
-token never reaches the engine: not in its argv, not in its environment.
+The bearer token is 32 random bytes (base64url); the daemon keeps only its SHA-256 in `$STATE/console/web.token.sha256` (0600), reads it on
+every call and compares with `hmac.compare_digest`. A confirm token issued to the web is bound to the hash of the web token in use (behind
+the SSH tunnel every peer is 127.0.0.1, so the address would prove nothing); its audit line says `source: web`, `role: console`, `uid:
+null`.
+
+The token's life: `mesh host console url [--web ADDR]` makes a new token (the old one dies at once) and prints it **once**, in a link
+`http://127.0.0.1:8090/#t=<token>`. "One-time" means the link: the token itself is a bearer token, valid until the next `url` or
+`rotate-token`. It survives a restart of the daemon (only its hash is on disk, and the daemon reads it there), but nothing can print it
+again: a lost link needs a new `url`. The fragment never reaches a server log or a `Referer`; the page moves the token into
+`sessionStorage` (a reload of the tab keeps working, closing the tab forgets it) and removes it from the address bar. `mesh host console
+rotate-token` kills it without a new link. Both commands run on the host only, directly, never through the API, so a stolen token cannot
+mint the next one. The token never reaches the engine: not in its argv, not in its environment.
+
+Host and Origin: the `Host` header must be the address the daemon listens on, `127.0.0.1`, `[::1]` or `localhost`, with its port, and an
+`Origin`, when the browser sends one, must be `http://` and one of those; anything else is 403, for every method, the page included, so a site that makes
+its name resolve to 127.0.0.1 (DNS rebinding) gets nothing. There are no CORS headers (`OPTIONS` is 405), no cookie, and the API reads
+JSON bodies only (415 for a form).
 
 Bad tokens: only a **wrong** token counts (a request with no `Authorization` header is a plain 401 and counts nothing, so a page that merely
-points at the loopback cannot lock the operator out). 10 wrong tokens in 10 minutes give 429 on the web listener for 10 minutes, the right
-token too; the socket is not affected, so `mesh host console rotate-token` always works.
+points at the loopback cannot lock the operator out). 10 wrong tokens in 10 minutes give 429 on the web listener's API for 10 minutes, the
+right token too (the page still loads and says so). Anyone on the host can reach a loopback port, so the way out is immediate: a new token
+(`mesh host console url` or `rotate-token`, on the host) lifts the lockout and starts a new count. The socket is not affected, so those
+commands always work.
 
-**From another machine** (the recipe, with a screenshot, lands with #89):
+**From another machine.** Nothing new is opened on the host: an SSH tunnel brings the loopback port to your machine. Use the **same port**
+on both ends, because the daemon checks the `Host` header against its own port.
 
 ```sh
-ssh -N -L 8090:127.0.0.1:8090 you@your-host          # the tunnel: nothing new is opened on the host
-ssh you@your-host 'cd <the clone>/poc && ./mesh host console url'    # then open the printed link on your machine
+# on the host (or in the systemd unit's ExecStart): the daemon with the web console
+./mesh host console --web 127.0.0.1:8090
+# on your machine: the tunnel, then a link (the token is in its fragment; open the link in your browser)
+ssh -N -L 8090:127.0.0.1:8090 you@your-host &
+ssh you@your-host 'cd <the clone>/poc && ./mesh host console url'
 ```
+
+![The web console: the status of the game and one button per action of the console role](images/console-status.png)
+
+*The status view (made-up data). One button per action the `console` role may run; the red ones show their plan first.*
+
+![The plan of a kick: what it will do, and the player's name typed to confirm](images/console-plan.png)
+
+*Kick shows its plan and asks for the name (panic is one click on purpose); a wrong name costs no new plan.*
 
 ## The verbs: what each one does to the state, and how the API treats it
 
@@ -306,8 +335,9 @@ issue that builds each test is in brackets.
 | 13 | a secret leaks through output, audit, notify or a response | the redaction step (above) on every path out; a leak test plants each secret | C13 [#86, #87] |
 | 14 | a read changes the game (a token burned, a party reconciled) | pure-read engine modes; a recording fake engine fails the test if a GET writes a file or runs a mutating `kubectl` | C14 [#86] |
 | 15 | the daemon is down or busy when it matters | the timer calls the engine directly (expiry never needs the daemon); `mesh host panic` is always direct; the CLI works without the daemon (no socket: direct) | C15 [#88]: `poc/test_console_cli.py` (no socket, a socket with no daemon: direct), K02: the timer expires a lease with the daemon stopped [#88] |
-| 16 | denial of service of the daemon | page.py's limits (body size, connections, read timeouts); 30 mutations a minute; the socket keeps working when the web listener is rate limited | C16 [#86] |
+| 16 | denial of service of the daemon | page.py's limits (body size, 16 connections, read timeouts) and a deadline for reading a whole request (20 s: a client that drips a byte at a time is hung up; the work after the request is read, such as a plan's reads, is not under it); 30 mutations a minute; the socket keeps working when the web listener is rate limited | C16 [#86], `a_slow_client_is_hung_up...` [#89] |
 | 17 | odd inputs | random bodies, values and paths against every route: no 5xx, the daemon keeps answering | C17 [#86, #87] |
+| 18 | another user on the host reaches the web port (a loopback TCP port has no peer uid, unlike the socket) | the token (256 bits) for anything but the page; 10 wrong tokens lock the web API, and `mesh host console url` (on the host, the operator's user) lifts it at once with a new token; the read deadline and the connection limit of row 16 | `a_new_link_lifts_the_lockout` [#89]; what stays open: such a user can keep the web console busy or locked (not the socket, not the CLI) |
 
 **What stays open (honest gaps).** Whoever has the operator's laptop with an open tunnel and the token has the `console` role until the token
 is rotated: it can kick, reap and panic, not sign. Anyone who is the host's user can edit `audit.jsonl`: it records, it does not prove. The

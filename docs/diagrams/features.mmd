@@ -113,6 +113,7 @@ flowchart LR
     p_poc_pool_yaml["poc/pool.yaml"]
     p_poc_meshlock_py["poc/meshlock.py"]
     p_poc_console___py["poc/console/*.py"]
+    p_poc_console_static__["poc/console/static/*"]
     p_poc_pool_py["poc/pool.py"]
     p_poc_participant_py["poc/participant.py"]
     p_poc_participant_policy_yaml["poc/participant-policy.yaml"]
@@ -235,12 +236,13 @@ flowchart LR
   f_admission_auto -.-> p_poc_admission_py
   f_admission_auto -.-> p_poc_pool_yaml
   f_admission_auto -.-> p_poc_mesh
-  s_poc_console -->|"K02, K10-K25"| f_host_console
+  s_poc_console -->|"K01, K02, K10-K25"| f_host_console
   f_host_console --> c_admission
   f_host_console -.-> p_poc_mesh
   f_host_console -.-> p_poc_lib_sh
   f_host_console -.-> p_poc_meshlock_py
   f_host_console -.-> p_poc_console___py
+  f_host_console -.-> p_poc_console_static__
   f_host_console -.-> p_poc_admission_py
   s_poc_pool -->|"PL01-PL25"| f_pool
   f_pool --> c_admission

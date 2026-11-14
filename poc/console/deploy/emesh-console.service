@@ -21,6 +21,8 @@ UMask=0077
 #Environment=ADMISSION_NOTIFY_IP=1
 # (LH_RSH and the rest of the lighthouse's settings are read from .state/lighthouse.env by the engine itself.)
 ExecStart=<the clone>/poc/mesh host console
+# The web console (#89, docs/CONSOLE.md): loopback only, reached through an SSH tunnel; `mesh host console url` prints its link.
+#ExecStart=<the clone>/poc/mesh host console --web 127.0.0.1:8090
 Restart=on-failure
 RestartPreventExitStatus=2
 RestartSec=5

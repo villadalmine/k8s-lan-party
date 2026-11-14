@@ -4,9 +4,13 @@
 It listens on a unix socket in the host's state directory and answers only the host's own user (the peer's uid, SO_PEERCRED, must be
 this process's): role `local`. It runs the engine (`poc/mesh`, with EMESH_DIRECT=1) as an argument list, never a shell: for a GET only
 pure reads; every response passes through one redaction step. Mutations are registry verbs run as jobs, with a plan and a confirm token
-for the dangerous ones (#87, poc/console/mutate.py); the web listener comes with #89.
+for the dangerous ones (#87, poc/console/mutate.py). With --web (#89) a second listener, on a loopback address only, serves the web
+console (poc/console/static/, no auth: it holds nothing) and the same API to role `console`, behind a bearer token whose SHA-256 is
+the only thing kept (<state>/console/web.token.sha256), Host and Origin checks, and a lockout after 10 wrong tokens.
 
-    server.py serve --state DIR [--mesh PATH] [--socket PATH]     (`mesh host console` runs it in the foreground)
+    server.py serve --state DIR [--mesh PATH] [--socket PATH] [--web 127.0.0.1:8090]   (`mesh host console` runs it in the foreground)
+    server.py url --state DIR [--web ADDR]       a new web token (the old one dies), printed once in a link: `mesh host console url`
+    server.py rotate-token --state DIR           a new web token, never printed: the old one dies (`mesh host console rotate-token`)
 
     GET /api/v1/health | status | requests | leases | players | players/{name}/activity | parties | events | audit | metrics | actions
     GET /api/v1/jobs/{id}
@@ -19,9 +23,15 @@ Python standard library only (and poc/page/page.py's security headers and strict
 from __future__ import annotations
 
 import argparse
+import base64
+import collections
+import hashlib
+import hmac
+import ipaddress
 import json
 import os
 import re
+import secrets
 import shlex
 import signal
 import socket
@@ -30,6 +40,7 @@ import stat
 import struct
 import subprocess
 import sys
+import tempfile
 import threading
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
@@ -48,6 +59,7 @@ SUN_PATH_MAX = 107                     # bytes of a unix socket path (108 with t
 ENGINE_TIMEOUT = 60                    # seconds a read of the engine may take (it waits for the ledger's lock behind a tick)
 MAX_CONNECTIONS = 16                   # handled at once; more get a 503
 SOCKET_TIMEOUT = 10                    # a client that sends nothing for this long is dropped
+REQUEST_READ_SECONDS = 20              # the whole request (headers and body) must arrive within this, however slowly it drips
 MAX_LINES = 500
 MAX_BODY = 4096                        # page.py's limit for a request body
 NAME = re.compile(r"[a-z][a-z0-9-]{1,19}")
@@ -60,7 +72,16 @@ READS = {   # route -> the engine's pure read (argv after poc/mesh) and how its 
     "parties": (["host", "party", "list", "--read-only", "--json"], "json"),
     "metrics": (["host", "admission-metrics", "--read-only"], "text"),
 }
+WEB_DEFAULT = "127.0.0.1:8090"
+BAD_TOKENS, BAD_WINDOW, LOCKOUT = 10, 600, 600   # 10 wrong web tokens in 10 minutes: 429 on the web listener for 10 minutes
+STATIC = HERE / "static"
+STATIC_FILES = {"/": ("index.html", "text/html; charset=utf-8"), "/console.js": ("console.js", "application/javascript; charset=utf-8"),
+                "/console.css": ("console.css", "text/css; charset=utf-8")}
 ROUTES = ("health", "status", "requests", "leases", "players", "parties", "events", "audit", "metrics", "actions")
+
+
+class HungUp(Exception):
+    """The read deadline hung this request up: nothing more is done for it, not even an answer."""
 
 
 class Refusal(Exception):
@@ -240,7 +261,7 @@ class Console:
         job = self.runner.get(view["id"])
         return job.raw() if job is not None else None
 
-    def get(self, path: str, query: dict) -> tuple[int, object, str]:
+    def get(self, path: str, query: dict, role: str = "local") -> tuple[int, object, str]:
         """(status, body, kind) for a GET; kind is json or text."""
         parts = path.split("/")
         if len(parts) == 2 and parts[0] == "players" and parts[1] != "":
@@ -257,7 +278,7 @@ class Console:
                 raise Refusal(404, "no-such-job", "no such job (jobs are kept an hour)")
             return 200, job.view(self.redact), "json"
         if path == "health":
-            return 200, {"ok": True, "version": VERSION, "role": "local"}, "json"
+            return 200, {"ok": True, "version": VERSION, "role": role}, "json"
         if path == "status":
             return 200, self.status(), "json"
         if path in ("requests", "leases", "players", "parties"):
@@ -265,7 +286,7 @@ class Console:
         if path == "metrics":
             return 200, self.read("metrics"), "text"
         if path == "actions":
-            return 200, actions.describe("local"), "json"
+            return 200, actions.describe(role), "json"
         if path in ("events", "audit"):
             limit = number(query, "limit", 100, 1, MAX_LINES)
             since = number(query, "since", 0, 0, 2 ** 40) if path == "events" else 0
@@ -299,6 +320,11 @@ class Handler(BaseHTTPRequestHandler):
     def address_string(self):   # a unix socket has no address
         return "local"
 
+    def who(self) -> tuple[str, str, int | None]:
+        """(the credential a confirm token is bound to, the audit's source, the audit's uid): the socket's peer."""
+        uid = peer_uid(self.connection)
+        return f"uid:{uid}", "socket", uid
+
     def log_request(self, code="-", size="-"):   # no query, no body
         sys.stderr.write(f"{self.command} {self.path.split('?', 1)[0][:80]} {code}\n")
 
@@ -323,9 +349,17 @@ class Handler(BaseHTTPRequestHandler):
         body = json.dumps(out, sort_keys=True) + "\n"
         self._send(status, body.encode(), "application/json; charset=utf-8", extra)
 
+    def read_done(self) -> None:
+        """The request is read: from here the work may take long (a plan's reads), and the read deadline no longer applies. If the
+        deadline already hung it up (in the instant between the last byte and here), nothing is done for it: no job behind its back."""
+        if not self.server.read_done(self.request):
+            raise HungUp
+
     def _route(self, method: str) -> None:
         raw, _, q = self.path.partition("?")
         try:
+            if method != "POST":
+                self.read_done()   # inside the try: a GET hung up in that instant ends here too, silently
             if not raw.startswith("/api/v1/") or "//" in raw or "/../" in raw + "/" or "\\" in raw:
                 raise Refusal(404, "not-found", "no such route")
             path = raw[len("/api/v1/"):].rstrip("/")
@@ -340,19 +374,20 @@ class Handler(BaseHTTPRequestHandler):
                     raise Refusal(404, "no-such-verb", "not a verb of the registry")
                 try:
                     body = PageHandler._body(self, MAX_BODY)
+                    self.read_done()
                 except PageRefusal as e:
                     if e.status == 415:   # refused before the body was read: read it, so a client still sending it gets our answer
                         self._drain()
                     raise Refusal(e.status, e.error, e.message) from None
-                uid = peer_uid(self.connection)
-                status, out = self.console.act(verb, body, self.role, f"uid:{uid}", "socket", uid)
+                cred, source, uid = self.who()
+                status, out = self.console.act(verb, body, self.role, cred, source, uid)
                 return self._json(status, out, raw=self.console.raw_job(out, self.role))
             if method == "POST":
                 self._drain()
             if method == "GET" and path.startswith("actions/"):
                 self._json(405, {"error": "method", "message": "not allowed here"}, {"Allow": "POST"})
             elif method == "GET":
-                status, body, kind = self.console.get(path, query)
+                status, body, kind = self.console.get(path, query, self.role)
                 if kind == "text":
                     self._send(status, self.console.redact.text(body).encode(), "text/plain; version=0.0.4; charset=utf-8")
                 else:
@@ -361,6 +396,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(405, {"error": "method", "message": "not allowed here"}, {"Allow": "POST" if path.startswith("actions/") else "GET"})
             else:
                 raise Refusal(404, "not-found", "no such route")
+        except HungUp:
+            return
         except (Refusal, actions.Refused) as e:
             self._json(e.status, {"error": e.error, "message": e.message})
         except Exception as e:   # never a traceback to the client
@@ -397,21 +434,30 @@ def peer_uid(sock: socket.socket) -> int:
     return struct.unpack("3i", creds)[1]
 
 
-class Server(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
-    daemon_threads = True
+class Slots:
+    """At most MAX_CONNECTIONS handled at once; more get a 503 at once; and a request that is not read within REQUEST_READ_SECONDS
+    is hung up (a client dripping a byte every few seconds beats the per-read timeout, not this). A mixin of both listeners."""
+    def read_done(self, request) -> bool:
+        """Stop the request's read deadline: False when it already fired (the request was hung up)."""
+        with self.timers_lock:
+            t = self.timers.pop(id(request), None)
+        if t:
+            t.cancel()
+        return t is not None
 
-    def __init__(self, path: str, handler, uid: int):
-        self.uid = uid
-        self.slots = threading.BoundedSemaphore(MAX_CONNECTIONS)
-        super().__init__(path, handler)
+    def expire(self, request) -> None:
+        with self.timers_lock:
+            if self.timers.pop(id(request), None) is None:
+                return   # read in time: the deadline lost the race
+        _hang_up(request)
 
-    def verify_request(self, request, client_address) -> bool:
-        """Only the daemon's own user: anyone else is closed before a byte is read (the 0700 directory stops them first)."""
-        try:
-            return peer_uid(request) == self.uid
-        except OSError:
-            return False
-
+    def handle_error(self, request, client_address):
+        """A client gone (hung up by the deadline, or it closed): one line, not a traceback for each."""
+        e = sys.exc_info()[1]
+        if isinstance(e, (OSError, ValueError)):
+            sys.stderr.write(f"console: a client went away ({e.__class__.__name__})\n")
+        else:
+            super().handle_error(request, client_address)
     def process_request(self, request, client_address):
         if not self.slots.acquire(blocking=False):
             try:
@@ -422,10 +468,203 @@ class Server(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
         super().process_request(request, client_address)
 
     def process_request_thread(self, request, client_address):
+        timer = threading.Timer(REQUEST_READ_SECONDS, self.expire, (request,))
+        timer.daemon = True
+        with self.timers_lock:
+            self.timers[id(request)] = timer
+        timer.start()
         try:
             super().process_request_thread(request, client_address)
         finally:
+            self.read_done(request)
             self.slots.release()
+
+
+def _hang_up(request) -> None:
+    try:
+        request.shutdown(socket.SHUT_RDWR)
+    except OSError:
+        pass
+
+
+class Server(Slots, socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
+    daemon_threads = True
+
+    def __init__(self, path: str, handler, uid: int):
+        self.uid = uid
+        self.slots = threading.BoundedSemaphore(MAX_CONNECTIONS)
+        self.timers, self.timers_lock = {}, threading.Lock()
+        super().__init__(path, handler)
+
+    def verify_request(self, request, client_address) -> bool:
+        """Only the daemon's own user: anyone else is closed before a byte is read (the 0700 directory stops them first)."""
+        try:
+            return peer_uid(request) == self.uid
+        except OSError:
+            return False
+
+# --- the web listener (#89): loopback only, role console ---------------------------------------------------------------------------
+
+def web_address(text: str) -> tuple[str, int]:
+    """`127.0.0.1:8090` or `[::1]:8090`: a loopback IP literal and a port, or exit 2. Names are refused (one that resolves to a loopback
+    today may not tomorrow), and so are 0.0.0.0, ::, the Nebula IP and any LAN address."""
+    m = re.fullmatch(r"\[([0-9A-Fa-f:.]+)\]:([0-9]{1,5})|([0-9.]+):([0-9]{1,5})", text or "")
+    if not m:
+        raise fail(f"--web {text!r}: give a loopback address and a port, 127.0.0.1:8090 or [::1]:8090")
+    host, port = (m.group(1), m.group(2)) if m.group(1) else (m.group(3), m.group(4))
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        raise fail(f"--web {text!r}: {host} is not an IP address") from None
+    if not ip.is_loopback or isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped:
+        raise fail(f"--web {text!r}: the web console listens on the loopback only (127.0.0.0/8 or ::1); reach it through an SSH tunnel")
+    if not 0 < int(port) < 65536:
+        raise fail(f"--web {text!r}: no such port")
+    return str(ip), int(port)
+
+
+def token_file(state: Path) -> Path:
+    return state / "console" / "web.token.sha256"
+
+
+def digest(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def new_token(state: Path) -> str:
+    """32 random bytes (base64url); only its SHA-256 is written (0600, atomically): the old token dies at once."""
+    d = state / "console"
+    if not d.is_dir():
+        d.mkdir(mode=0o700)
+        os.chmod(d, 0o700)
+    token = base64.urlsafe_b64encode(secrets.token_bytes(32)).rstrip(b"=").decode()
+    fd, tmp = tempfile.mkstemp(dir=d, prefix=".web.token.")   # 0600, a fresh name: a file left by a killed run is never in the way
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(digest(token) + "\n")
+        os.replace(tmp, token_file(state))
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
+    return token
+
+
+class Gate:
+    """Wrong web tokens: 10 in 10 minutes lock the web listener for 10 minutes (the right token too). A missing token counts nothing."""
+    def __init__(self, clock=None):
+        self.clock = clock or __import__("time").monotonic
+        self.wrong: collections.deque = collections.deque()
+        self.until = 0.0
+        self.seen = None   # the token hash the count is about
+        self.lock = threading.Lock()
+
+    def locked(self, current: str = "") -> bool:
+        """Locked now? A new token (`mesh host console url` or `rotate-token` on the host) lifts the lockout and starts a new count:
+        the lockout can only be the work of someone who lacks the new token, so it says nothing about it."""
+        with self.lock:
+            if current != self.seen:
+                self.seen, self.until, self.wrong = current, 0.0, collections.deque()
+            return self.clock() < self.until
+
+    def count(self) -> None:
+        with self.lock:
+            now = self.clock()
+            self.wrong.append(now)
+            while self.wrong and self.wrong[0] <= now - BAD_WINDOW:
+                self.wrong.popleft()
+            if len(self.wrong) >= BAD_TOKENS:
+                self.until, self.wrong = now + LOCKOUT, collections.deque()
+
+
+class WebHandler(Handler):
+    role = "console"
+    port = 0
+    bound = "127.0.0.1"   # the address it listens on, as a Host header writes it ([::1] for IPv6)
+    gate: Gate = None
+    static: dict = {}
+
+    def address_string(self):
+        return self.client_address[0]
+
+    def who(self) -> tuple[str, str, int | None]:
+        return f"web:{self.cred}", "web", None   # every web peer is 127.0.0.1 behind the tunnel: the token's hash is the caller
+
+    def hosts(self) -> set[str]:
+        return {f"{self.bound}:{self.port}", f"127.0.0.1:{self.port}", f"[::1]:{self.port}", f"localhost:{self.port}"}
+
+    def foreign(self) -> bool:
+        """A Host or an Origin that is not this listener's: DNS rebinding or another site. Answered 403, whatever the method."""
+        host, origin = self.headers.get("Host", ""), self.headers.get("Origin")
+        if host in self.hosts() and (origin is None or origin in {f"http://{h}" for h in self.hosts()}):
+            return False
+        self._drain()
+        self._json(403, {"error": "host", "message": f"use http://{self.bound}:{self.port}/ (through an SSH tunnel)"})
+        return True
+
+    def _other(self):
+        if not self.foreign():
+            super()._other()
+
+    do_PUT = do_DELETE = do_PATCH = do_OPTIONS = do_TRACE = do_CONNECT = _other
+
+    def stored(self) -> str:
+        try:
+            return token_file(self.console.state).read_text().strip()
+        except OSError:
+            return ""
+
+    def _route(self, method: str) -> None:
+        if self.foreign():
+            return
+        raw = self.path.partition("?")[0]
+        if method == "GET" and raw in self.static:
+            body, ctype = self.static[raw]
+            return self._send(200, body, ctype)
+        want = self.stored()
+        if self.gate.locked(want):
+            self._drain()
+            return self._json(429, {"error": "locked", "message": "too many wrong tokens: `mesh host console url` on the host makes a "
+                                    "new link, which lifts this; or wait 10 minutes"}, {"Retry-After": str(LOCKOUT)})
+        auth = self.headers.get("Authorization", "")
+        if not auth.startswith("Bearer "):
+            self._drain()   # a page that merely points at the loopback cannot lock the operator out
+            return self._json(401, {"error": "token", "message": "no token: open the link of `mesh host console url`"},
+                              {"WWW-Authenticate": "Bearer"})
+        given = digest(auth[len("Bearer "):].strip())
+        if not want or not hmac.compare_digest(given, want):
+            self.gate.count()
+            self._drain()
+            return self._json(401, {"error": "token", "message": "wrong or old token: `mesh host console url` on the host"},
+                              {"WWW-Authenticate": "Bearer"})
+        self.cred = given[:32]
+        super()._route(method)
+
+
+class WebServer(Slots, socketserver.ThreadingMixIn, socketserver.TCPServer):
+    daemon_threads = True
+    allow_reuse_address = True
+
+    def __init__(self, addr: tuple[str, int], handler):
+        self.address_family = socket.AF_INET6 if ":" in addr[0] else socket.AF_INET
+        self.slots = threading.BoundedSemaphore(MAX_CONNECTIONS)
+        self.timers, self.timers_lock = {}, threading.Lock()
+        super().__init__(addr, handler)
+
+
+def static_files() -> dict:
+    return {route: ((STATIC / name).read_bytes(), ctype) for route, (name, ctype) in STATIC_FILES.items()}
+
+
+def make_web(console_handler, addr: tuple[str, int]) -> WebServer:
+    handler = type("WebConsoleHandler", (WebHandler,), {"console": console_handler.console, "port": addr[1], "gate": Gate(),
+                                                        "static": static_files()})
+    try:
+        srv = WebServer(addr, handler)
+    except OSError as e:
+        raise fail(f"--web {addr[0]}:{addr[1]}: {e.strerror or e}") from None
+    handler.port = srv.server_address[1]   # the Host a browser sends (port 0 in tests: the one the kernel chose)
+    handler.bound = f"[{addr[0]}]" if ":" in addr[0] else addr[0]
+    return srv
 
 
 def fail(message: str) -> SystemExit:
@@ -493,12 +732,43 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--state", required=True, help="the game's state directory (poc/.state, or EMESH_STATE)")
     p.add_argument("--mesh", default=str(POC / "mesh"))
     p.add_argument("--socket", help="default: EMESH_CONSOLE_SOCK, else <state>/console/api.sock")
+    p.add_argument("--web", help="also serve the web console on this loopback address, e.g. 127.0.0.1:8090 (role console)")
+    u = sub.add_parser("url", help="a new web token, printed once in a link (the old one dies)")
+    u.add_argument("--state", required=True)
+    u.add_argument("--web", default=WEB_DEFAULT, help=f"the address the daemon serves (default {WEB_DEFAULT})")
+    r = sub.add_parser("rotate-token", help="a new web token, never printed: the old one dies")
+    r.add_argument("--state", required=True)
     a = ap.parse_args(argv)
     given = Path(os.path.abspath(a.state))
     state = given.resolve()
+    if a.cmd in ("url", "rotate-token"):
+        if not state.is_dir():
+            raise fail(f"{state} does not exist (is the game's state directory right?)")
+        if a.cmd == "rotate-token":
+            new_token(state)
+            print("console: the web token was replaced; `mesh host console url` makes a link with a new one")
+            return 0
+        host, port = web_address(a.web)
+        shown = f"[{host}]" if ":" in host else host
+        print(f"http://{shown}:{port}/#t={new_token(state)}")
+        print(f"console: open it through an SSH tunnel to the same port (ssh -N -L {port}:{shown}:{port} you@this-host); "
+              "the previous link no longer works", file=sys.stderr)
+        return 0
+    web = web_address(a.web) if a.web else None   # refused before anything is created
     path = socket_path(state, a.socket)
     srv = make_server(state, Path(a.mesh).resolve(), path, given)
     print(f"console: listening on {path} (role local; the host's user only)", flush=True)
+    wsrv = None
+    if web:
+        try:
+            wsrv = make_web(srv.RequestHandlerClass, web)
+        except SystemExit:   # the port is taken: leave nothing behind
+            srv.server_close()
+            path.unlink(missing_ok=True)
+            raise
+        shown = f"[{web[0]}]" if ":" in web[0] else web[0]
+        print(f"console: web console on http://{shown}:{web[1]}/ (role console; `mesh host console url` prints a link)", flush=True)
+        threading.Thread(target=wsrv.serve_forever, daemon=True).start()
 
     def stop(*_):   # systemd's SIGTERM: leave through the finally below, which removes the socket
         raise KeyboardInterrupt
@@ -508,13 +778,15 @@ def main(argv: list[str] | None = None) -> int:
     except KeyboardInterrupt:
         pass
     finally:
+        if wsrv:
+            wsrv.shutdown()
+            wsrv.server_close()
         srv.server_close()
         try:
             path.unlink()
         except OSError:
             pass
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())
