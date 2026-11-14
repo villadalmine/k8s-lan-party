@@ -65,12 +65,12 @@ back" has one exact answer: when the oldest of the last two leases is 24 hours o
 Names are checked in full against `[a-z][a-z0-9-]{1,19}` (they become the node name, the certificate name and a directory), `lh`, `cp`, `n1`, `n2` are
 reserved, and a name is used once (as with `mesh host invite`).
 
-The verbs of this page that change the game (request, reject, approve, auto on and off, burn, reap, kick, revoke, panic --clear) can also run through
-the host console ([CONSOLE.md](CONSOLE.md)): typed in a shell with its daemon running, they go through the daemon with the same output and
-exit code, and each one is written in the console's audit log. The reads (waitlist, leases, status, metrics, activity, players) still run
-directly. The web console has a button for each of those verbs except `invite`, `bundle`, `refresh` and `approve --trust friends`, which
-stay in your shell. The timer's tick and a `panic` typed in a shell never go through the daemon, so both work with it stopped; the web
-console's own Tick and Panic buttons do go through it, and are audited.
+The verbs of this page that change the game (`invite`, `request`, `reject`, `approve`, `auto on` and `off`, `burn`, `reap`, `kick`,
+`panic --clear`, `party reconcile` and `party end`) can also run through the host console ([CONSOLE.md](CONSOLE.md)): typed in a shell
+with its daemon running, they go through the daemon with the same output and exit code, and each one is written in the console's audit
+log. The reads (waitlist, leases, status, metrics, activity, players) still run directly. The web console has a button for each of those
+verbs except `invite` and `approve --trust friends`, which stay in your shell. The timer's tick and a `panic` typed in a shell never go
+through the daemon, so both work with it stopped; the web console's own `tick` and `panic` buttons do go through it, and are audited.
 
 ## A. Manual approval (built)
 

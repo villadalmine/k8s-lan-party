@@ -273,7 +273,7 @@ without it every command works as before.
   ssh you@your-host 'cd <the clone>/poc && ./mesh host console url'
   ```
 
-  Its tabs are Status, Queue, Leases, Players, Parties, Events, Audit and Actions, with a button per action. Kick, revoke and ending
+  Its tabs are Status, Queue, Leases, Players, Parties, Events and Audit, with an Actions section and a button per action. Kick, revoke and ending
   one lease show their plan and ask you to type the name; ending every lease asks for `all`; panic is one click. It cannot invite,
   approve with `--trust friends`, sign with the persistent CA or read a private key: those stay in your shell.
 - **As a service:** `poc/console/deploy/emesh-console.service` (copy it, fill in your user and the clone, and put the variables the engine
