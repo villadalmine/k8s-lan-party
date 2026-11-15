@@ -1,7 +1,7 @@
 # The host console: one local API, the CLI and a web console as its clients
 
-Status: **RFC of [#85](https://github.com/villadalmine/k8s-lan-party/issues/85)** (milestone v0.4.0): proposed in PR #94, decided when it
-merges and the decision is recorded in #85. **Built so far: #86**, the daemon on the unix socket (role `local`) and every read
+Status: **decided** (RFC of [#85](https://github.com/villadalmine/k8s-lan-party/issues/85), milestone v0.4.0): PR #94 merged on 2026-11-13
+and the decision is recorded in #85; released in v0.4.0-poc. **Built so far: #86**, the daemon on the unix socket (role `local`) and every read
 (`mesh host console`, `poc/console/server.py`, `poc/console/actions.py`, the unit in `poc/console/deploy/`), and **#87**, the mutations:
 plans and confirm tokens, the job queue and panic's own lane, timeouts, the audit log and the `console_action` notify
 (`poc/console/mutate.py`), and `panic` writing its switch before it waits for the ledger (`poc/admission.py`), and **#88**, the CLI

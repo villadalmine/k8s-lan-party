@@ -103,7 +103,7 @@ player's eyes and change whom is Odamex's documented behaviour, **to be confirme
   pod, so default-deny drops it. For the host to watch "through a party" the model needs a watcher identity for the host: a `watch-host`
   namespace whose pods run on a node of trust `own` (never the control plane, as DESIGN.md says for every workload), that the owner can
   accept like a peer, and a change to `party.py` to admit it. A host without an `own` node cannot watch. **D6**
-  asks for that; D2 depends on it.
+  records that; D2 depends on it.
 - **The watched see the watcher.** The server announces a client that connects and the scoreboard lists spectators (**to be confirmed in
   the spike**; if this build does not, the watcher's daemon says it in the game's chat). Nobody is watched without a line saying who came in.
 - **It is the game, not the machine.** A view shows what the game server sends about a player (position, what they see in the map). It
@@ -137,7 +137,7 @@ stay on the player's node.
 | **B. VNC in the container and a vendored, pinned noVNC** in the page | solved problem: keyboard, mouse, resize | a large third-party script in a page that has none today (the public page already vendors one, the asciinema player: the precedent exists); no audio |
 | **C. WebRTC** (a media server in the container) | low latency, audio | the heaviest by far; UDP ports and a signalling path to reason about |
 
-**Proposed:** A for **watching** (no input: an `<img>` that the daemon keeps feeding is enough), and a **spike** that plays one match
+**Decided (with D4):** A for **watching** (no input: an `<img>` that the daemon keeps feeding is enough), and a **spike** that plays one match
 with A and one with B on a player's machine before choosing for **playing**. C is out of this milestone. Sound is out of the first
 version and said so.
 
@@ -155,7 +155,7 @@ checked, no network at run time).
 - The game image must be on the player's node to play or watch, and today it is not pulled from anywhere: `poc/doom/build.sh` builds it
   once (only its Debian base is pinned by digest), the suite loads it into the nodes, and the pods say `imagePullPolicy: Never`. How a
   remote player's node gets it is open: built on the player's machine by the same script (minutes; it needs podman or docker, fetches its pinned sources from docker.io and GitHub and compiles Odamex, prerequisites JOIN.md will list), or a registry (a new
-  public surface, refused by threat 12 unless a later RFC says otherwise). Proposed: built locally, from the page, with the time shown
+  public surface, refused by threat 12 unless a later RFC says otherwise). Decided: built locally, from the page, with the time shown
   first. Threat 13.
 
 ## Threats and their tests
