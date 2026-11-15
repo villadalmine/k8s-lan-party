@@ -22,6 +22,7 @@
   <button type="button" data-view="parties">Parties</button>
   <button type="button" data-view="events">Events</button>
   <button type="button" data-view="audit">Audit</button>
+  <button type="button" data-view="metrics">Metrics</button>
 </nav>
 <main>
   <section id="view" aria-live="polite"></section>
@@ -29,6 +30,11 @@
     <h2>Actions</h2>
     <p class="muted">Each one runs <code>mesh host ...</code> on the host as a job. The dangerous ones show their plan first.</p>
     <div id="actions" class="actions"></div>
+    <div id="hostonly" hidden>
+      <h3>On the host only</h3>
+      <p class="muted">These are never run from a browser. Type them in a shell on the host.</p>
+      <div id="hostverbs"></div>
+    </div>
   </section>
   <section id="jobbox" hidden>
     <h2>Job</h2>

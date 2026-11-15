@@ -1313,6 +1313,120 @@
     }
    }
   },
+  "/api/v1/verbs": {
+   "get": {
+    "operationId": "verbs",
+    "summary": "every verb of the host and whether the caller's role may run it (the others: why, and the command to type on the host)",
+    "tags": [
+     "read"
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/VerbInfo"
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "description": "a bad name, id or query",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "no or wrong credential",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "404": {
+      "description": "no such route, or no such job",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "405": {
+      "description": "another method",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "429": {
+      "description": "too many bad tokens",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "500": {
+      "description": "the console could not answer",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "502": {
+      "description": "the engine's read failed or was not JSON",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "503": {
+      "description": "too many connections at once",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "504": {
+      "description": "the engine did not answer in time",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/v1/jobs/{id}": {
    "get": {
     "operationId": "job",
@@ -2022,6 +2136,78 @@
        "integer",
        "null"
       ]
+     }
+    }
+   },
+   "VerbInfo": {
+    "type": "object",
+    "required": [
+     "verb",
+     "summary",
+     "command",
+     "roles",
+     "allowed",
+     "why",
+     "closed_values"
+    ],
+    "properties": {
+     "verb": {
+      "type": "string",
+      "description": "a registry verb, or init or down (never through the API)"
+     },
+     "summary": {
+      "type": "string"
+     },
+     "command": {
+      "type": "string",
+      "description": "what a person types on the host"
+     },
+     "roles": {
+      "type": "array",
+      "items": {
+       "enum": [
+        "local",
+        "console"
+       ]
+      }
+     },
+     "allowed": {
+      "type": "boolean",
+      "description": "for the caller's role"
+     },
+     "why": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "description": "null when allowed"
+     },
+     "closed_values": {
+      "type": "array",
+      "description": "for an allowed verb, the argument values this role may still not send, each with the command to type on the host",
+      "items": {
+       "type": "object",
+       "required": [
+        "param",
+        "value",
+        "command",
+        "why"
+       ],
+       "properties": {
+        "param": {
+         "type": "string"
+        },
+        "value": {
+         "type": "string"
+        },
+        "command": {
+         "type": "string"
+        },
+        "why": {
+         "type": "string"
+        }
+       }
+      }
      }
     }
    }
