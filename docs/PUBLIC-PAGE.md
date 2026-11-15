@@ -33,6 +33,10 @@ the internet asks for a place on their own, with nobody in between. To play with
 What the page never adds: a credential on the public server. The CA, the join tokens and the Kubernetes API stay with you; the page only keeps a
 list and opaque sealed bundles that only each visitor can open.
 
+The page is not the host's console. The host console ([CONSOLE.md](CONSOLE.md)) runs on the host, on its loopback, and is reached
+through an SSH tunnel; it is never on the page server and never public. The page still holds no credential: its puller, on the host,
+runs the engine directly and never through the console's daemon.
+
 ## How it works
 
 ```mermaid
@@ -169,7 +173,9 @@ per feature of the release (what, why, the command) and the history of every rel
   (concept, analogy, real-world use, where it was seen), listed in `releases:` of `docs/FEATURES.yml`. `poc/page/whatsnew/learn.json` is
   generated from that catalog (`make learn`; `showcase.py learn` does the same), `news.py` reads it at start and renders it with the page's
   own classes: no script, style or source is added, so the CSP is unchanged. `docs/LEARN.md` has the same text for every feature.
-- **The recordings are real and made by script:** `make showcase` runs `poc-page` with `SHOWCASE=poc/.showcase`; the run writes the
+- **The recordings are real and made by script:** `make showcase` runs `poc-page` with `SHOWCASE=poc/.showcase` (`make showcase-doom` and
+  `make showcase-console` do the same with `poc-doom` and `poc-console`; the console's run adds three story-only steps after its checks,
+  KS1-KS3: carol approved and expelled by panic from the web console); the run writes the
   visitor's and the host's screens with their times, and only a run where every step passed becomes a recording. `showcase.py redact`
   removes what must never be published (public IPs, k3s tokens, JWTs, claim codes, keys, long base64, fingerprints, UUIDs, your clone's
   path, the run's state dir, and any home directory such as `/home/<user>`, which would name you and your machine's layout) into `rec/*.tsv`; `showcase.py build` turns them into asciicast v2 files, the pauses longer than 2 s shortened (and those over a minute

@@ -251,6 +251,37 @@ already applied. Deleting the node alone (`kubectl delete node`) is **not** a re
 this ([docker], 10 checks, two identical runs; it measured 3 to 5 seconds from the command until the node could not reach the lighthouse). Tested [dell] from
 this guide: revoke of a joined node, then `./kc get nodes` no longer lists it.
 
+## 4b. The host console: one API, the CLI and a web page
+
+Everything above is `./mesh host ...` in a shell. The host console ([CONSOLE.md](CONSOLE.md), v0.4.0) puts one local API in front of the
+same verbs, so a terminal, a web page and later a chat bot go through the same checks, the same lock and the same audit log. It is optional:
+without it every command works as before.
+
+```bash
+./mesh host console                          # the daemon in the foreground (a unix socket for your user only)
+./mesh host console --web 127.0.0.1:8090     # the same, plus the web console on the loopback
+./mesh host console url                      # a link with a fresh token (the old one stops working)
+```
+
+- **The CLI does not change.** With the daemon running, `./mesh host kick alice` typed in a shell goes through it: you see the same output
+  and get the same exit code, and the action is in `.state/console/audit.jsonl`. The timer's tick and `panic` never go through it, so a
+  lease still ends, and panic still works, with the daemon stopped. `EMESH_DIRECT=1` runs a command directly.
+- **The web console** listens on the loopback only. From your laptop, open an SSH tunnel with the same port on both ends, then the link:
+
+  ```bash
+  ssh -N -L 8090:127.0.0.1:8090 you@your-host &
+  ssh you@your-host 'cd <the clone>/poc && ./mesh host console url'
+  ```
+
+  Its tabs are Status, Queue, Leases, Players, Parties, Events and Audit, with an Actions section and a button per action. Kick, revoke and ending
+  one lease show their plan and ask you to type the name; ending every lease asks for `all`; panic is one click. It cannot invite,
+  approve with `--trust friends`, sign with the persistent CA or read a private key: those stay in your shell.
+- **As a service:** `poc/console/deploy/emesh-console.service` (copy it, fill in your user and the clone, and put the variables the engine
+  reads in it: with the daemon running, the engine runs with the unit's environment, not your shell's). Its active `ExecStart` starts
+  the socket only; for the web console use the commented `ExecStart` with `--web 127.0.0.1:8090` instead.
+
+![The web console's status view](images/console-status.png)
+
 ## 5. Trust levels and the golden rule (Kyverno)
 
 Placement by trust needs the nodes to carry the trust taint (the `TAINT=yes` of section 1: the join then registers the node with `trust=<level>:NoSchedule`).

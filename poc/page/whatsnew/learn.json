@@ -77,6 +77,15 @@
     "real_world": "A shared service, such as a database or an inference endpoint, that each consumer reaches without reaching the other consumers.",
     "seen_in": "v0.3.0-poc: petersen cannot reach carmack although both play on romero's server."
    }
+  ],
+  "v0.4.0-poc": [
+   {
+    "analogy": "One reception desk for the whole building: whichever door you come in by, you sign the same book and get the same answers.",
+    "concept": "One control API in front of the tools: every client (a terminal, a web page, a bot) goes through the same checks, the same lock and the same audit log.",
+    "id": "host-console",
+    "real_world": "The Kubernetes API server in front of etcd, or a cloud provider's API under its console, its CLI and its SDKs.",
+    "seen_in": "v0.4.0-poc: the host approves carol and then presses panic from the web console; each is a job of the console daemon with a plan, a confirmation and one audit line."
+   }
   ]
  }
 }

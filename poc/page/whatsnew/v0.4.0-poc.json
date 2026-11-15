@@ -1,0 +1,79 @@
+{
+  "version": "v0.4.0-poc",
+  "date": "2026-11-15",
+  "title": "the host's console: one API, the CLI and a web page in front of it",
+  "release": "https://github.com/villadalmine/k8s-lan-party/releases/tag/v0.4.0-poc",
+  "summary": "Until v0.3.x the host ran the LAN party with commands typed on its own machine. v0.4.0-poc puts one local API in front of those commands, the console daemon (mesh host console), and two clients on it. The CLI is now a client: mesh host approve, burn, kick, request or panic --clear typed in a shell are sent to the daemon, which makes the plan (the CLI confirms it itself: the host already typed the command) and runs the job under one engine lock, with the same output and exit code as before and one line in an audit log. The web console is the second client: a static page with no build step, served on the host's loopback only and opened with the token of mesh host console url, through an SSH tunnel from afar. Its tabs read the queue, the leases, the players, the parties, the events and the audit, and its buttons run the same verbs with the same plan and confirmation. What must never depend on the console does not: the timer's tick, the end of a lease and a typed panic run direct, and a console killed with its socket left behind changes nothing. Below, a real poc-console run: the host approves carol and then presses panic from the web console, with the very requests its page sends.",
+  "issues": [
+    85,
+    86,
+    87,
+    88,
+    89,
+    90
+  ],
+  "story": {
+    "player": {
+      "title": "The player: carol, who asked for a place",
+      "steps": [
+        "carol asked for a place while the console was down; the request still went in, direct, with one audit line.",
+        "The host approves her from the web console; her bundle comes out of the outbox and she joins with it, into a namespace of her own.",
+        "When the host presses panic, carol's lease ends: her node and her machine are gone."
+      ]
+    },
+    "host": {
+      "title": "The host who runs the pool, now from a browser",
+      "steps": [
+        "mesh host console url gives one link; its token after the # opens the page, which listens on 127.0.0.1 only.",
+        "The Queue tab reads who is waiting. Approve first asks the console for the plan and shows it; Confirm sends the plan back with its token, and the console runs the job and follows it to its end.",
+        "Panic shows its plan too, and one more click, Panic now, runs it: automatic approvals off, no slots, every lease expelled. The audit log has one line per action, with the web as its source."
+      ]
+    }
+  },
+  "casts": [
+    {
+      "file": "player.cast",
+      "side": "player",
+      "title": "carol's screen",
+      "caption": "a real poc-console run, recorded the way make showcase-console does in Incus VMs: carol joins after the web approval, and is expelled by the web panic."
+    },
+    {
+      "file": "host.cast",
+      "side": "host",
+      "title": "The host's screen: the web console's requests",
+      "caption": "the link, the queue, Approve (the plan, then Confirm and the job) and Panic, through the same HTTP requests the page sends; the token stays a variable and the plan's confirm token is masked."
+    }
+  ],
+  "features": [
+    {
+      "name": "The console daemon",
+      "what": "mesh host console: one local API on a Unix socket (0600) with read-only endpoints for status, queue, leases, players, parties, events, metrics and audit, and the registry's verbs as jobs with a plan and a confirm token.",
+      "why": "One place for the checks, the lock and the audit, whichever client is used.",
+      "command": "mesh host console\nmake poc-console",
+      "issues": [
+        85,
+        86,
+        87
+      ]
+    },
+    {
+      "name": "The CLI as a client",
+      "what": "The mutating verbs typed in a shell go through the daemon when it runs, with the same output and exit code; the tick, a lease's end and a typed panic stay direct.",
+      "why": "Nothing changes for the host's habits, and every action lands in the same audit log.",
+      "command": "mesh host approve\nmesh host kick bob",
+      "issues": [
+        88
+      ]
+    },
+    {
+      "name": "The web console",
+      "what": "A static page (no build, no external assets) on the host's loopback only, behind the token of mesh host console url; tabs Status, Queue, Leases, Players, Parties, Events and Audit, and an Actions section with typed confirmations where a mistake would cost.",
+      "why": "The host can run the party from a browser, from afar through an SSH tunnel, without opening a port to the network.",
+      "command": "mesh host console --web 127.0.0.1:8090\nmesh host console url --web 127.0.0.1:8090",
+      "issues": [
+        89,
+        90
+      ]
+    }
+  ]
+}
