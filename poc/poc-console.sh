@@ -110,6 +110,7 @@ pretty() { # the JSON a request answered, indented; the plan's confirm token is 
   python3 -c 'import json,sys
 d = json.load(sys.stdin)
 if isinstance(d, dict) and d.get("confirm"): d["confirm"] = "<confirm-token>"
+if isinstance(d, dict): d = {k: v for k, v in d.items() if k not in ("stdout", "stderr")}   # a job repeats output in these two: once on screen
 print(json.dumps(d, indent=2))'; }
 jfield() { python3 -c 'import json,sys; print(json.load(sys.stdin).get(sys.argv[1]) or "")' "$1"; }
 web_act() { # web_act <verb> <args json> <want>: the page's button: the plan, then the confirm with its token; the job ends holding <want>,
