@@ -57,7 +57,7 @@ disabled button is a courtesy, the 403 is the rule.
 
 The verb table of CONSOLE.md already has a row per `mesh` verb. #103 makes the page show all of them.
 
-| Verb | In the web today | Decided (D1) | Why |
+| Verb | In the v0.4.0 web console | Decided (D1) | Why |
 | :--- | :--- | :--- | :--- |
 | request, reject, approve (public), tick, auto on/off, panic, panic-clear, burn, reap, kick, revoke, party reconcile/end | yes | unchanged | |
 | `activity`, `admission-metrics`, the pool | no (CLI only) | **new read views** | reads; redacted like the others |
