@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Host console</title>
+<link rel="stylesheet" href="/console.css">
+<script src="/console.js" defer></script>
+</head>
+<body>
+<header>
+  <h1>Host console</h1>
+  <p id="summary" class="muted">loading</p>
+</header>
+<p id="banner" class="banner" hidden></p>
+<nav id="tabs" aria-label="views">
+  <button type="button" data-view="status" aria-pressed="true">Status</button>
+  <button type="button" data-view="requests">Queue</button>
+  <button type="button" data-view="leases">Leases</button>
+  <button type="button" data-view="players">Players</button>
+  <button type="button" data-view="parties">Parties</button>
+  <button type="button" data-view="events">Events</button>
+  <button type="button" data-view="audit">Audit</button>
+</nav>
+<main>
+  <section id="view" aria-live="polite"></section>
+  <section>
+    <h2>Actions</h2>
+    <p class="muted">Each one runs <code>mesh host ...</code> on the host as a job. The dangerous ones show their plan first.</p>
+    <div id="actions" class="actions"></div>
+  </section>
+  <section id="jobbox" hidden>
+    <h2>Job</h2>
+    <p id="jobstate"></p>
+    <pre id="joboutput"></pre>
+  </section>
+</main>
+<dialog id="dialog">
+  <form id="form" method="dialog">
+    <h2 id="dtitle"></h2>
+    <p id="dsummary" class="muted"></p>
+    <div id="fields"></div>
+    <div id="plan" hidden>
+      <h3>The plan</h3>
+      <ul id="will"></ul>
+      <label id="typedlabel" hidden>Type <code id="typedwant"></code> to confirm <input id="typed" autocomplete="off"></label>
+    </div>
+    <p id="derror" class="error" hidden></p>
+    <menu>
+      <button type="button" id="cancel">Cancel</button>
+      <button type="button" id="go" class="primary">Plan</button>
+    </menu>
+  </form>
+</dialog>
+<footer class="muted">Local only: this page is served on the host's loopback and reached through an SSH tunnel. Closing the tab forgets the token.</footer>
+</body>
+</html>

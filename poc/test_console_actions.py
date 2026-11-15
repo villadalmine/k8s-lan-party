@@ -13,6 +13,7 @@ import sys
 import tempfile
 import threading
 import time
+import types
 import unittest
 import unittest.mock
 from pathlib import Path
@@ -396,7 +397,8 @@ class ActionsTest(DaemonCase):
                         time.sleep(0.05)
                     raise RuntimeError("no thread for the reader")
                 super().__init__(*a, target=target, **kw)
-        with unittest.mock.patch.object(mutate.threading, "Thread", NoReaders):
+        only_mutate = types.SimpleNamespace(**{**vars(threading), "Thread": NoReaders})   # the daemon's own threads and timers stay real
+        with unittest.mock.patch.object(mutate, "threading", only_mutate):
             j = self.job(self.post("burn", {"args": {}})[1]["id"], wait=20)
         self.assertEqual((j["state"], j["error"]), ("failed", "internal"))
         pid = int(child.read_text())

@@ -223,7 +223,7 @@ features:
     docs: [docs/ADMISSION.md]
 
   - id: host-console
-    description: the host console's daemon (one local API, docs/CONSOLE.md) with the CLI as its client - the same commands, output and exit codes, one engine lock and one audit line per action; the tick, a lease's end and panic never depend on it
+    description: the host console's daemon (one local API, docs/CONSOLE.md) with the CLI and a web console as its clients - the same commands, output and exit codes, one engine lock and one audit line per action; the web console on the loopback only, behind a token; the tick, a lease's end and panic never depend on it
     layer: admission
     user_facing: true
     learn:
@@ -232,8 +232,8 @@ features:
       real_world: "The Kubernetes API server in front of etcd, or a cloud provider's API under its console, its CLI and its SDKs."
       seen_in: "v0.4.0 (in progress): mesh host kick typed in a shell runs as a job of the console daemon, with the same output, and is in its audit log."
     proven_by:
-      - {suite: poc-console, steps: [K02, K10-K25]}
-    paths: [poc/mesh, poc/lib.sh, poc/meshlock.py, poc/console/*.py, poc/admission.py]
+      - {suite: poc-console, steps: [K01, K02, K10-K25]}
+    paths: [poc/mesh, poc/lib.sh, poc/meshlock.py, poc/console/*.py, poc/console/static/*, poc/admission.py]
     components: [admission]
     docs: [docs/CONSOLE.md, docs/HOST-YOUR-OWN.md]
 

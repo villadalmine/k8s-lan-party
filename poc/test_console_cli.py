@@ -192,12 +192,12 @@ class CliTest(DaemonCase):
             with self.subTest(how=how):
                 open(self.log, "w").close()
 
-                def gone(path, query):
+                def gone(path, query, *rest):
                     if path.startswith("jobs/"):
                         if how == "404":
                             return 404, {"error": "no-such-job", "message": "no such job (jobs are kept an hour)"}, "json"
                         raise SystemExit   # the connection closes with no answer
-                    return real(path, query)
+                    return real(path, query, *rest)
                 console.get = gone
                 self.addCleanup(setattr, console, "get", real)
                 r = self.client(["host", "burn"])
@@ -312,10 +312,10 @@ class CliTest(DaemonCase):
                 return act(verb, body, *a)
             return 202, {"id": "0123456789abcdef", "state": "queued", "verb": verb}
 
-        def ended_changed(path, query):
+        def ended_changed(path, query, *rest):
             if path.startswith("jobs/"):
                 return 200, {"id": "0123456789abcdef", "state": "done", "error": "plan-changed", "exit": 75}, "json"
-            return get(path, query)
+            return get(path, query, *rest)
         console.act, console.get = stuck_second_plan, ended_changed
         self.addCleanup(setattr, console, "act", act)
         self.addCleanup(setattr, console, "get", get)

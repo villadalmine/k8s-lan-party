@@ -37,8 +37,11 @@
 #   mesh party invite|accept <peer> [--ports P/UDP,...] --as <player>   (local simulation, like play) the player's own
 #   mesh party leave [<peer>] | list --as <player>                      `edge-mesh party ...`, run on that player's machine
 # The host console (docs/CONSOLE.md, issue #85): one local API in front of these verbs
-#   mesh host console [--socket PATH]      run its daemon in the foreground: a unix socket for this user only (<state>/console/api.sock,
-#                                          or EMESH_CONSOLE_SOCK); reads, mutations as jobs, a web console with #89
+#   mesh host console [--socket PATH] [--web 127.0.0.1:8090]
+#                                          run its daemon in the foreground: a unix socket for this user only (<state>/console/api.sock,
+#                                          or EMESH_CONSOLE_SOCK); reads, mutations as jobs; --web: the web console, loopback only
+#   mesh host console url [--web ADDR]     a new web token (the old one dies), printed once in a link to open through an SSH tunnel
+#   mesh host console rotate-token         a new web token, never printed: the old link dies
 #   While it runs, the registry verbs typed here (request, approve, kick, reap, burn...) go through it: the same output and exit code,
 #   one audit line each (<state>/console/audit.jsonl), 75 when it is busy. EMESH_DIRECT=1 runs them here instead; the tick and `panic`
 #   always run here. Every mutating verb takes the engine's lock (<state>/mesh.lock), so two never run at once. Through the daemon a
@@ -185,6 +188,9 @@ case "$1 ${2:-}" in
   "host down") "$POC/down.sh" ;;
   "host console")
     shift 2
+    case "${1:-}" in   # the web token is made here only, never through the API: a stolen token cannot mint the next one
+      url|rotate-token) sub="$1"; shift; exec python3 "$POC/console/server.py" "$sub" --state "$STATE" "$@" ;;
+    esac
     exec python3 "$POC/console/server.py" serve --state "$STATE" --mesh "$POC/mesh" "$@" ;;
   "host request"|"host waitlist"|"host approve"|"host reject"|"host leases"|"host reap"|"host admission-status"|"host auto"|"host panic"|"host bundle"|"host admission-metrics")
     sub="$2"; shift 2; case "$sub" in admission-status) sub=status ;; admission-metrics) sub=metrics ;; esac
