@@ -87,6 +87,7 @@ async function show() {
   const box = $("view");
   box.replaceChildren(el("h2", $("tabs").querySelector(`[data-view="${view}"]`).textContent));
   if (status !== 200) { box.appendChild(el("p", (data && data.message) || "HTTP " + status, "error")); return; }
+  if ($("summary").textContent === "loading") summary({});
   if (view === "status") {   // the switches and counters; the leases and the queue have views of their own
     const flat = {};
     Object.keys(data || {}).forEach((k) => { if (data[k] === null || typeof data[k] !== "object") flat[k] = data[k]; });
@@ -95,6 +96,7 @@ async function show() {
     return;
   }
   if (view === "pool") {
+    summary(data.status);
     box.appendChild(pairs(data.status));
     box.appendChild(el("h3", "Active leases"));
     box.appendChild(table(data.leases));
