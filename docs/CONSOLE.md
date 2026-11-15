@@ -215,6 +215,14 @@ A verb whose *confirm* is not `none` runs in two calls:
    again at the confirm nor when the job starts: whatever the leases are by then, panic expels them all, and it must never be refused for
    being late. A second `panic` while one runs gets that same job (one panic at a time).
 
+A real-browser regression check is available as `poc/console/check-browser.cjs` (optional Playwright on the operator's machine,
+never a runtime dependency or a served file). Save the console link in a private 0600 file, tunnel the same free loopback port on both
+ends, then run `node poc/console/check-browser.cjs <private-url-file> unknown` (or `open` / `closed` for the expected observation).
+`CHROMIUM_PATH` selects an already installed Chromium if needed. The check delays an actual status response without changing its body,
+switches tabs immediately, and asserts the selected view stays put and the header leaves loading; it also checks Pool, the dated
+Public page observation, Metrics, disabled verbs and fragment removal. The Python stdlib unit suite has no browser DOM: this behavior
+is covered by this separate integration check, alongside the lab suite. Never publish the link file.
+
 The web console shows the plan in a dialog: one click for `click` (panic is one click on purpose: it has to be fast), the name typed for
 `kick`, `revoke` and `reap-one`, the word `all` for `reap-all`. The CLI (#88) runs both calls itself, so `mesh host kick alice` behaves
 exactly as today: the person who typed the command already confirmed it.
