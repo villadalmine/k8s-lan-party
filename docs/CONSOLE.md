@@ -175,6 +175,8 @@ the socket and on the loopback; only the role differs.
 | `GET /api/v1/requests`, `/leases`, `/players`, `/players/{name}/activity`, `/parties` | the lists, from pure reads |
 | `GET /api/v1/verbs` | every registry verb, plus `init` and `down`, with `allowed` for the caller's role; for the others `why`, and the `command` to type on the host (`invite`, `bundle`, `refresh`, and `init` and `down`, which no role runs). A description for a client to draw disabled buttons: the refusal is each POST's (#103) |
 | `GET /api/v1/events?since=&limit=`, `GET /api/v1/audit?limit=` | the last lines of each log (at most 500) |
+| `GET /api/v1/pool` | capacity and admission switches, active leases and the queue, grouped from existing pure reads; sampled in sequence, so a tick may occur between them |
+| `GET /api/v1/page` | the puller's last local observation: `state` (open/closed/unknown), `reported_at`, `age_seconds`, `admission_closed`; no network call or page control |
 | `GET /api/v1/metrics` | the admission metrics, Prometheus text, no identities |
 | `GET /api/v1/actions` | the registry entries the caller's role may run: verb, params, confirmation, timeout |
 | `POST /api/v1/actions/{verb}` | `{"args": {...}}`: starts a job (202), or answers with a plan to confirm (200) |
@@ -184,6 +186,13 @@ the socket and on the loopback; only the role differs.
 no NaN, no deep nesting. `args` must have exactly the verb's parameters, of the right type; names match `[a-z][a-z0-9-]{1,19}` (the rule of
 `admission.py` and `mesh host invite`); free text (`note`, `reason`) is capped and has no control characters. Anything else is 400, and the
 engine is not called. The engine then checks everything again, as it does for the CLI.
+
+The **Pool** tab groups capacity, admission switches, leases and the queue; **Players** has the per-player activity check and **Metrics**
+shows admission counters. **Public page** shows the puller's last local observation from `page/last-report.json`, written after a successful
+report and a read of the page's public status. It includes the observation time and age, and explicitly says it is not live: the page's
+operator can close it independently, or it can close itself when reports stop. No file, malformed data or an unsuccessful observation
+means **unknown**. A failed report leaves the previous observation with its original timestamp. The console never contacts the page,
+reads the puller's ledger or credentials for this view, or offers its open/close switch.
 
 **Reads never write.** A GET reads `admission/state.json`, `auto.json` and the logs itself, or runs an engine read that is pure. Two verbs are
 not pure today (`host players` and `host party list`, in the table): #86 adds `--read-only` modes, and a test with a recording fake engine

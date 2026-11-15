@@ -2,8 +2,8 @@
 
 Status: **decided** (RFC of [#99](https://github.com/villadalmine/k8s-lan-party/issues/99), milestone v0.6.0). The maintainer accepted
 D1-D7 as proposed on 2026-11-15, recorded in [#99](https://github.com/villadalmine/k8s-lan-party/issues/99#issuecomment-6899297603).
-Nothing here is built except #103's first piece (`GET /verbs`, PR #109, built ahead because it changes no rule: it only shows what
-v0.4.0 already refuses). #100 to #102 follow this document once its PR merges. It builds on the host console of v0.4.0
+#103's host mode is built: `GET /verbs` (PR #109) and the Pool and Public page read views, alongside activity and metrics.
+#100 to #102 follow this document. It builds on the host console of v0.4.0
 ([CONSOLE.md](CONSOLE.md)), and changes none of that document's decisions unless a row of *Decisions* below says so.
 
 ## What was asked

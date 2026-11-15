@@ -12,7 +12,7 @@ the only thing kept (<state>/console/web.token.sha256), Host and Origin checks, 
     server.py url --state DIR [--web ADDR]       a new web token (the old one dies), printed once in a link: `mesh host console url`
     server.py rotate-token --state DIR           a new web token, never printed: the old one dies (`mesh host console rotate-token`)
 
-    GET /api/v1/health | status | requests | leases | players | players/{name}/activity | parties | events | audit | metrics | actions | verbs
+    GET /api/v1/health | status | requests | leases | players | players/{name}/activity | parties | events | audit | metrics | pool | page | actions | verbs
     GET /api/v1/jobs/{id}
 
     POST /api/v1/actions/{verb}   {"args": {...}} -> a job (202), or a plan and a confirm token (200); again with
@@ -42,6 +42,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import parse_qs
@@ -77,7 +78,7 @@ BAD_TOKENS, BAD_WINDOW, LOCKOUT = 10, 600, 600   # 10 wrong web tokens in 10 min
 STATIC = HERE / "static"
 STATIC_FILES = {"/": ("index.html", "text/html; charset=utf-8"), "/console.js": ("console.js", "application/javascript; charset=utf-8"),
                 "/console.css": ("console.css", "text/css; charset=utf-8")}
-ROUTES = ("health", "status", "requests", "leases", "players", "parties", "events", "audit", "metrics", "actions", "verbs")
+ROUTES = ("health", "status", "requests", "leases", "players", "parties", "events", "audit", "metrics", "pool", "page", "actions", "verbs")
 
 
 class HungUp(Exception):
@@ -228,6 +229,26 @@ class Console:
             s["last_tick"] = 0
         return s
 
+    def pool(self) -> dict:
+        """Existing pure reads, grouped for the pool view; no admission or reconciliation."""
+        return {"status": {k: v for k, v in self.status().items() if v is None or not isinstance(v, (dict, list))},
+                "leases": self.read("leases"), "requests": self.read("requests")}
+
+    def page(self) -> dict:
+        """Only the puller's local observation, never a connection to the page server."""
+        unknown = {"state": "unknown", "reported_at": None, "age_seconds": None, "admission_closed": None}
+        try:
+            report = json.loads((self.state / "page" / "last-report.json").read_text(encoding="utf-8"))
+            if not isinstance(report, dict):
+                return unknown
+            at, closed, opened = report.get("at"), report.get("reported_closed"), report.get("page_open")
+            if type(at) is not int or not 0 < at <= int(time.time()) or type(closed) is not bool or (opened is not None and type(opened) is not bool):
+                return unknown
+        except (OSError, ValueError, UnicodeError):
+            return unknown
+        return {"state": "unknown" if opened is None else "open" if opened else "closed", "reported_at": at,
+                "age_seconds": max(0, int(time.time()) - at), "admission_closed": closed}
+
     def activity(self, name: str) -> dict:
         r = self.engine(["host", "activity", name])
         line = (r.stdout.strip().splitlines() or [""])[0]
@@ -283,6 +304,8 @@ class Console:
             return 200, self.status(), "json"
         if path in ("requests", "leases", "players", "parties"):
             return 200, self.read(path), "json"
+        if path in ("pool", "page"):
+            return 200, getattr(self, path)(), "json"
         if path == "metrics":
             return 200, self.read("metrics"), "text"
         if path == "actions":

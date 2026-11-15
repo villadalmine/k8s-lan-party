@@ -616,6 +616,8 @@ class T07T08Puller(unittest.TestCase):
         p = pullermod.Puller(a)
 
         def call(path, body=None):
+            if path == "/api/v1/status":
+                return {"open": not self.reports[-1]["closed"]}
             if path == "/api/v1/puller/intake":
                 return {"intakes": self.offered}
             self.reports.append(body)
@@ -691,6 +693,44 @@ time.sleep(60)
         self.assertEqual((self.state / "admission" / "pubkeys" / "bob.pub").read_text(), "original")
         self.assertFalse([a for a in self.argv() if a[:2] == ["host", "request"]])
         self.assertEqual({u["state"] for u in self.reports[-1]["updates"]}, {"refused"})
+
+    def test_console_report_contains_only_an_observation(self):
+        self.run_puller()
+        report = self.state / "page" / "last-report.json"
+        self.assertEqual(json.loads(report.read_text()), {"at": T0, "reported_closed": False, "page_open": True})
+        self.assertEqual(report.stat().st_mode & 0o777, 0o600)
+        self.set_status(panic=True)
+        self.run_puller()
+        self.assertEqual(json.loads(report.read_text()), {"at": T0, "reported_closed": True, "page_open": False})
+
+    def test_page_switch_and_failed_observation_are_not_inferred_from_admission(self):
+        p = pullermod.Puller(Namespace(state=str(self.state), now=T0))
+        p.call = lambda *a: {"open": False}   # operator closed the page even though admission is open
+        p.record_report(False)
+        report = self.state / "page" / "last-report.json"
+        self.assertFalse(json.loads(report.read_text())["page_open"])
+        def offline(*a):
+            raise pullermod.Fail("offline")
+        p.call = offline
+        p.record_report(False)
+        self.assertIsNone(json.loads(report.read_text())["page_open"])
+        p.call = lambda *a: {"open": "yes"}
+        p.record_report(False)
+        self.assertIsNone(json.loads(report.read_text())["page_open"])
+
+    def test_a_failed_report_keeps_the_previous_local_observation(self):
+        self.run_puller()
+        report = self.state / "page" / "last-report.json"
+        previous = report.read_bytes()
+        p = pullermod.Puller(Namespace(state=str(self.state), now=T0 + 60))
+        p.status = lambda: {"panic": True, "slots_total": 2, "slots_used": 0, "waiting": 0,
+                            "eligible": 0, "lease_seconds": 3600, "leases": []}
+        def offline(*a):
+            raise pullermod.Fail("offline")
+        p.call = offline
+        with self.assertRaises(pullermod.Fail):
+            p.run()
+        self.assertEqual(report.read_bytes(), previous)
 
     def test_panic_reports_closed_and_pulls_nothing(self):
         self.set_status(panic=True)

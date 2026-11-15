@@ -236,7 +236,7 @@ flowchart LR
   f_admission_auto -.-> p_poc_admission_py
   f_admission_auto -.-> p_poc_pool_yaml
   f_admission_auto -.-> p_poc_mesh
-  s_poc_console -->|"K01, K02, K10-K25"| f_host_console
+  s_poc_console -->|"K01, K02, K10-K26"| f_host_console
   f_host_console --> c_admission
   f_host_console -.-> p_poc_mesh
   f_host_console -.-> p_poc_lib_sh
@@ -269,7 +269,7 @@ flowchart LR
   f_doom --> c_ffmpeg
   f_doom -.-> p_poc_doom__
   f_doom -.-> p_poc_poc_doom_sh
-  s_poc_page -->|"G01-G26"| f_public_page
+  s_poc_page -->|"G01-G26, G09c, G25b"| f_public_page
   f_public_page --> c_page
   f_public_page --> c_Caddy
   f_public_page --> c_Nebula

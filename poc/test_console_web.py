@@ -389,6 +389,15 @@ class WebTest(DaemonCase):
         self.assertEqual(self.j("POST", "/api/v1/actions/approve", {"args": {"trust": "friends"}})[0], 403)
         self.assertNotIn("asked[", js)   # a Map: a player named constructor is not an inherited property
 
+    def test_pool_and_page_are_authenticated_reads(self):
+        for route in ("pool", "page"):
+            self.assertEqual(self.http("GET", "/api/v1/" + route, token=None)[0], 401)
+            self.assertEqual(self.j("GET", "/api/v1/" + route)[0], 200)
+            self.assertEqual(self.j("POST", "/api/v1/" + route, {})[0], 405)
+        self.assertEqual(self.j("GET", "/api/v1/pool")[1]["leases"][0]["name"], "ana")
+        self.assertEqual(self.j("GET", "/api/v1/page")[1]["state"], "unknown")
+        self.assertEqual(self.mutations(), [])
+
     def test_the_link_token_leaves_the_address_bar(self):
         js = (STATIC / "console.js").read_text()
         self.assertIn('history.replaceState(null, "", location.pathname)', js)

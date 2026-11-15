@@ -223,6 +223,38 @@ class DaemonTest(unittest.TestCase):
         self.assertEqual([e["seq"] for e in self.get("events?since=600")[1]], [6, 7])
         self.assertEqual(self.get("audit")[1], [])
 
+    def test_pool_groups_pure_reads_and_redacts_notes(self):
+        os.environ["FAKE_PLANT"] = str(self.state) + "/bundles/beto"
+        before = snapshot(self.state)
+        status, pool = self.get("pool")
+        self.assertEqual(status, 200)
+        self.assertEqual(pool["status"]["slots_total"], 2)
+        self.assertEqual(pool["leases"][0]["name"], "ana")
+        self.assertEqual(pool["requests"][0]["note"], "<state>/bundles/beto")
+        self.assertNotIn("leases", pool["status"])
+        self.assertEqual(snapshot(self.state), before)
+        self.assertTrue(all("--read-only" in a for a in self.engine_calls()))
+
+    def test_page_uses_only_a_validated_local_report(self):
+        report = self.state / "page" / "last-report.json"
+        unknown = {"state": "unknown", "reported_at": None, "age_seconds": None, "admission_closed": None}
+        self.assertEqual(self.get("page"), (200, unknown))
+        for raw in ('{', '[]', '{"at": true}', '{"at": 99999999999}', '{"at": 10, "reported_closed": false, "page_open": "yes"}'):
+            report.write_text(raw)
+            self.assertEqual(self.get("page"), (200, unknown), raw)
+        for opened, want in ((True, "open"), (False, "closed"), (None, "unknown")):
+            report.write_text(json.dumps({"at": 10, "reported_closed": False, "page_open": opened, "token": PULLER,
+                                          "url": LH_RSH, "intakes": [PEM_KEY]}))
+            before = snapshot(self.state)
+            status, data = self.get("page")
+            self.assertEqual(status, 200)
+            self.assertEqual(data["state"], want)
+            self.assertEqual(data["reported_at"], 10)
+            self.assertGreater(data["age_seconds"], 0)   # old observations remain explicitly dated, never a live claim
+            self.assertEqual(set(data), set(unknown))   # extra fields, even secrets, never leave the file
+            self.assertEqual(snapshot(self.state), before)
+        self.assertEqual(self.engine_calls(), [])
+
     def test_every_route_is_in_the_spec_and_answers(self):
         spec_paths = set(SPEC["paths"])
         for route in server.ROUTES:

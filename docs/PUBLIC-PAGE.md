@@ -225,3 +225,12 @@ The states a visitor sees: `received` (the control plane has not read it yet), `
 - 2026-11-04: asciinema-player 3 needs `'wasm-unsafe-eval'`: without it the recordings stay blank and the console names the CSP. Only `/whats-new` sends it.
 - 2026-10-28: the public server is a lighthouse too, and a lighthouse is a member of the mesh: every host now accepts the Kubernetes API, WireGuard
   and VXLAN only from the groups `own`, `friends` and `public` (`issue.sh`), never from the lighthouse; `make poc-page` G10 checks it from the server.
+
+### The host console's local observation (#103)
+
+After a successful report, the puller reads the page's public status and writes `page/last-report.json` in the host's state (0600): only
+`at`, `reported_closed` and `page_open`. The last field is null if that observation fails; already delivered updates are not retried for
+that reason. Failed reports leave the previous observation dated as it was. No visitor data, address, URL or credential goes into this file.
+The console's Public page tab reads only this local observation and displays its age, never a live promise: the page operator's switch or
+stale-report closure may have changed it. No new connection from the console and no page control are added. Older pullers without the file
+show unknown. See [CONSOLE.md](CONSOLE.md).

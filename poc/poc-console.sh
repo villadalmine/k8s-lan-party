@@ -152,6 +152,15 @@ web_panic() { # KS3: the red button
   show host "kubectl get nodes" k get nodes || return 1
   say player "carol: her machine was expelled by the host's panic"
 }
+web_read_views() { # K26: real engine reads through the web API, without an action or an audit line
+  local link n; n=$(lines)
+  link=$("$MESH" host console url --web "127.0.0.1:$WEB_PORT" 2>/dev/null) || return 1; WTOK="${link##*#t=}"
+  wapi pool | python3 -c 'import json,sys; p=json.load(sys.stdin); assert p["status"]["slots_used"] == 2; assert {l["name"] for l in p["leases"]} == {"ana", "bob"}; assert "requests" in p' &&
+  wapi players/ana/activity | python3 -c 'import json,sys; assert json.load(sys.stdin)["state"] in ("active", "idle")' &&
+  wapi metrics | grep -q emesh_admission_ &&
+  wapi page | python3 -c 'import json,sys; p=json.load(sys.stdin); assert p["state"] == "unknown" and p["reported_at"] is None' &&
+  [ "$(lines)" -eq "$n" ]
+}
 audit_clean() { # 0600, one line per action (10), no state path and no home path in it
   [ "$(stat -c %a "$AUDIT")" = 600 ] && [ "$(lines)" -eq 10 ] && ! grep -qF "$STATE" "$AUDIT" && ! grep -qF "$HOME" "$AUDIT"
 }
@@ -166,6 +175,7 @@ step K16 "ana joins with her bundle and is Ready" play_ready ana
 step K17 "approve bob through the daemon: bob, confirmed" via_confirmed "approved bob (public)" socket approve host approve
 step K18 "bob joins with his bundle and is Ready" play_ready bob
 step K01 "the web console: the host reaches it on the loopback only, a player's machine that reaches the host is refused on its port" web_local_only
+step K26 "pool, activity, metrics and the unknown page state are web reads, with no audit line" web_read_views
 step K19 "kick bob through the daemon (the CLI types the name): node and machine gone, one audit line" kick_bob
 step K20 "the tick typed with the daemon up runs direct, its nested calls too: no audit line" tick_direct
 step K21 "the daemon is killed (SIGKILL) and leaves its socket behind, answering nothing" killed_leaves_socket
