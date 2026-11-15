@@ -1,102 +1,94 @@
 0.000	note	the host opens the web console: one link, its token after the #, on the loopback only (from afar, through an SSH tunnel)
-0.049	cmd	mesh host console url
-0.049	out	http://127.0.0.1:18090/#t=<token>
-0.091	note	the Queue tab: carol asked for a place; the page reads it like this
-0.303	cmd	curl -H "Authorization: Bearer $TOKEN" localhost:18090/api/v1/requests
-0.303	out	[
-0.303	out	  {
-0.303	out	    "eligible_at": 1794730928,
-0.303	out	    "identity": "2001:db8:c::/64",
-0.303	out	    "name": "carol",
-0.303	out	    "note": "",
-0.303	out	    "position": 1,
-0.303	out	    "requested_at": 1794730928,
-0.303	out	    "state": "waiting",
-0.303	out	    "why": ""
-0.303	out	  }
-0.303	out	]
-0.358	note	Approve: the page first asks what it will do, and shows the plan
-0.612	cmd	curl -H "Authorization: Bearer $TOKEN" localhost:18090/api/v1/actions/approve -d '{"args": {}}'
-0.612	out	{
-0.612	out	  "args": {},
-0.612	out	  "confirm": "<confirm-token>",
-0.612	out	  "expires_in": 60,
-0.612	out	  "type_to_confirm": null,
-0.612	out	  "verb": "approve",
-0.612	out	  "will": [
-0.612	out	    "approve carol with trust public",
-0.612	out	    "a certificate and a namespace for one lease; the bundle into the outbox"
-0.612	out	  ]
-0.612	out	}
-0.693	note	the host presses Confirm: the page sends the plan back with its token, and the console runs the job
-0.929	cmd	curl -H "Authorization: Bearer $TOKEN" localhost:18090/api/v1/actions/approve -d '{"args": {}, "confirm": "<confirm-token>"}'
-0.929	out	{
-0.929	out	  "ended": null,
-0.929	out	  "error": null,
-0.929	out	  "exit": null,
-0.929	out	  "id": "f8dab48bd54d2ceb",
-0.929	out	  "output": "",
-0.929	out	  "started": null,
-0.929	out	  "state": "queued",
-0.929	out	  "stderr": "",
-0.929	out	  "stdout": "",
-0.929	out	  "verb": "approve"
-0.929	out	}
-7.228	cmd	curl -H "Authorization: Bearer $TOKEN" localhost:18090/api/v1/jobs/f8dab48bd54d2ceb
-7.228	out	{
-7.228	out	  "ended": 1794731713,
-7.228	out	  "error": null,
-7.228	out	  "exit": 0,
-7.228	out	  "id": "f8dab48bd54d2ceb",
-7.228	out	  "output": "issued carol\nbundle: <state>/bundles/carol  (send it privately; it holds the player's key and a join token that works until the node registers or 8 min pass)\nnamespace: play-carol  (the bundle's kubeconfig works there only, until 900s from now)\napproved carol (public) until 2026-11-15T08:50:08Z; bundle: <state>/bundles/carol\nsend the bundle privately; its join token lives 8m00s, or until the node registers and the next reap burns it\n",
-7.228	out	  "started": 1794731707,
-7.228	out	  "state": "done",
-7.228	out	  "stderr": "issued carol\nbundle: <state>/bundles/carol  (send it privately; it holds the player's key and a join token that works until the node registers or 8 min pass)\nnamespace: play-carol  (the bundle's kubeconfig works there only, until 900s from now)\n",
-7.228	out	  "stdout": "approved carol (public) until 2026-11-15T08:50:08Z; bundle: <state>/bundles/carol\nsend the bundle privately; its join token lives 8m00s, or until the node registers and the next reap burns it\n",
-7.228	out	  "verb": "approve"
-7.228	out	}
-64.012	note	something is wrong: the host presses Panic on the page, then Panic now under its plan
-64.283	cmd	curl -H "Authorization: Bearer $TOKEN" localhost:18090/api/v1/actions/panic -d '{"args": {}}'
-64.283	out	{
-64.283	out	  "args": {},
-64.283	out	  "confirm": "<confirm-token>",
-64.283	out	  "expires_in": 60,
-64.283	out	  "type_to_confirm": null,
-64.283	out	  "verb": "panic",
-64.283	out	  "will": [
-64.283	out	    "auto off; slots 0; admission closed",
-64.283	out	    "expel 1 lease(s): carol (ends 08:50 UTC)",
-64.283	out	    "empty the outbox"
-64.283	out	  ]
-64.283	out	}
-64.370	note	the host presses Panic now: the page sends the plan back with its token, and the console runs the job
-64.442	cmd	curl -H "Authorization: Bearer $TOKEN" localhost:18090/api/v1/actions/panic -d '{"args": {}, "confirm": "<confirm-token>"}'
-64.442	out	{
-64.443	out	  "ended": null,
-64.443	out	  "error": null,
-64.443	out	  "exit": null,
-64.443	out	  "id": "9c2122134b6d83aa",
-64.443	out	  "output": "",
-64.443	out	  "started": 1794731771,
-64.443	out	  "state": "running",
-64.443	out	  "stderr": "",
-64.443	out	  "stdout": "",
-64.443	out	  "verb": "panic"
-64.443	out	}
-83.248	cmd	curl -H "Authorization: Bearer $TOKEN" localhost:18090/api/v1/jobs/9c2122134b6d83aa
-83.248	out	{
-83.248	out	  "ended": 1794731788,
-83.248	out	  "error": null,
-83.248	out	  "exit": 0,
-83.248	out	  "id": "9c2122134b6d83aa",
-83.248	out	  "output": "burned 1\nrevoked carol: fingerprint on the blocklist, node deleted, join token gone\npanic: on | expelled 1 | auto off | slots 0\n",
-83.248	out	  "started": 1794731771,
-83.248	out	  "state": "done",
-83.248	out	  "stderr": "burned 1\nrevoked carol: fingerprint on the blocklist, node deleted, join token gone\n",
-83.248	out	  "stdout": "panic: on | expelled 1 | auto off | slots 0\n",
-83.248	out	  "verb": "panic"
-83.248	out	}
-83.690	note	carol's node is gone, her lease ended; admission stays closed until panic --clear
-83.742	cmd	kubectl get nodes
-83.975	out	NAME   STATUS   ROLES           AGE   VERSION
-83.975	out	cp     Ready    control-plane   17m   v1.37.1+k3s1
+0.048	cmd	mesh host console url
+0.048	out	http://127.0.0.1:18090/#t=<token>
+0.101	note	the Queue tab: carol asked for a place; the page reads it like this
+0.311	cmd	curl -H "Authorization: Bearer $TOKEN" localhost:18090/api/v1/requests
+0.311	out	[
+0.311	out	  {
+0.311	out	    "eligible_at": 1794733046,
+0.311	out	    "identity": "2001:db8:c::/64",
+0.311	out	    "name": "carol",
+0.311	out	    "note": "",
+0.311	out	    "position": 1,
+0.311	out	    "requested_at": 1794733046,
+0.311	out	    "state": "waiting",
+0.311	out	    "why": ""
+0.311	out	  }
+0.311	out	]
+0.353	note	Approve: the page first asks what it will do, and shows the plan
+0.548	cmd	curl -H "Authorization: Bearer $TOKEN" localhost:18090/api/v1/actions/approve -d '{"args": {}}'
+0.548	out	{
+0.548	out	  "args": {},
+0.548	out	  "confirm": "<confirm-token>",
+0.548	out	  "expires_in": 60,
+0.548	out	  "type_to_confirm": null,
+0.548	out	  "verb": "approve",
+0.548	out	  "will": [
+0.548	out	    "approve carol with trust public",
+0.548	out	    "a certificate and a namespace for one lease; the bundle into the outbox"
+0.548	out	  ]
+0.548	out	}
+0.623	note	the host presses Confirm: the page sends the plan back with its token, and the console runs the job
+0.840	cmd	curl -H "Authorization: Bearer $TOKEN" localhost:18090/api/v1/actions/approve -d '{"args": {}, "confirm": "<confirm-token>"}'
+0.840	out	{
+0.840	out	  "ended": null,
+0.840	out	  "error": null,
+0.840	out	  "exit": null,
+0.840	out	  "id": "64657841dffe2d2a",
+0.840	out	  "output": "",
+0.840	out	  "started": null,
+0.840	out	  "state": "queued",
+0.840	out	  "verb": "approve"
+0.840	out	}
+7.163	cmd	curl -H "Authorization: Bearer $TOKEN" localhost:18090/api/v1/jobs/64657841dffe2d2a
+7.163	out	{
+7.163	out	  "ended": 1794733831,
+7.163	out	  "error": null,
+7.163	out	  "exit": 0,
+7.163	out	  "id": "64657841dffe2d2a",
+7.163	out	  "output": "issued carol\nbundle: <state>/bundles/carol  (send it privately; it holds the player's key and a join token that works until the node registers or 8 min pass)\nnamespace: play-carol  (the bundle's kubeconfig works there only, until 900s from now)\napproved carol (public) until 2026-11-15T09:25:25Z; bundle: <state>/bundles/carol\nsend the bundle privately; its join token lives 8m00s, or until the node registers and the next reap burns it\n",
+7.163	out	  "started": 1794733825,
+7.163	out	  "state": "done",
+7.163	out	  "verb": "approve"
+7.163	out	}
+66.582	note	something is wrong: the host presses Panic on the page, then Panic now under its plan
+66.791	cmd	curl -H "Authorization: Bearer $TOKEN" localhost:18090/api/v1/actions/panic -d '{"args": {}}'
+66.791	out	{
+66.791	out	  "args": {},
+66.791	out	  "confirm": "<confirm-token>",
+66.791	out	  "expires_in": 60,
+66.791	out	  "type_to_confirm": null,
+66.791	out	  "verb": "panic",
+66.791	out	  "will": [
+66.791	out	    "auto off; slots 0; admission closed",
+66.791	out	    "expel 1 lease(s): carol (ends 09:25 UTC)",
+66.791	out	    "empty the outbox"
+66.791	out	  ]
+66.791	out	}
+66.860	note	the host presses Panic now: the page sends the plan back with its token, and the console runs the job
+66.935	cmd	curl -H "Authorization: Bearer $TOKEN" localhost:18090/api/v1/actions/panic -d '{"args": {}, "confirm": "<confirm-token>"}'
+66.935	out	{
+66.935	out	  "ended": null,
+66.935	out	  "error": null,
+66.935	out	  "exit": null,
+66.935	out	  "id": "efd6c3639ce206d7",
+66.935	out	  "output": "",
+66.935	out	  "started": 1794733891,
+66.935	out	  "state": "running",
+66.935	out	  "verb": "panic"
+66.935	out	}
+85.666	cmd	curl -H "Authorization: Bearer $TOKEN" localhost:18090/api/v1/jobs/efd6c3639ce206d7
+85.666	out	{
+85.666	out	  "ended": 1794733908,
+85.666	out	  "error": null,
+85.666	out	  "exit": 0,
+85.666	out	  "id": "efd6c3639ce206d7",
+85.666	out	  "output": "burned 1\nrevoked carol: fingerprint on the blocklist, node deleted, join token gone\npanic: on | expelled 1 | auto off | slots 0\n",
+85.666	out	  "started": 1794733891,
+85.666	out	  "state": "done",
+85.666	out	  "verb": "panic"
+85.666	out	}
+86.047	note	carol's node is gone, her lease ended; admission stays closed until panic --clear
+86.098	cmd	kubectl get nodes
+86.281	out	NAME   STATUS   ROLES           AGE   VERSION
+86.281	out	cp     Ready    control-plane   17m   v1.37.1+k3s1
