@@ -9,7 +9,7 @@ PR_TITLE ?=
 ONLY     ?=
 NAME     ?=
 
-.PHONY: regression features-check learn learn-check diagrams poc-lighthouse poc-cilium help labels-check test verify-ci pr-check install-hooks uninstall-hooks poc-join poc-host poc-weakness poc-down poc-ca poc-placement poc-kind poc-vm poc-revoke poc-admission poc-admission-auto poc-participants poc-participants-e2e poc-nat poc-bgp poc-golden poc-pool poc-party poc-console poc-doom poc-page showcase showcase-doom showcase-build
+.PHONY: regression features-check learn learn-check diagrams poc-lighthouse poc-cilium help labels-check test verify-ci pr-check install-hooks uninstall-hooks poc-join poc-host poc-weakness poc-down poc-ca poc-placement poc-kind poc-vm poc-revoke poc-admission poc-admission-auto poc-participants poc-participants-e2e poc-nat poc-bgp poc-golden poc-pool poc-party poc-console poc-doom poc-page showcase showcase-doom showcase-console showcase-build
 
 help:
 	@grep -E '^[a-z-]+:.*##' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-14s %s\n", $$1, $$2}'
@@ -130,6 +130,11 @@ showcase: ## What's new: record a real poc-page run (needs Incus) as the player'
 showcase-doom: ## What's new: record a real poc-doom run (needs Incus) as the player's and the host's screens, filter them, build RELEASE's .cast files and keep the match's GIF
 	rm -rf poc/.showcase-doom && SHOWCASE=$(CURDIR)/poc/.showcase-doom poc/poc-doom.sh
 	mkdir -p poc/page/whatsnew/$(RELEASE)/rec && cp poc/.showcase-doom/player.tsv poc/.showcase-doom/host.tsv poc/page/whatsnew/$(RELEASE)/rec/ && cp poc/.showcase-doom/match.gif poc/page/whatsnew/$(RELEASE)/match.gif
+	$(PYTHON) poc/page/whatsnew/showcase.py build poc/page/whatsnew/$(RELEASE)
+
+showcase-console: ## What's new: record a real poc-console run (needs Incus) with carol approved and expelled from the web console, filter it, build RELEASE's .cast files
+	rm -rf poc/.showcase-console && SHOWCASE=$(CURDIR)/poc/.showcase-console poc/poc-console.sh
+	mkdir -p poc/page/whatsnew/$(RELEASE)/rec && cp poc/.showcase-console/player.tsv poc/.showcase-console/host.tsv poc/page/whatsnew/$(RELEASE)/rec/
 	$(PYTHON) poc/page/whatsnew/showcase.py build poc/page/whatsnew/$(RELEASE)
 
 showcase-build: ## What's new: rebuild every .cast from its committed source (no machines); poc/test_whatsnew.py checks they match
