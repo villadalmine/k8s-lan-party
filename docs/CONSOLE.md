@@ -1,7 +1,7 @@
 # The host console: one local API, the CLI and a web console as its clients
 
-Status: **RFC of [#85](https://github.com/villadalmine/k8s-lan-party/issues/85)** (milestone v0.4.0): proposed in PR #94, decided when it
-merges and the decision is recorded in #85. **Built so far: #86**, the daemon on the unix socket (role `local`) and every read
+Status: **decided** (RFC of [#85](https://github.com/villadalmine/k8s-lan-party/issues/85), milestone v0.4.0): PR #94 merged on 2026-11-13
+and the decision is recorded in #85; released in v0.4.0-poc. **Built so far: #86**, the daemon on the unix socket (role `local`) and every read
 (`mesh host console`, `poc/console/server.py`, `poc/console/actions.py`, the unit in `poc/console/deploy/`), and **#87**, the mutations:
 plans and confirm tokens, the job queue and panic's own lane, timeouts, the audit log and the `console_action` notify
 (`poc/console/mutate.py`), and `panic` writing its switch before it waits for the ledger (`poc/admission.py`), and **#88**, the CLI
@@ -360,6 +360,8 @@ reads only the files named here, and runs nothing outside the registry; the CA k
 
 ## Relations
 
+- [CONSOLE-MODES.md](CONSOLE-MODES.md) (#99): the decided RFC of v0.6.0 that extends this console to a player mode and to watching and
+  playing the game.
 - [#50](https://github.com/villadalmine/k8s-lan-party/issues/50): the chat bot becomes the third client of this API, as a `console` client
   with its own token.
 - [#48](https://github.com/villadalmine/k8s-lan-party/issues/48): its operator view (the queue, the leases, the events) is this console; its
