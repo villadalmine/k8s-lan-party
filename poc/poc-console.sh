@@ -7,6 +7,10 @@
 # per step; identical across runs. ADM_LEASE (seconds, default 900): long enough for two VMs to join in ana's lease. KEEP=1 leaves the VMs up.
 # The daemon also serves the web console (#89) on the host's loopback, port WEB_PORT (default 18090): K01 checks that a player's machine
 # cannot reach it while the host can, with the token of `mesh host console url`.
+#   SHOWCASE=<dir> (make showcase-console): the same run, then three steps of the story only (KS1-KS3, after K25, so the audit's count is
+#            untouched): carol is approved and then expelled by panic from the web console, through the very requests its page sends
+#            (the plan, then the confirm with its token, then the job). The host's and the player's screens go to <dir>/host.raw and
+#            player.raw; a run that passed is filtered by poc/page/whatsnew/showcase.py into the recordings of "What's new" (issue #90).
 set -u
 export RUNTIME=incus MAX_VMS=4 CNI=flannel
 . "$(dirname "$0")/lib.sh"
@@ -25,6 +29,11 @@ AUDIT="$STATE/console/audit.jsonl"
 ADM="$STATE/admission/state.json"
 CONSOLE_PID=""
 WEB_PORT="${WEB_PORT:-18090}"
+SC="${SHOWCASE:-}"; SCP="$POC/page/whatsnew/showcase.py"; [ -z "$SC" ] || { mkdir -p "$SC"; : >"$SC/player.raw"; : >"$SC/host.raw"; }
+shot() { # shot <player|host> <shown command>: stdin is that command's output; with SHOWCASE it also goes to that side's screen
+  if [ -n "$SC" ]; then python3 "$SCP" stamp "$SC/$1.raw" "$2"; else cat; fi; }
+say() { [ -z "$SC" ] || python3 "$SCP" note "$SC/$1.raw" "$2"; }   # say <side> <text>: a chapter title of the story
+show() { local side="$1" shown="$2"; shift 2; "$@" 2>&1 | shot "$side" "$shown"; return "${PIPESTATUS[0]}"; }   # run; with SHOWCASE it is that screen
 
 ready() { [ "$(k get node "$1" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null)" = True ]; }
 out_has() { local want="$1"; shift; local o; o=$("$@" 2>&1); echo "$o"; echo "$o" | grep -qF -- "$want"; }
@@ -90,6 +99,58 @@ expires_without_daemon() { # the timer's command, with no daemon at all: ana's l
   out_has "expelled 1 |" env EMESH_DIRECT=1 "$MESH" host auto --once && ! k get node ana && ! machine_running ana
 }
 panic_direct() { daemon_up || return 1; via "panic: on | expelled 1" direct panic host panic; }
+# The story of "What's new" (SHOWCASE only): the web console's page does nothing but these requests, with the token of its link.
+WTOK=""
+wapi() { # wapi <route> [json]: GET, or POST that body, as the page does
+  if [ $# -eq 1 ]; then curl -sS -m 30 -H "Authorization: Bearer $WTOK" "http://127.0.0.1:$WEB_PORT/api/v1/$1"
+  else curl -sS -m 30 -H "Authorization: Bearer $WTOK" -H 'Content-Type: application/json' -d "$2" "http://127.0.0.1:$WEB_PORT/api/v1/$1"; fi; }
+wshown() { # what the screen shows for that request: the token stays a variable
+  echo "curl -H \"Authorization: Bearer \$TOKEN\" localhost:$WEB_PORT/api/v1/$1${2:+ -d '$2'}"; }
+pretty() { # the JSON a request answered, indented; the plan's confirm token is masked (it is a credential for 2 minutes)
+  python3 -c 'import json,sys
+d = json.load(sys.stdin)
+if isinstance(d, dict) and d.get("confirm"): d["confirm"] = "<confirm-token>"
+if isinstance(d, dict): d = {k: v for k, v in d.items() if k not in ("stdout", "stderr")}
+print(json.dumps(d, indent=2))'; }
+jfield() { python3 -c 'import json,sys; print(json.load(sys.stdin).get(sys.argv[1]) or "")' "$1"; }
+web_act() { # web_act <verb> <args json> <want>: Confirm on the page: the plan, then the confirm with its token; the job to its end holds <want>
+  local plan tok job id st n=0
+  plan=$(wapi "actions/$1" "{\"args\": $2}") || return 1
+  echo "$plan" | pretty | shot host "$(wshown "actions/$1" "{\"args\": $2}")"
+  tok=$(echo "$plan" | jfield confirm); [ -n "$tok" ] || return 1
+  say host "the host presses Confirm: the page sends the plan back with its token, and the console runs the job"
+  job=$(wapi "actions/$1" "{\"args\": $2, \"confirm\": \"$tok\"}") || return 1
+  echo "$job" | pretty | shot host "$(wshown "actions/$1" "{\"args\": $2, \"confirm\": \"<confirm-token>\"}")"
+  id=$(echo "$job" | jfield id); [ -n "$id" ] || return 1
+  while :; do job=$(wapi "jobs/$id"); st=$(echo "$job" | jfield state)
+    case "$st" in done|failed) break ;; esac; n=$((n + 1)); [ "$n" -lt 300 ] || return 1; sleep 2; done
+  echo "$job" | pretty | shot host "$(wshown "jobs/$id")"
+  [ "$st" = done ] && echo "$job" | grep -qF -- "$3" && last_is web "$1" true
+}
+web_approve_carol() { # KS1: the link, the Queue, Approve
+  local link; answers || daemon_up || return 1
+  link=$("$MESH" host console url --web "127.0.0.1:$WEB_PORT" 2>/dev/null) || return 1; WTOK="${link##*#t=}"; [ -n "$WTOK" ] || return 1
+  say host "the host opens the web console: one link, its token after the #, on the loopback only (from afar, through an SSH tunnel)"
+  echo "${link%%#t=*}#t=<token>" | shot host "mesh host console url"
+  say host "the Queue tab: carol asked for a place; the page reads it like this"
+  wapi requests | pretty | shot host "$(wshown requests)"
+  say host "Approve: the page first asks what it will do, and shows the plan"
+  web_act approve '{}' "approved carol"
+}
+carol_joins() { # KS2: her bundle, her machine, her namespace
+  say player "carol: her bundle arrived from the host's outbox; she joins with it (in the lab, mesh play starts her machine and runs edge-mesh join there)"
+  show player "mesh play carol" "$MESH" play carol && wait_for 240 ready carol || return 1
+  say player "carol is in: her own namespace, empty, hers for one lease"
+  show player "sudo edge-mesh kubectl get pods" dx carol edge-mesh kubectl get pods
+}
+gone() { ! k get node "$1" >/dev/null 2>&1 && ! machine_running "$1"; }
+web_panic() { # KS3: the red button
+  say host "something is wrong: the host presses Panic on the page (one click to confirm)"
+  web_act panic '{}' "expelled 1" && wait_for 120 gone carol || return 1
+  say host "carol's node is gone, her lease ended; admission stays closed until panic --clear"
+  show host "kubectl get nodes" k get nodes
+  say player "carol: her machine was expelled by the host's panic"
+}
 audit_clean() { # 0600, one line per action (10), no state path and no home path in it
   [ "$(stat -c %a "$AUDIT")" = 600 ] && [ "$(lines)" -eq 10 ] && ! grep -qF "$STATE" "$AUDIT" && ! grep -qF "$HOME" "$AUDIT"
 }
@@ -112,9 +173,16 @@ step K02 "with the daemon stopped, the timer's tick expels ana at her lease's en
 step K23 "with the daemon back, panic is still direct (and expels bob's lease)" panic_direct
 step K24 "panic --clear goes through the daemon" via "panic: cleared" socket panic-clear host panic --clear
 step K25 "the audit: 0600, one line per action, no state or home path" audit_clean
+if [ -n "$SC" ]; then   # the story of "What's new" only: after K25, so the audit's count above is the suite's own
+  step KS1 "showcase: carol is approved from the web console (the plan, the confirm, the job): one audit line, source web" web_approve_carol
+  step KS2 "showcase: carol joins with her bundle and is Ready" carol_joins
+  step KS3 "showcase: panic from the web console expels carol" web_panic
+fi
 daemon_stop >/dev/null 2>&1
 
 if [ "${KEEP:-0}" != 1 ]; then "$POC/vm/down.sh" >/dev/null 2>&1; fi
+[ -z "$SC" ] || [ "$FAILS" -ne 0 ] || for s in player host; do   # only a run that passed becomes a recording
+  python3 "$SCP" redact "$SC/$s.raw" "$SC/$s.tsv" --strip "$STATE/" --strip "$POC/" --strip "${POC%/*}/" || FAILS=$((FAILS+1)); done
 echo "----"
 if [ "$FAILS" -eq 0 ]; then echo "RESULT PASS"; else echo "RESULT FAIL ($FAILS)"; fi
 [ "$FAILS" -eq 0 ]
