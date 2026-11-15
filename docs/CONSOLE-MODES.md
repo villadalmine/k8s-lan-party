@@ -1,9 +1,9 @@
 # The console for everyone: host mode, player mode, the game in the browser
 
-Status: **RFC of [#99](https://github.com/villadalmine/k8s-lan-party/issues/99)** (milestone v0.6.0). Nothing here is built except
-#103's first piece (`GET /verbs`, PR #107, built ahead of this decision because it changes no rule: it only shows what v0.4.0 already
-refuses; #103 itself stays blocked for merge until this decision). It is decided when its PR merges and the decision is recorded in
-#99; until then #100 to #102 stay blocked. It builds on the host console of v0.4.0
+Status: **decided** (RFC of [#99](https://github.com/villadalmine/k8s-lan-party/issues/99), milestone v0.6.0). The maintainer accepted
+D1-D7 as proposed on 2026-11-15, recorded in [#99](https://github.com/villadalmine/k8s-lan-party/issues/99#issuecomment-6899297603).
+Nothing here is built except #103's first piece (`GET /verbs`, PR #109, built ahead because it changes no rule: it only shows what
+v0.4.0 already refuses). #100 to #102 follow this document once its PR merges. It builds on the host console of v0.4.0
 ([CONSOLE.md](CONSOLE.md)), and changes none of that document's decisions unless a row of *Decisions* below says so.
 
 ## What was asked
@@ -67,7 +67,7 @@ The verb table of CONSOLE.md already has a row per `mesh` verb. #103 makes the p
 | `console url`, `console rotate-token` | no | **not shown** | a stolen token must not mint the next one |
 | start and stop the game server | does not exist | **new verbs** (#102): `game-stop <owner>` in the registry, confirm by typing the owner's name, one audit line | the server is a pod in the hosting player's namespace. Stopping it is a new write by the host into a player's namespace, so it is a confirmed, audited verb, and it writes an Event in that namespace naming the host (a kubelet's "Killing" does not say who). Starting one is that player's, from player mode |
 
-**Decision asked (D1):** keep the four CA verbs out of the web. The alternative is a second factor typed on the host for each signature,
+**Decided (D1):** keep the four CA verbs out of the web. The alternative is a second factor typed on the host for each signature,
 which is the CLI with more steps.
 
 ## Watching: a party, a spectator, a view per player
@@ -115,7 +115,7 @@ player's eyes and change whom is Odamex's documented behaviour, **to be confirme
   limit than the robot's (no input, one view), to be measured in the spike. More views need a bigger quota, which is the host's
   to give. The page offers one view at a time.
 
-**Decisions asked (D2, D3):**
+**Decided (D2, D3):**
 - D2: the host watches **through a party** (the server's owner accepts it once), not by its cluster-admin power. The golden rule says the
   owner of a node can see what runs on it, which here is the hosting player, not the host; the host's sight comes from being cluster-admin.
   Asking keeps "pairwise, by consent" true for the one case where the host is a participant. Needs D6.
@@ -141,7 +141,7 @@ stay on the player's node.
 with A and one with B on a player's machine before choosing for **playing**. C is out of this milestone. Sound is out of the first
 version and said so.
 
-**Decision asked (D4):** accept a vendored noVNC if the spike says A is not playable, under the public page's rule (pinned version, hash
+**Decided (D4):** accept a vendored noVNC if the spike says A is not playable, under the public page's rule (pinned version, hash
 checked, no network at run time).
 
 ## What player mode needs from a bundle that it does not have today
@@ -192,9 +192,9 @@ poc-lighthouse and poc-weakness); the issue that builds each is in brackets.
 5. **#101** watching: the host's watcher identity (D6), views, the cap, the announcements, WB01 to WB05.
 6. **#102** playing: the spike of A against B, then the chosen one; start and stop of the game server.
 
-## Decisions asked
+## Decisions
 
-| # | Question | Proposed |
+| # | Question | Decided (2026-11-15, as proposed) |
 | :--- | :--- | :--- |
 | D1 | Do the four CA verbs enter the web console? | **No.** Shown disabled with the command to type on the host |
 | D2 | Does the host watch through a party, or by its admin power? | **Through a party**, accepted once by the server's owner |
