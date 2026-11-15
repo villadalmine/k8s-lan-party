@@ -1,9 +1,9 @@
 0.000	note	carol: her bundle arrived from the host's outbox; she joins with it (in the lab, mesh play starts her machine and runs edge-mesh join there)
-0.050	cmd	mesh play carol
-47.016	out	Golden rule: what runs on someone else's machine can be seen by its owner.
-56.476	out	joined: carol (trust=public)
-56.481	out	your namespace: play-carol; try: sudo edge-mesh kubectl get pods
-56.825	note	carol is in: her own namespace, empty, hers for one lease
-56.869	cmd	sudo edge-mesh kubectl get pods
-57.126	out	No resources found in play-carol namespace.
-76.848	note	carol: her machine was expelled by the host's panic
+0.055	cmd	mesh play carol
+46.534	out	Golden rule: what runs on someone else's machine can be seen by its owner.
+55.951	out	joined: carol (trust=public)
+55.956	out	your namespace: play-carol; try: sudo edge-mesh kubectl get pods
+56.303	note	carol is in: her own namespace, empty, hers for one lease
+56.356	cmd	sudo edge-mesh kubectl get pods
+56.619	out	No resources found in play-carol namespace.
+76.720	note	carol: her machine was expelled by the host's panic
