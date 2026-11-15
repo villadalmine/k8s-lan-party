@@ -106,7 +106,7 @@ wapi() { # wapi <route> [json]: GET, or POST that body, as the page does
   else curl -sS -m 30 -H "Authorization: Bearer $WTOK" -H 'Content-Type: application/json' -d "$2" "http://127.0.0.1:$WEB_PORT/api/v1/$1"; fi; }
 wshown() { # what the screen shows for that request: the token stays a variable
   echo "curl -H \"Authorization: Bearer \$TOKEN\" localhost:$WEB_PORT/api/v1/$1${2:+ -d '$2'}"; }
-pretty() { # the JSON a request answered, indented; the plan's confirm token is masked (it is a credential for 2 minutes)
+pretty() { # the JSON a request answered, indented; the plan's confirm token is masked (a credential while it lives, 60 s)
   python3 -c 'import json,sys
 d = json.load(sys.stdin)
 if isinstance(d, dict) and d.get("confirm"): d["confirm"] = "<confirm-token>"

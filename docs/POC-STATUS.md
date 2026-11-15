@@ -337,3 +337,5 @@ and cut the game when it stopped (it took the mesh's route); the suite now tries
 - **Repo hygiene found on the way:** scripts must stay LF (a CRLF `lib.sh` made every step print `command not found` while the suite still
   said `RESULT PASS`); the suites should refuse to print PASS when no step ran (open).
 - **Fuller report** (every command and its output): kept by the maintainer outside the repo.
+
+- **The v0.4.0-poc recording (2026-11-15, #90):** `make showcase-console` (`ONLY=poc-console`, `SHOWCASE`, an Incus project of its own on the lab host) on `9d14a86`: RESULT PASS, 21 steps (K01, K02, K10-K25 and the story-only KS1-KS3: carol approved from the web console with the plan, the confirm and the job, carol joins and is Ready, panic from the web console expels her). Its filtered screens are `poc/page/whatsnew/v0.4.0-poc/rec/`; the only later change to `poc-console.sh` is a comment.
