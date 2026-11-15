@@ -110,30 +110,30 @@ pretty() { # the JSON a request answered, indented; the plan's confirm token is 
   python3 -c 'import json,sys
 d = json.load(sys.stdin)
 if isinstance(d, dict) and d.get("confirm"): d["confirm"] = "<confirm-token>"
-if isinstance(d, dict): d = {k: v for k, v in d.items() if k not in ("stdout", "stderr")}
 print(json.dumps(d, indent=2))'; }
 jfield() { python3 -c 'import json,sys; print(json.load(sys.stdin).get(sys.argv[1]) or "")' "$1"; }
-web_act() { # web_act <verb> <args json> <want>: Confirm on the page: the plan, then the confirm with its token; the job to its end holds <want>
-  local plan tok job id st n=0
+web_act() { # web_act <verb> <args json> <want>: the page's button: the plan, then the confirm with its token; the job ends holding <want>,
+  # with exactly one audit line, source web, confirmed
+  local plan tok job id st n=0 n0 button=Confirm; n0=$(lines); [ "$1" != panic ] || button="Panic now"
   plan=$(wapi "actions/$1" "{\"args\": $2}") || return 1
   echo "$plan" | pretty | shot host "$(wshown "actions/$1" "{\"args\": $2}")"
   tok=$(echo "$plan" | jfield confirm); [ -n "$tok" ] || return 1
-  say host "the host presses Confirm: the page sends the plan back with its token, and the console runs the job"
+  say host "the host presses $button: the page sends the plan back with its token, and the console runs the job"
   job=$(wapi "actions/$1" "{\"args\": $2, \"confirm\": \"$tok\"}") || return 1
   echo "$job" | pretty | shot host "$(wshown "actions/$1" "{\"args\": $2, \"confirm\": \"<confirm-token>\"}")"
   id=$(echo "$job" | jfield id); [ -n "$id" ] || return 1
   while :; do job=$(wapi "jobs/$id"); st=$(echo "$job" | jfield state)
     case "$st" in done|failed) break ;; esac; n=$((n + 1)); [ "$n" -lt 300 ] || return 1; sleep 2; done
   echo "$job" | pretty | shot host "$(wshown "jobs/$id")"
-  [ "$st" = done ] && echo "$job" | grep -qF -- "$3" && last_is web "$1" true
+  [ "$st" = done ] && echo "$job" | grep -qF -- "$3" && [ "$(lines)" -eq $((n0 + 1)) ] && last_is web "$1" true
 }
 web_approve_carol() { # KS1: the link, the Queue, Approve
-  local link; answers || daemon_up || return 1
+  local link q; answers || daemon_up || return 1
   link=$("$MESH" host console url --web "127.0.0.1:$WEB_PORT" 2>/dev/null) || return 1; WTOK="${link##*#t=}"; [ -n "$WTOK" ] || return 1
   say host "the host opens the web console: one link, its token after the #, on the loopback only (from afar, through an SSH tunnel)"
   echo "${link%%#t=*}#t=<token>" | shot host "mesh host console url"
   say host "the Queue tab: carol asked for a place; the page reads it like this"
-  wapi requests | pretty | shot host "$(wshown requests)"
+  q=$(wapi requests) || return 1; echo "$q" | pretty | shot host "$(wshown requests)"
   say host "Approve: the page first asks what it will do, and shows the plan"
   web_act approve '{}' "approved carol"
 }
@@ -145,10 +145,10 @@ carol_joins() { # KS2: her bundle, her machine, her namespace
 }
 gone() { ! k get node "$1" >/dev/null 2>&1 && ! machine_running "$1"; }
 web_panic() { # KS3: the red button
-  say host "something is wrong: the host presses Panic on the page (one click to confirm)"
+  say host "something is wrong: the host presses Panic on the page, then Panic now under its plan"
   web_act panic '{}' "expelled 1" && wait_for 120 gone carol || return 1
   say host "carol's node is gone, her lease ended; admission stays closed until panic --clear"
-  show host "kubectl get nodes" k get nodes
+  show host "kubectl get nodes" k get nodes || return 1
   say player "carol: her machine was expelled by the host's panic"
 }
 audit_clean() { # 0600, one line per action (10), no state path and no home path in it
