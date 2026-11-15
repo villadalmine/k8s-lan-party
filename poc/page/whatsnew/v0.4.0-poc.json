@@ -3,7 +3,7 @@
   "date": "2026-11-15",
   "title": "the host's console: one API, the CLI and a web page in front of it",
   "release": "https://github.com/villadalmine/k8s-lan-party/releases/tag/v0.4.0-poc",
-  "summary": "Until v0.3.x the host ran the LAN party with commands typed on its own machine. v0.4.0-poc puts one local API in front of those commands, the console daemon (mesh host console), and two clients on it. The CLI is now a client: mesh host approve, burn, kick, request or panic --clear typed in a shell are sent to the daemon, which shows the plan, asks for the confirmation and runs the job under one engine lock, with the same output and exit code as before and one line in an audit log. The web console is the second client: a static page with no build step, served on the host's loopback only and opened with the token of mesh host console url, through an SSH tunnel from afar. Its tabs read the queue, the leases, the players, the parties, the events and the audit, and its buttons run the same verbs with the same plan and confirmation. What must never depend on the console does not: the timer's tick, the end of a lease and a typed panic run direct, and a console killed with its socket left behind changes nothing. Below, a real poc-console run: the host approves carol and then presses panic from the web console, with the very requests its page sends.",
+  "summary": "Until v0.3.x the host ran the LAN party with commands typed on its own machine. v0.4.0-poc puts one local API in front of those commands, the console daemon (mesh host console), and two clients on it. The CLI is now a client: mesh host approve, burn, kick, request or panic --clear typed in a shell are sent to the daemon, which makes the plan (the CLI confirms it itself: the host already typed the command) and runs the job under one engine lock, with the same output and exit code as before and one line in an audit log. The web console is the second client: a static page with no build step, served on the host's loopback only and opened with the token of mesh host console url, through an SSH tunnel from afar. Its tabs read the queue, the leases, the players, the parties, the events and the audit, and its buttons run the same verbs with the same plan and confirmation. What must never depend on the console does not: the timer's tick, the end of a lease and a typed panic run direct, and a console killed with its socket left behind changes nothing. Below, a real poc-console run: the host approves carol and then presses panic from the web console, with the very requests its page sends.",
   "issues": [
     85,
     86,
@@ -26,7 +26,7 @@
       "steps": [
         "mesh host console url gives one link; its token after the # opens the page, which listens on 127.0.0.1 only.",
         "The Queue tab reads who is waiting. Approve first asks the console for the plan and shows it; Confirm sends the plan back with its token, and the console runs the job and follows it to its end.",
-        "Panic is one click to confirm: automatic approvals off, no slots, every lease expelled. The audit log has one line per action, with the web as its source."
+        "Panic shows its plan too, and one more click, Panic now, runs it: automatic approvals off, no slots, every lease expelled. The audit log has one line per action, with the web as its source."
       ]
     }
   },
