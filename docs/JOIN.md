@@ -90,6 +90,8 @@ Exit codes you can meet:
 
 The PoC does this for each player (`poc/vm/lib-vm.sh`): create the VM, install `tcpdump wireguard-tools iproute2 iputils-ping curl`, copy
 `nebula`, `k3s`, `edge-mesh`, set the clock, put the bundle in `/bundle`, then `edge-mesh join /bundle --accept-golden-rule`.
+That automated VM has no interactive player account, so it exercises the legacy root kubeconfig. For a player console in a real VM, join
+from that user's account with `sudo edge-mesh join ...`, or pass `--user <player-login>` when running from a root shell.
 
 ### In Docker [docker]
 
@@ -116,10 +118,15 @@ wsl --import k8s-lan-party $HOME\wsl\k8s-lan-party .\ubuntu-noble-wsl-amd64-wsl.
 - **Every WSL2 distro (and Docker Desktop) shares one network namespace.** The iptables chains the node adds are seen by all of them and
   stay after you leave. Clean them when you are done (below).
 
-Then, in that distro as root (`wsl -d k8s-lan-party -u root`), the commands of "What you need" (the image already has `curl`), and the join:
+Then, in that distro as root (`wsl -d k8s-lan-party -u root`), the commands of "What you need" (the image already has `curl`), and the join.
+The tested root-only join below exercises node registration and the root-owned kubeconfig. To use player mode too, create a local account
+and pass its name to `--user`, then start the console as that account:
 
 ```bash
-edge-mesh join /path/to/bundle --accept-golden-rule        # [wsl]
+adduser <player-login>
+edge-mesh join /path/to/bundle --accept-golden-rule --user <player-login>   # [wsl]
+su - <player-login>
+edge-mesh console
 ```
 
 Leaving, in the same distro: stop the agent and Nebula (`pgrep -a 'k3s|nebula'`, then `kill <pid>`, the `sh -c while ...` supervisor first), and
