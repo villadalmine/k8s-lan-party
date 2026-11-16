@@ -383,6 +383,10 @@ bundle and every open request, and the puller pulls nothing while panic is on. T
 5 minutes, and the operator of the server has its own switch (`page-server.sh close`). As the last resort the pool CA is dropped from the trust
 bundle (`poc-ca.sh` proves only the pool goes down).
 
+The puller also keeps a minimal local observation for the host console: `page/last-report.json` (0600), with a timestamp and the
+reported admission closure and observed public-page open/closed booleans. The console shows its age or unknown; it never controls the
+page or contacts it. See [PUBLIC-PAGE.md](PUBLIC-PAGE.md#the-host-consoles-local-observation-103).
+
 #### B2: threats and their tests
 
 Written for the review of 2026-10-28 ("make the page safe, nothing hackable"): each threat, what stops it, and the test that fails if it does not.

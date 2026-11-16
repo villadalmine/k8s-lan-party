@@ -80,16 +80,40 @@ function listOf(data) {
 }
 
 async function show() {
-  const path = view === "events" || view === "audit" ? view + "?limit=100" : view;
+  const requested = view;
+  const path = requested === "events" || requested === "audit" ? requested + "?limit=100" : requested;
   const { status, data } = await api("GET", path);
+  if (requested !== view) return;   // a slow old view must never replace the selected tab
   const box = $("view");
   box.replaceChildren(el("h2", $("tabs").querySelector(`[data-view="${view}"]`).textContent));
   if (status !== 200) { box.appendChild(el("p", (data && data.message) || "HTTP " + status, "error")); return; }
+  if ($("summary").textContent === "loading") summary({});
   if (view === "status") {   // the switches and counters; the leases and the queue have views of their own
     const flat = {};
     Object.keys(data || {}).forEach((k) => { if (data[k] === null || typeof data[k] !== "object") flat[k] = data[k]; });
     box.appendChild(pairs(flat));
     summary(data);
+    return;
+  }
+  if (view === "pool") {
+    summary(data.status);
+    box.appendChild(pairs(data.status));
+    box.appendChild(el("h3", "Active leases"));
+    box.appendChild(table(data.leases));
+    box.appendChild(el("h3", "Queue"));
+    box.appendChild(table(data.requests));
+    box.appendChild(el("p", "Activity is in Players; admission counters are in Metrics. These reads may span a tick.", "muted"));
+    return;
+  }
+  if (view === "page") {
+    box.appendChild(el("p", "Last observed state: " + data.state));
+    box.appendChild(el("p", "The puller's last local report, not a live check. The page may have changed since then.", "muted"));
+    if (data.reported_at === null) box.appendChild(el("p", "No readable local report yet. Run the page puller on the host."));
+    else {
+      box.appendChild(el("p", "Observed at " + new Date(data.reported_at * 1000).toISOString() + " (" + data.age_seconds + " seconds ago)."));
+      box.appendChild(el("p", "Admission reported " + (data.admission_closed ? "closed" : "open") + "; the page's own switch may close it too."));
+      if (data.state === "unknown") box.appendChild(el("p", "The report was sent, but the page's status could not be observed."));
+    }
     return;
   }
   if (view === "metrics") { box.appendChild(el("pre", data.text || "")); return; }

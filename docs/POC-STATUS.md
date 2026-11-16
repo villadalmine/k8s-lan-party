@@ -1,4 +1,4 @@
-# PoC status (2026-11-12)
+# PoC status (2026-11-15)
 
 Where the proof of concept stands, what was proven, and what is still open.
 the maintainer's rule for this phase: make it work first, write down every place where security was relaxed, then harden it. Phases A, B and C
@@ -13,6 +13,23 @@ flowchart LR
   C --> MA["mutual auth: SPIRE 1.15.3 (beta), non-root, PVC"]
   CP --> KY["Kyverno 1.19.1: trust-based placement"]
 ```
+
+## Host read views (#103, PR #110; 2026-11-15)
+
+Implementation `920dc93`, with the RFC baseline wording corrected in `0f8d22b`:
+
+- `make test`: 131 repository tests passed (3 skipped), 384 PoC tests passed. The focused independent reviewer run passed 94 tests.
+- Real Chromium through an SSH tunnel to the lab host: Pool capacity/queue/leases, Public page, Metrics, Players and disabled host-only
+  verbs render without JavaScript errors; the web token leaves the address bar. Separate actual page/mesh/puller/console verification
+  proves unknown before a report, open after the puller reports, and closed with the page operator switch while admission stays open.
+  The view displays the observation time and age and explicitly says it is not live. No mocked API responses or new mesh credentials.
+- Independent reviews: [initial](https://github.com/villadalmine/k8s-lan-party/pull/110#pullrequestreview-5912450349) found one medium RFC
+  consistency issue; [re-review](https://github.com/villadalmine/k8s-lan-party/pull/110#pullrequestreview-5912460912) verified it fixed on
+  `0f8d22b`, with no open findings.
+- Browser follow-up: the optional `poc/console/check-browser.cjs` (added in `4679711`) fails against `0f8d22b` when a rapid tab switch
+  leaves the header on loading, and passes after the UI-only fix `cdfbe4f` for unknown, open and operator-closed page states. It delays
+  a real response without replacing its body; runtime dependencies and authority are unchanged.
+- Lab regression on `0f8d22b`: **poc-console RESULT PASS, 19/19** (K01, K02, K10-K26), including the real lease expiry with the daemon stopped. **poc-page RESULT PASS, 31/31** (G01-G27, G09c, G25b), including the puller observation and public page lifecycle. The initial attempt was stopped after console startup failed because an existing demo already held its loopback port (`Address already in use`). The retry used a free port on both ends and preserved the existing demo. This was a port allocation error, not a test failure. Both suite results are recorded in the generated subset table below.
 
 ## Proven, with identical output across two runs
 

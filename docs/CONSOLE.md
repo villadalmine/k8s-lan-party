@@ -175,6 +175,8 @@ the socket and on the loopback; only the role differs.
 | `GET /api/v1/requests`, `/leases`, `/players`, `/players/{name}/activity`, `/parties` | the lists, from pure reads |
 | `GET /api/v1/verbs` | every registry verb, plus `init` and `down`, with `allowed` for the caller's role; for the others `why`, and the `command` to type on the host (`invite`, `bundle`, `refresh`, and `init` and `down`, which no role runs). A description for a client to draw disabled buttons: the refusal is each POST's (#103) |
 | `GET /api/v1/events?since=&limit=`, `GET /api/v1/audit?limit=` | the last lines of each log (at most 500) |
+| `GET /api/v1/pool` | capacity and admission switches, active leases and the queue, grouped from existing pure reads; sampled in sequence, so a tick may occur between them |
+| `GET /api/v1/page` | the puller's last local observation: `state` (open/closed/unknown), `reported_at`, `age_seconds`, `admission_closed`; no network call or page control |
 | `GET /api/v1/metrics` | the admission metrics, Prometheus text, no identities |
 | `GET /api/v1/actions` | the registry entries the caller's role may run: verb, params, confirmation, timeout |
 | `POST /api/v1/actions/{verb}` | `{"args": {...}}`: starts a job (202), or answers with a plan to confirm (200) |
@@ -184,6 +186,13 @@ the socket and on the loopback; only the role differs.
 no NaN, no deep nesting. `args` must have exactly the verb's parameters, of the right type; names match `[a-z][a-z0-9-]{1,19}` (the rule of
 `admission.py` and `mesh host invite`); free text (`note`, `reason`) is capped and has no control characters. Anything else is 400, and the
 engine is not called. The engine then checks everything again, as it does for the CLI.
+
+The **Pool** tab groups capacity, admission switches, leases and the queue; **Players** has the per-player activity check and **Metrics**
+shows admission counters. **Public page** shows the puller's last local observation from `page/last-report.json`, written after a successful
+report and a read of the page's public status. It includes the observation time and age, and explicitly says it is not live: the page's
+operator can close it independently, or it can close itself when reports stop. No file, malformed data or an unsuccessful observation
+means **unknown**. A failed report leaves the previous observation with its original timestamp. The console never contacts the page,
+reads the puller's ledger or credentials for this view, or offers its open/close switch.
 
 **Reads never write.** A GET reads `admission/state.json`, `auto.json` and the logs itself, or runs an engine read that is pure. Two verbs are
 not pure today (`host players` and `host party list`, in the table): #86 adds `--read-only` modes, and a test with a recording fake engine
@@ -205,6 +214,14 @@ A verb whose *confirm* is not `none` runs in two calls:
    checked before the token is spent, so a typo costs no new plan. **`panic` is the exception**: its plan is shown, but it is not compared
    again at the confirm nor when the job starts: whatever the leases are by then, panic expels them all, and it must never be refused for
    being late. A second `panic` while one runs gets that same job (one panic at a time).
+
+A real-browser regression check is available as `poc/console/check-browser.cjs` (optional Playwright on the operator's machine,
+never a runtime dependency or a served file). Save the console link in a private 0600 file, tunnel the same free loopback port on both
+ends, then run `node poc/console/check-browser.cjs <private-url-file> unknown` (or `open` / `closed` for the expected observation).
+`CHROMIUM_PATH` selects an already installed Chromium if needed. The check delays an actual status response without changing its body,
+switches tabs immediately, and asserts the selected view stays put and the header leaves loading; it also checks Pool, the dated
+Public page observation, Metrics, disabled verbs and fragment removal. The Python stdlib unit suite has no browser DOM: this behavior
+is covered by this separate integration check, alongside the lab suite. Never publish the link file.
 
 The web console shows the plan in a dialog: one click for `click` (panic is one click on purpose: it has to be fast), the name typed for
 `kick`, `revoke` and `reap-one`, the word `all` for `reap-all`. The CLI (#88) runs both calls itself, so `mesh host kick alice` behaves

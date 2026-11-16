@@ -296,10 +296,26 @@ class Puller:
                     print(f"puller: {rec['name']}: not delivered this run: {e}", file=sys.stderr)
         return updates, after
 
+    def record_report(self, closed: bool) -> None:
+        """A small local observation for the host console, after a report succeeded. No credentials or visitor data.
+        The page's own switch may still close it; ask its public status rather than infer open from our report.
+        A failed observation is unknown, never a reason to retry already accepted delivery updates.
+        """
+        opened = None
+        try:
+            status = self.call("/api/v1/status")
+            if type(status.get("open")) is bool:
+                opened = status["open"]
+        except Fail:
+            pass
+        observed_at = self.a.now if self.a.now is not None else int(time.time())
+        write_atomic(self.dir / "last-report.json", {"at": observed_at, "reported_closed": closed, "page_open": opened})
+
     def run(self) -> int:
         st = self.status()
         if st["panic"]:
             self.call("/api/v1/puller/report", {"closed": True, "status": self.numbers(st), "updates": []})
+            self.record_report(True)
             print("puller: closed (panic) | nothing pulled")
             return 0
         updates, listed, refused = self.take(st)
@@ -316,6 +332,7 @@ class Puller:
                     if f.exists():
                         f.unlink()
         self._save()
+        self.record_report(False)
         ready = sum(1 for u in updates if u["state"] == "ready")
         ended = sum(1 for u in updates if u["state"] == "ended")
         print(f"puller: open | listed {listed} | refused {refused} | ready {ready} | ended {ended} | "

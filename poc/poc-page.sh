@@ -249,6 +249,18 @@ server_clean() { # the marker back: now --with-caddy removes exactly what the sc
   echo '! test -e /opt/k8s-lan-party-page && ! test -e /etc/caddy && ! test -e /usr/local/bin/caddy && ! test -e /etc/nebula && ! systemctl is-active -q caddy && ! systemctl is-active -q nebula' | pub &&
   echo 'pkill -f "k3s agent" ; pkill nebula; rm -rf /root/mykeys /opt/k8s-lan-party /tmp/replay.json; true' | vis; }
 
+local_page_report() { # the puller's last observation matches the page, with no request or credential in that file
+  local live; live=$(api "$SITE/api/v1/status" | jget open) || return 1
+  python3 - "$STATE/page/last-report.json" "$live" <<'REPORT'
+import json, os, sys
+p = sys.argv[1]
+r = json.load(open(p))
+assert set(r) == {"at", "reported_closed", "page_open"}
+assert r["page_open"] == (sys.argv[2] == "True")
+assert type(r["at"]) is int and r["at"] > 0
+assert os.stat(p).st_mode & 0o777 == 0o600
+REPORT
+}
 g08() { cacert && closed_before_pull; }
 g09() { say host "The host opens the pool: automatic admission, one place"; seen "$MESH" host auto on >/dev/null && same_numbers &&
   extra seen "$MESH" host admission-status >/dev/null; }
@@ -269,6 +281,7 @@ step G07 "page-server.sh verify: services, loopback-only page, the API through C
 step G08 "before the control plane reports, the page says closed and refuses a request (503)" g08
 step G09 "auto on; a tick and a pull: the page is open and shows the same numbers as admission-status" g09
 step G09b "body limits per route: the puller's 60 KB report passes Caddy (not 413), a visitor's 20 KB body is refused (413)" report_size_limits
+step G09c "the puller keeps only a timestamp and open/closed booleans locally (0600), matching the public page" local_page_report
 step G10 "the public server reaches the control plane over Nebula but not the Kubernetes API; the page's process only the loopback" api_not_from_server
 step G11 "a decoy asks through the page with curl (the calls of PUBLIC-PAGE.md): a claim code" decoy_asks
 step G12 "a tick approves the decoy (the only place); the page says ready; collected with curl, opened with its own key (visit.py open)" g12
@@ -285,6 +298,7 @@ step G22 "the visitor joins with edge-mesh join and is Ready" vis_joins
 step G23 "the lease ends: the visitor is expelled, the page says so, its tunnel no longer reaches the API" vis_kicked
 step G24 "the server holds no join token in clear, no private key but its own, no claim code (after the whole flow)" no_secret_on_server
 step G25 "panic: the puller stops (a last request is never pulled), the page says closed and refuses requests (503)" panic_closes
+step G25b "the puller's last local report now says the page is closed" local_page_report
 step G26 "panic --clear: the page opens again" reopens
 step G26b "remove keeps a Caddy that was not installed by this script (default and --with-caddy without the marker)" remove_keeps_caddy
 step G27 "the server is clean: the page, the Caddy this script installed and the lighthouse removed; the visitor's machine cleaned" server_clean

@@ -233,8 +233,8 @@ features:
       real_world: "The Kubernetes API server in front of etcd, or a cloud provider's API under its console, its CLI and its SDKs."
       seen_in: "v0.4.0-poc: the host approves carol and then presses panic from the web console; each is a job of the console daemon with a plan, a confirmation and one audit line."
     proven_by:
-      - {suite: poc-console, steps: [K01, K02, K10-K25]}
-    paths: [poc/mesh, poc/lib.sh, poc/meshlock.py, poc/console/*.py, poc/console/static/*, poc/admission.py]
+      - {suite: poc-console, steps: [K01, K02, K10-K26]}
+    paths: [poc/mesh, poc/lib.sh, poc/meshlock.py, poc/console/*.py, poc/console/*.cjs, poc/console/static/*, poc/admission.py]
     components: [admission]
     docs: [docs/CONSOLE.md, docs/HOST-YOUR-OWN.md]
 
@@ -297,7 +297,7 @@ features:
       real_world: "Self-service onboarding for outside users or partners without giving the web tier any secret."
       seen_in: "v0.2.0-poc and v0.2.1-poc: the request page and this What's new page, served by a server with no credential."
     proven_by:
-      - {suite: poc-page, steps: [G01-G26]}
+      - {suite: poc-page, steps: [G01-G26, G09c, G25b]}
     paths: [poc/page/*, poc/poc-page.sh]
     components: [page, Caddy, Nebula, admission]
     docs: [docs/PUBLIC-PAGE.md, docs/ADMISSION.md, CONTRIBUTING.md]
