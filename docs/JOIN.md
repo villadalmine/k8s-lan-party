@@ -118,9 +118,9 @@ wsl --import k8s-lan-party $HOME\wsl\k8s-lan-party .\ubuntu-noble-wsl-amd64-wsl.
 - **Every WSL2 distro (and Docker Desktop) shares one network namespace.** The iptables chains the node adds are seen by all of them and
   stay after you leave. Clean them when you are done (below).
 
-Then, in that distro as root (`wsl -d k8s-lan-party -u root`), the commands of "What you need" (the image already has `curl`), and the join.
-The tested root-only join below exercises node registration and the root-owned kubeconfig. To use player mode too, create a local account
-and pass its name to `--user`, then start the console as that account:
+Then, in that distro as root (`wsl -d k8s-lan-party -u root`), run the commands of "What you need" (the image already has `curl`).
+The 2026-10-28 WSL2 validation tested node registration and the root-owned kubeconfig only; it did not test this user-account handoff.
+For player mode, create a local account before joining, pass its name to `--user`, then start the console as that account:
 
 ```bash
 adduser <player-login>
