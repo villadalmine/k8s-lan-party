@@ -53,8 +53,9 @@ function draw(rows) {
       card.appendChild(el("p", `${game.status} · ${game.ports || "no ports listed"}`, "muted"));
       const image = el("input"); image.type = "text"; image.placeholder = "localhost/emesh-doom:12.3.0-<12 hex>";
       image.setAttribute("aria-label", `Local Doom image for ${game.peer}`);
-      const start = el("button", "Watch"); start.disabled = Boolean(game.watching);
-      if (game.watching) start.textContent = "Spectator running";
+      const active = game.status.startsWith("active:");
+      const start = el("button", "Watch"); start.disabled = Boolean(game.watching) || !active;
+      if (game.watching) start.textContent = active ? "Spectator running" : "Stop orphaned spectator";
       start.addEventListener("click", async () => {
         const r = await api("POST", "actions/watch-start", { peer: game.peer, image: image.value.trim() });
         banner(r.data.message || `HTTP ${r.status}`); if (r.status === 202) { watching(game.peer, card); poll(); }
@@ -67,7 +68,7 @@ function draw(rows) {
       });
       card.append(image, start, stop);
       box.appendChild(card);
-      if (game.watching) watching(game.peer, card);
+      if (game.watching && active) watching(game.peer, card);
     });
     return;
   }
@@ -87,6 +88,7 @@ function watching(peer, card) {
       const r = await fetch(`/api/v1/watch/${encodeURIComponent(peer)}/frame`, { cache: "no-store", credentials: "omit",
         headers: { Authorization: "Bearer " + token() } });
       if (r.status === 401 || r.status === 403) { banner("player console access expired or was refused"); return; }
+      if (r.status === 404) { stopImage(card); return; }
       if (r.ok) {
         const next = URL.createObjectURL(await r.blob());
         if (watchUrl) URL.revokeObjectURL(watchUrl);

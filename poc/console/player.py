@@ -287,6 +287,7 @@ class Player:
             return self._run(["get", "events", "-n", self.namespace, "--sort-by=.lastTimestamp", "-o", "json"])
         if route in ("parties", "games"):
             data = self._run(["get", "configmaps", "-n", self.namespace, "-l", "edge-mesh/party-consent", "-o", "json"])
+            watchers = {p.get("metadata", {}).get("name", "")[len("doom-watch-"):] for p in self._watch_pods()}
             rows = []
             for cm in data.get("items", []):
                 meta, body = cm.get("metadata", {}), cm.get("data", {})
@@ -295,8 +296,14 @@ class Player:
                     continue
                 status = (meta.get("annotations") or {}).get("edge-mesh/party-status", "waiting for host reconciliation")
                 rows.append({"peer": peer, "ports": body.get("ports", ""), "status": status,
-                             "watching": self._watch_pod(peer) is not None})
-            return [r for r in rows if r["status"].startswith("active:")] if route == "games" else rows
+                             "watching": peer in watchers})
+            if route == "games":
+                active = [r for r in rows if r["status"].startswith("active:")]
+                active_peers = {r["peer"] for r in active}
+                active.extend({"peer": peer, "ports": "", "status": "inactive: party ended; stop the spectator", "watching": True}
+                              for peer in sorted(watchers - active_peers))
+                return active
+            return rows
         if route == "actions":
             return [{"verb": v, "summary": desc, "params": params} for v, desc, params in (
                 ("party-invite", "ask a player to form a party", {"peer": "player name", "ports": "comma-separated allowed ports (optional)"}),
@@ -321,6 +328,8 @@ class Player:
     def watch_frame(self, peer: str) -> bytes:
         if not PEER.fullmatch(peer) or peer == self.name:
             raise PlayerError(400, "bad-peer", "peer must be a game participant")
+        if not any(g["peer"] == peer and g["status"].startswith("active:") for g in self.get("games", {})):
+            raise PlayerError(404, "watch-unavailable", "the party is no longer active")
         pod = self._watch_pod(peer)
         spec = pod.get("spec", {}) if pod else {}
         status = pod.get("status", {}) if pod else {}

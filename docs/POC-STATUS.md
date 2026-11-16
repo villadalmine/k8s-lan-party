@@ -370,3 +370,7 @@ watcher endpoint and DM21-DM23; those cluster checks are **pending** a fresh Del
 401 tests, including six stream/pod tests. The player-console watch API and UI are now wired to start/stop a watcher in the player's own
 namespace and proxy frames from its Pod IP. Static checks (`py_compile`, `node --check`, `bash -n`, `git diff --check`) pass. The live Doom
 spectator, the browser view and the updated `poc-doom` regression have not yet been run; the prior DM01-DM20 result does not prove this change.
+
+PR #112 review found that a watcher could outlive a closed party and disappear from the player's Games view, leaving no Stop control. The player view
+now keeps an inactive watcher row available for cleanup, and the frame proxy returns 404 once the party is no longer active. The focused player
+tests pass 12/12; final cluster regression and browser verification remain pending.
