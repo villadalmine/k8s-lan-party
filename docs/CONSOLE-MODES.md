@@ -40,7 +40,7 @@ The page of #89 stays one page. What changes is which daemon serves it and which
 | Listens on | the loopback only; from elsewhere an SSH tunnel | the loopback only. A player has no reason for a tunnel: the browser is on that machine |
 | Way in | a token in the link's fragment, only its hash stored (C05) | the same code, the same rules |
 | Authority | the engine (`poc/mesh host ...`), role `console` | the player's kubeconfig over Nebula: their namespace, nothing else (the API answers 403 outside it) |
-| Reads | status, queue, leases, players, parties, events, audit; new: activity, metrics, pool, page state | the player's lease and the time left, the node's state, the events of their namespace, their consents and what the host says of each (`edge-mesh party list`), the games they have a party for |
+| Reads | status, queue, leases, players, parties, events, audit; new: activity, metrics, pool, page state | the player's lease and time left; local node connectivity (Nebula interface and own namespace API reachability); events in their namespace; their consents and what the host says of each (`edge-mesh party list`); games they have a party for |
 | Mutations | the registry of v0.4.0 | `party invite`, `party accept`, `party leave` (today's `edge-mesh party`), and two **new** verbs, `play` and `watch` (#101, #102) |
 | Never | the four CA verbs and `init`, `down` (shown disabled); `console url`, `console rotate-token` (not shown); the lighthouse and page-server scripts | anything of the host; anything of another player; the bundle's private key in any answer |
 | Runs as | the host's user, next to the state | **the player's own user, never root**: `edge-mesh join` runs as root and keeps `/etc/nebula/host.key` and `join.env` (the k3s token) root-only; today `edge-mesh join` writes `/etc/edge-mesh/kubeconfig` root-only, so #100 adds a join step: with `--user NAME` (or the `SUDO_USER` that ran it) the join also writes a copy owned by that user, 0600, and player mode reads only that, nothing under `/etc/nebula`. Loading the locally built game image into k3s (`k3s ctr images import`) needs root: it is a separate `edge-mesh` step run with sudo, once per image |
@@ -48,6 +48,9 @@ The page of #89 stays one page. What changes is which daemon serves it and which
 **The two daemons never talk to each other.** A player's console has no address of the host's console and no token for it; the host's
 console still binds the loopback of the host. Player mode adds no listener on the host and nothing a player can reach that they could not
 reach before.
+
+For player mode, **node status** means the local Nebula interface state and reachability of that player's namespaced API. The player
+credential has no cluster-scoped Node read; this view does not assert the Kubernetes Node `Ready` condition.
 
 **What a role cannot do is shown, not hidden.** `GET /actions` already says, per argument value, which roles may send it, and the page
 disables the others (`(on the host only)`). #103 extends that to whole verbs: `GET /verbs` (in `openapi.json`) serves the full list with `allowed`, `why` and `closed_values` per verb, and

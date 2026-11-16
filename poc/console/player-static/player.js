@@ -35,7 +35,7 @@ function drawStatus(s) {
   $("summary").textContent = `${s.name} · ${time} left · Nebula ${s.node.nebula} · API ${s.node.api}`;
   const box = $("view"); box.appendChild(el("p", `Namespace: ${s.namespace}`));
   box.appendChild(el("p", `Lease expiry from your token: ${new Date(expiresAt * 1000).toISOString()} (${time} remaining). This is informational; revocation can end access sooner.`));
-  box.appendChild(el("p", `Your node link: Nebula ${s.node.nebula}; own namespace API ${s.node.api}; visible workloads ${s.workloads}.`));
+  box.appendChild(el("p", `Your local connectivity: Nebula ${s.node.nebula}; own namespace API ${s.node.api}; visible workloads ${s.workloads}. This does not report Kubernetes Node Ready.`));
   box.appendChild(el("p", s.node.note, "muted"));
 }
 function draw(rows) {

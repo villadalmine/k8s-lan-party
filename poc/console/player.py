@@ -275,7 +275,7 @@ class Player:
                 api_state, count = "expired or revoked", 0
             return {"name": self.name, "namespace": self.namespace, "expires_at": self.expires_at,
                     "seconds_left": max(0, self.expires_at - now), "node": {"nebula": "up" if nebula else "down",
-                    "api": api_state, "note": "own-node link and namespace API; no cluster-wide Node read"}, "workloads": count}
+                    "api": api_state, "note": "local Nebula and own namespace API connectivity; does not report Kubernetes Node Ready"}, "workloads": count}
         if route == "events":
             return self._run(["get", "events", "-n", self.namespace, "--sort-by=.lastTimestamp", "-o", "json"])
         if route in ("parties", "games"):

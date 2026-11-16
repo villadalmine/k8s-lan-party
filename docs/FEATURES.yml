@@ -241,7 +241,7 @@ features:
     docs: [docs/CONSOLE.md, docs/HOST-YOUR-OWN.md]
 
   - id: player-console
-    description: the player's local console on loopback; owns only the player's namespace kubeconfig, shows their lease, own events/parties/joinable games and allows only their party consents
+    description: the player's local console on loopback; owns only the player's namespace kubeconfig, shows lease/countdown, local Nebula and namespace API connectivity, own events/parties/joinable games and allows only their party consents
     layer: tenancy
     user_facing: true
     learn:

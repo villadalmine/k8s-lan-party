@@ -92,6 +92,7 @@ class PlayerTest(unittest.TestCase):
             got = self.p.get("status", {})
         self.assertEqual(got["seconds_left"], 400)
         self.assertEqual(got["node"]["nebula"], "up")
+        self.assertIn("does not report Kubernetes Node Ready", got["node"]["note"])
         argv = self.kc.calls[-1][0]
         self.assertEqual(argv[3:7], ["get", "pods", "-n", "play-alice"])
         self.assertNotIn("nodes", argv)
