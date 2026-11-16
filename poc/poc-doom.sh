@@ -8,9 +8,11 @@
 # with one consent and after `leave` the same client gets no answer. The image has Odamex (GPL) and FreeDM (BSD) and nothing non-free; it is
 # built once (poc/doom/build.sh) and loaded into the nodes. carmack's robot records its virtual screen as a GIF (SHOWCASE keeps it).
 # Needs a Linux host with Incus. PASS/FAIL per step; identical across runs. CNI=cilium by default (the demo's CNI); CNI=flannel also runs.
+# D6 (#101, DM24 on): the host's watcher needs an `own` machine that is not the control plane: hostpc, issued by the host like n1 (never through
+# `mesh host invite`, which refuses own), joins after the match.
 # POOL_LEASE (default 1800 s) must cover DM03-DM18. KEEP=1 leaves the VMs. SHOWCASE=<dir> also writes the player's and the host's screens there.
 set -u
-export RUNTIME=incus MAX_VMS=5 CNI="${CNI:-cilium}" TAINT=no   # TAINT pinned as poc-pool (issue #59)
+export RUNTIME=incus MAX_VMS=6 CNI="${CNI:-cilium}" TAINT=no   # TAINT pinned as poc-pool (issue #59)
 . "$(dirname "$0")/lib.sh"
 . "$POC/vm/lib-vm.sh"
 "$POC/vm/down.sh" >/dev/null 2>&1
@@ -222,6 +224,24 @@ free_only() { # nothing non-free is in the image: FreeDM is the only wad, no doo
   [ "$(echo "$o" | sed -n 1p)" = freedm.wad ] && ! echo "$o" | grep -qi '^/.*\.wad' && echo "$o" | grep -q 'odamex-LICENSE-GPL-2.0' &&
   echo "$o" | grep -q 'freedoom-COPYING-BSD-3-Clause.txt'; }
 
+# D6 (#101): the host's watcher identity, watch-host, on the host's own machine
+OWN=hostpc
+watch_refused() { # with no own node but the control plane (cp is own; the players are friends), there is nowhere for the watcher to run
+  local o rc; o=$("$MESH" host watch init 2>&1); rc=$?; echo "$o"; echo "exit $rc"
+  [ "$rc" -eq 3 ] && echo "$o" | grep -q "not the control plane" && [ -z "$(k get namespace watch-host --ignore-not-found -o name)" ]; }
+own_joins() { # the host issues its own machine (trust own, persistent CA) and it joins like n1 of poc-up; then the watcher can be made
+  local ip="${LH_NEB%.*}.60"
+  "$POC/issue.sh" "$OWN" "$ip" own 2h && node_guard && vm_new "$OWN" &&
+  incus exec "emesh-$OWN" -- edge-mesh join /bundle --accept-golden-rule && wait_for 420 ready "$OWN" &&
+  k label node "$OWN" node-restriction.kubernetes.io/trust=own --overwrite >/dev/null || return 1
+  say host "the host's own machine joins (trust own, not the control plane): the host can now have a watcher, watch-host"
+  out_has "its pods run on: $OWN" show host "mesh host watch init" "$MESH" host watch init || return 1
+  # no credential for anyone but the host: no ServiceAccount but the default, no Role, no RoleBinding; restricted; its own quota
+  [ "$(k get namespace watch-host -o jsonpath='{.metadata.labels.edge-mesh/watcher}')" = host ] &&
+  [ "$(k get namespace watch-host -o jsonpath='{.metadata.labels.pod-security\.kubernetes\.io/enforce}')" = restricted ] &&
+  [ -z "$(k get roles,rolebindings -n watch-host -o name)" ] && [ "$(k get serviceaccounts -n watch-host -o name)" = serviceaccount/default ] &&
+  [ -n "$(k get resourcequota pool -n watch-host -o name)" ] && out_has "watcher: namespace watch-host" "$MESH" host watch status; }
+
 step DM01 "mesh host init: lighthouse and control plane (and Cilium with CNI=cilium)" host_init
 step DM02 "the Doom image (Odamex 12.3.0, FreeDM 0.13.0, pinned) is built once and cached by the hash of its inputs" image
 step DM03 "romero, carmack and petersen ask; one tick admits all three" admitted
@@ -245,6 +265,8 @@ step DM20 "the server saw exactly three match players, one each, and no extra ma
 step DM21 "carmack leaves: the tick closes the party, he gets no answer again, petersen's party stays open" leave_closes
 step DM22 "two policies are left (romero and petersen's pair); reconcile twice says unchanged" idempotent
 step DM23 "nothing non-free is in the image: FreeDM only, no doom.wad or doom2.wad, both licences present" free_only
+step DM24 "D6: with no own node but the control plane, mesh host watch init refuses and makes nothing" watch_refused
+step DM25 "D6: the host's own machine joins (trust own); watch init makes watch-host: restricted, its own quota, no credential but the host's" own_joins
 
 [ -z "$SC" ] || [ "$FAILS" -ne 0 ] || { cp "$OUTD/match.gif" "$SC/match.gif"; for s in player host; do   # only a run that passed becomes a recording (the GIF first: down removes the state)
   python3 "$SCP" redact "$SC/$s.raw" "$SC/$s.tsv" --strip "$STATE/" --strip "$POC/" --strip "${POC%/*}/" || FAILS=$((FAILS+1)); done; }
