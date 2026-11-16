@@ -132,6 +132,9 @@ flowchart LR
     p_poc_party_py["poc/party.py"]
     p_poc_test_party_py["poc/test_party.py"]
     p_poc_poc_party_sh["poc/poc-party.sh"]
+    p_poc_watcher_py["poc/watcher.py"]
+    p_poc_watcher_policy_yaml["poc/watcher-policy.yaml"]
+    p_poc_test_watcher_py["poc/test_watcher.py"]
     p_poc_doom__["poc/doom/*"]
     p_poc_poc_doom_sh["poc/poc-doom.sh"]
     p_poc_page__["poc/page/*"]
@@ -284,6 +287,9 @@ flowchart LR
   f_party -.-> p_poc_party_py
   f_party -.-> p_poc_test_party_py
   f_party -.-> p_poc_poc_party_sh
+  f_party -.-> p_poc_watcher_py
+  f_party -.-> p_poc_watcher_policy_yaml
+  f_party -.-> p_poc_test_watcher_py
   s_poc_doom -->|"DM01-DM23"| f_doom
   f_doom --> c_k3s
   f_doom --> c_Cilium

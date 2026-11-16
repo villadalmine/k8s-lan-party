@@ -14,6 +14,13 @@ that namespace goes (kick, lease end) the consent is deleted, so an invitation n
 active and stops qualifying (one side left, kicked, a lease ended) deletes both consents: playing again takes a new invite and accept.
 `parties: 0` in pool.yaml closes every party and keeps the consents (status `off`). Placement, quotas and RBAC are not touched.
 
+The host's watcher (D6 of docs/CONSOLE-MODES.md, issue #101): the host is not a player, so to watch a game "through a party" it has an
+identity of its own, the namespace `watch-host` labelled `edge-mesh/watcher=host` (`poc/watcher.py`; its pods run on an `own` node, never
+the control plane). Here it is one more peer called `watch-host`: the host's consent is `party-<owner>` in `watch-host`, the owner's is
+`party-watch-host` in `play-<owner>`, and the rest is the same rule (both consents, common ports, closed when either side goes). It has
+no lease: it lives as long as its namespace. No player may take the name (admission.py RESERVED, `mesh host invite`), and a player
+namespace labelled with it is ignored here, so `watch-host` always means the host.
+
     party.py reconcile --config pool.yaml --bundles DIR --nebula-cert BIN --kc KC [--quiet]   apply; prints what changed (or "unchanged")
     party.py list ...                     one row per consent: player, peer, status (after a reconcile)
     party.py list --read-only [--json] ...   the same rows from what the cluster says now, without reconciling (the host console's read)
@@ -38,6 +45,21 @@ PORT = re.compile(r"([0-9]{1,5})/(TCP|UDP)")
 PREFIX, CONSENT, PARTY = "play-", "edge-mesh/party-consent", "edge-mesh/party"
 STATUS, PEER_UID, NSLABEL = "edge-mesh/party-status", "edge-mesh/party-peer-uid", "party.edge-mesh/"
 DEFAULT_PORTS = ["10666/UDP"]   # Odamex, the Doom demo of part B
+WATCHER, WATCHER_LABEL = "watch-host", "edge-mesh/watcher"   # the host's watcher identity (D6): a namespace of that name, not play-*
+FOREVER = 2 ** 62                                              # the watcher has no lease
+
+
+def nsof(who: str) -> str:
+    """The namespace of a party member: the host's watcher has its own, every player play-<name>."""
+    return WATCHER if who == WATCHER else PREFIX + who
+
+
+def member(namespace: str) -> str:
+    """The member a namespace belongs to, or "" when it is neither the watcher's nor a player's."""
+    if namespace == WATCHER:
+        return WATCHER
+    who = namespace[len(PREFIX):] if namespace.startswith(PREFIX) else ""
+    return "" if who == WATCHER else who   # play-watch-host is nobody's: the name is reserved
 
 
 def ports(text, allowed: list[str]) -> list[str] | None:
@@ -49,8 +71,8 @@ def ports(text, allowed: list[str]) -> list[str] | None:
 
 
 def policy(me: str, peer: str, plist: list[str]) -> dict:
-    ns, sel = PREFIX + me, {"namespaceSelector": {"matchLabels": {
-        "kubernetes.io/metadata.name": PREFIX + peer, NSLABEL + me: "yes"}}}
+    ns, sel = nsof(me), {"namespaceSelector": {"matchLabels": {
+        "kubernetes.io/metadata.name": nsof(peer), NSLABEL + me: "yes"}}}
     pp = [{"protocol": p.split("/")[1], "port": int(p.split("/")[0])} for p in plist]
     return {"apiVersion": "networking.k8s.io/v1", "kind": "NetworkPolicy",
             "metadata": {"name": f"party-{peer}", "namespace": ns, "labels": {PARTY: ".".join(sorted([me, peer]))}},
@@ -65,15 +87,20 @@ def plan(cfg: dict, now: int, data: dict) -> dict:
     allowed = ports(",".join(raw), raw) or []   # a pool.yaml that names something else than ports opens nothing
     players = {}   # name -> (uid, live, labels)
     for ns in data["namespaces"].get("items", []):
-        md = ns["metadata"]; who = (md.get("labels") or {}).get("edge-mesh/participant", "")
-        if NAME.fullmatch(who) and md["name"] == PREFIX + who:
+        md = ns["metadata"]; labels = md.get("labels") or {}
+        if md["name"] == WATCHER:   # the host's watcher only with the host's label; never a player that names itself so
+            who = WATCHER if labels.get(WATCHER_LABEL) == "host" else ""
+        else:
+            who = labels.get("edge-mesh/participant", "")
+            who = "" if who == WATCHER else who
+        if NAME.fullmatch(who) and md["name"] == nsof(who):
             players[who] = (md.get("uid", ""), ns.get("status", {}).get("phase") == "Active" and not md.get("deletionTimestamp"),
                             md.get("labels") or {})
-    ends = data.get("ends", {})
+    ends = {**data.get("ends", {}), WATCHER: FOREVER}
     cons = {}      # (me, peer) -> dict(cm, ports, status, uid)
     act = {"apply": [], "delete": [], "label": [], "annotate": [], "say": []}
     for cm in data["configmaps"].get("items", []):
-        md = cm["metadata"]; me = md["namespace"][len(PREFIX):] if md["namespace"].startswith(PREFIX) else ""
+        md = cm["metadata"]; me = member(md["namespace"])
         peer = (cm.get("data") or {}).get("peer", "")
         if me not in players or not NAME.fullmatch(peer) or md["name"] != f"party-{peer}":
             continue
@@ -92,7 +119,7 @@ def plan(cfg: dict, now: int, data: dict) -> dict:
         elif c["status"].startswith("active") and on and (peer, me) not in cons:
             gone.add((me, peer, f"closed: {peer} left the party"))
     for me, peer, why in sorted(gone):
-        act["delete"].append(["configmap", PREFIX + me, f"party-{peer}"]); act["say"].append(f"{me} -> {peer}: {why}")
+        act["delete"].append(["configmap", nsof(me), f"party-{peer}"]); act["say"].append(f"{me} -> {peer}: {why}")
         cons.pop((me, peer), None)
     for (me, peer), c in sorted(cons.items()):
         other, p = cons.get((peer, me)), players.get(peer)
@@ -101,6 +128,8 @@ def plan(cfg: dict, now: int, data: dict) -> dict:
             s = "off: the host has turned parties off"
         elif me == peer:
             s = "refused: a party needs another player"
+        elif peer == WATCHER and not p:
+            s = f"waiting: the host has no watcher yet ({WATCHER})"
         elif c["ports"] is None:
             s = f"refused: ports are <port>/TCP or /UDP, of {','.join(allowed)}"
         elif not p:
@@ -114,12 +143,12 @@ def plan(cfg: dict, now: int, data: dict) -> dict:
         status[(me, peer)] = s
         uid = p[0] if p else ""
         if s != c["status"] or (uid and not c["uid"]):
-            act["annotate"].append([PREFIX + me, c["cm"], {STATUS: s, **({PEER_UID: uid} if uid and not c["uid"] else {})}])
+            act["annotate"].append([nsof(me), c["cm"], {STATUS: s, **({PEER_UID: uid} if uid and not c["uid"] else {})}])
             if s.split(":")[0] != c["status"].split(":")[0]:
                 act["say"].append(f"{me} -> {peer}: {s}")
     have = {(np["metadata"]["namespace"], np["metadata"]["name"]): np for np in data["netpols"].get("items", [])}
     for (me, peer), plist in sorted(want.items()):
-        obj, cur = policy(me, peer, plist), have.pop((PREFIX + me, f"party-{peer}"), None)
+        obj, cur = policy(me, peer, plist), have.pop((nsof(me), f"party-{peer}"), None)
         if not cur or cur.get("spec") != obj["spec"] or (cur["metadata"].get("labels") or {}).get(PARTY) != obj["metadata"]["labels"][PARTY]:
             act["apply"].append(obj)
     for ns, name in sorted(have):
@@ -127,9 +156,9 @@ def plan(cfg: dict, now: int, data: dict) -> dict:
     for who, (_, live, labels) in sorted(players.items()):
         need = {NSLABEL + me for (me, peer) in want if peer == who}
         for key in sorted(k for k in labels if k.startswith(NSLABEL) and k not in need):
-            act["label"].append([PREFIX + who, key + "-"])
+            act["label"].append([nsof(who), key + "-"])
         for key in sorted(need - set(labels)):
-            act["label"].append([PREFIX + who, key + "=yes"])
+            act["label"].append([nsof(who), key + "=yes"])
     act["status"] = sorted([me, peer, s] for (me, peer), s in status.items())
     return act
 
@@ -154,7 +183,10 @@ def lease_ends(a) -> dict:
 
 def observe(a, cfg: dict) -> dict:
     """The plan for the cluster as it is, from reads only (kubectl get, nebula-cert print): nothing is applied."""
-    data = {"namespaces": json.loads(kc(a, "get", "namespaces", "-l", "edge-mesh/participant", "-o", "json")),
+    players = json.loads(kc(a, "get", "namespaces", "-l", "edge-mesh/participant", "-o", "json"))
+    watcher = json.loads(kc(a, "get", "namespaces", "-l", f"{WATCHER_LABEL}=host", "-o", "json"))
+    players["items"] = players.get("items", []) + watcher.get("items", [])
+    data = {"namespaces": players,
             "configmaps": json.loads(kc(a, "get", "configmaps", "-A", "-l", CONSENT, "-o", "json")),
             "netpols": json.loads(kc(a, "get", "networkpolicies", "-A", "-l", PARTY, "-o", "json")), "ends": lease_ends(a)}
     return plan(cfg, a.now or int(dt.datetime.now(dt.timezone.utc).timestamp()), data)
@@ -199,8 +231,8 @@ def main(argv: list[str] | None = None) -> int:
             if len(a.names) != 2 or not all(NAME.fullmatch(n) for n in a.names):
                 print("usage: mesh host party end <player> <player>"); return 2
             x, y = a.names
-            kc(a, "delete", "configmap", f"party-{y}", "-n", PREFIX + x, "--ignore-not-found")
-            kc(a, "delete", "configmap", f"party-{x}", "-n", PREFIX + y, "--ignore-not-found")
+            kc(a, "delete", "configmap", f"party-{y}", "-n", nsof(x), "--ignore-not-found")
+            kc(a, "delete", "configmap", f"party-{x}", "-n", nsof(y), "--ignore-not-found")
             print(f"party {x}+{y}: ended by the host")
             act = reconcile(a, cfg)
         else:
