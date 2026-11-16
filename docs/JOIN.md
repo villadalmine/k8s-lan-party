@@ -54,6 +54,7 @@ cp -a k8s-lan-party/poc/console/. /usr/local/lib/edge-mesh/poc/console/ # includ
 install -m 644 k8s-lan-party/poc/page/page.py k8s-lan-party/poc/page/seal.py k8s-lan-party/poc/page/news.py /usr/local/lib/edge-mesh/poc/page/
 install -m 644 k8s-lan-party/poc/admission.py k8s-lan-party/poc/pool.py /usr/local/lib/edge-mesh/poc/
 /opt/nebula/nebula -version && k3s --version | head -1                               # 1.11.2 and v1.37.1+k3s1
+exit                                                                                 # return to the player account before joining
 ```
 
 - A correct clock (NTP). A clock a second behind makes your new certificate "not yet valid".
@@ -68,8 +69,8 @@ sudo edge-mesh join /path/to/bundle --accept-golden-rule    # from the player ac
 What it does, in order: shows the golden rule and refuses without `--accept-golden-rule`; checks `/dev/net/tun`; copies the files to
 `/etc/nebula`; starts Nebula and waits (30 s) for the lighthouse; starts the k3s agent with `--node-ip <your Nebula IP>`, using the join
 token over the Nebula tunnel (the k3s token travels over TLS with the CA pinned). Output: `joined: <name> (trust=<level>)`. Run the join
-with `sudo edge-mesh join ...` from the player account so `SUDO_USER` identifies the owner of the UI; from a root shell, pass `--user
-NAME` explicitly. The join copies the player's namespace kubeconfig to that user's `~/.config/edge-mesh/kubeconfig` (0600). The root-only
+with `sudo edge-mesh join ...` from the player account so `SUDO_USER` identifies the owner of the UI. From a root shell, pass
+`--user NAME` explicitly. The join copies the player's namespace kubeconfig to that user's `~/.config/edge-mesh/kubeconfig` (0600). The root-only
 node files remain in `/etc/nebula` and `/etc/edge-mesh`. The player starts the UI as their own user with `edge-mesh console` and opens
 its one-time loopback link. It also keeps the legacy root-owned
 `/etc/edge-mesh/kubeconfig` for `sudo edge-mesh kubectl`. The join prints `your namespace: play-<name>`.
