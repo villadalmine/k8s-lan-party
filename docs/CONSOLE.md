@@ -376,6 +376,24 @@ reads only the files named here, and runs nothing outside the registry; the CA k
 | the CLI | stays, as a client (`EMESH_DIRECT=1` keeps the direct path) | the same commands and exit codes; the engine stays the single source of behaviour |
 | the timer | stays direct | expiry must never depend on the daemon |
 
+## Player console (#100)
+
+The player console is a separate process and API in `poc/console/player.py`, started on the player's own machine with `edge-mesh console`.
+It binds only to a loopback IP (default `127.0.0.1:8091`) and uses a one-time bearer link like the host console. Keep the process and browser
+on that machine; the UI is not reachable from the host or another player. Use `edge-mesh console url` to mint a replacement link and
+`edge-mesh console rotate-token` to revoke the previous one.
+
+Its only Kubernetes credential is `~/.config/edge-mesh/kubeconfig`, installed by `edge-mesh join` for the invoking user (or `--user` from
+a root shell), with owner-only mode 0600. The API sends explicit `kubectl -n play-<name>` requests for that namespace. Kubernetes RBAC is
+the authority: the UI's disabled host verbs are only a usability cue, and a handwritten host action receives 403. The console shows the
+player's own events, consent ConfigMaps and games whose party status is active. Status shows local Nebula interface state and reachability
+of the player's namespace API; it does not read cluster-wide Node objects. The lease countdown decodes the token's expiry for display;
+the API server validates the token and decides access. Party invite, accept and leave write only the player's own consent ConfigMaps for
+the host's existing reconciliation loop. Data sent to the page is redacted for credentials and node key paths.
+
+`make poc-player` exercises loopback binding, namespace limits, token display, party consent validation, host-action rejection, and safe
+credential installation. It uses the test fake Kubernetes CLI and requires no cluster.
+
 ## Relations
 
 - [CONSOLE-MODES.md](CONSOLE-MODES.md) (#99): the decided RFC of v0.6.0 that extends this console to a player mode and to watching and

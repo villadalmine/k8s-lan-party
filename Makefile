@@ -9,7 +9,7 @@ PR_TITLE ?=
 ONLY     ?=
 NAME     ?=
 
-.PHONY: regression features-check learn learn-check diagrams poc-lighthouse poc-cilium help labels-check test verify-ci pr-check install-hooks uninstall-hooks poc-join poc-host poc-weakness poc-down poc-ca poc-placement poc-kind poc-vm poc-revoke poc-admission poc-admission-auto poc-participants poc-participants-e2e poc-nat poc-bgp poc-golden poc-pool poc-party poc-console poc-doom poc-page showcase showcase-doom showcase-console showcase-build
+.PHONY: regression features-check learn learn-check diagrams poc-lighthouse poc-cilium help labels-check test verify-ci pr-check install-hooks uninstall-hooks poc-join poc-host poc-weakness poc-down poc-ca poc-placement poc-kind poc-vm poc-revoke poc-admission poc-admission-auto poc-participants poc-participants-e2e poc-nat poc-bgp poc-golden poc-pool poc-party poc-console poc-player poc-doom poc-page showcase showcase-doom showcase-console showcase-build
 
 help:
 	@grep -E '^[a-z-]+:.*##' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-14s %s\n", $$1, $$2}'
@@ -97,6 +97,9 @@ poc-admission-auto: ## the automatic pool (phase B1, docs/ADMISSION.md): one tic
 
 poc-console: ## issue #88: the host console's daemon with the CLI as its client (docs/CONSOLE.md): the same output through the API, the audit, a lease's end and panic without it; needs Incus
 	poc/poc-console.sh
+
+poc-player: ## issue #100: player console's loopback, RBAC scope, lease countdown, party actions, redaction and credential installation
+	poc/poc-player.sh
 
 poc-pool: ## issues #9 and #11: a namespace and a kubeconfig per player (RBAC, quota, the error matrix rows 6-9 and 11), the idle kick, the lease end removes node, namespace and token; needs Incus
 	poc/poc-pool.sh

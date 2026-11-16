@@ -2,8 +2,9 @@
 
 Status: **decided** (RFC of [#99](https://github.com/villadalmine/k8s-lan-party/issues/99), milestone v0.6.0). The maintainer accepted
 D1-D7 as proposed on 2026-11-15, recorded in [#99](https://github.com/villadalmine/k8s-lan-party/issues/99#issuecomment-6899297603).
-#103's host mode is built: `GET /verbs` (PR #109) and the Pool and Public page read views, alongside activity and metrics.
-#100 to #102 follow this document. It builds on the host console of v0.4.0
+#103's host mode is merged: `GET /verbs` and the Pool and Public page read views, alongside activity and metrics (PR #110).
+#100's player mode is implemented on `feat/console-player-mode` and is being verified for review; #101 and #102 follow this document.
+It builds on the host console of v0.4.0
 ([CONSOLE.md](CONSOLE.md)), and changes none of that document's decisions unless a row of *Decisions* below says so.
 
 ## What was asked
@@ -39,7 +40,7 @@ The page of #89 stays one page. What changes is which daemon serves it and which
 | Listens on | the loopback only; from elsewhere an SSH tunnel | the loopback only. A player has no reason for a tunnel: the browser is on that machine |
 | Way in | a token in the link's fragment, only its hash stored (C05) | the same code, the same rules |
 | Authority | the engine (`poc/mesh host ...`), role `console` | the player's kubeconfig over Nebula: their namespace, nothing else (the API answers 403 outside it) |
-| Reads | status, queue, leases, players, parties, events, audit; new: activity, metrics, pool, page state | the player's lease and the time left, the node's state, the events of their namespace, their consents and what the host says of each (`edge-mesh party list`), the games they have a party for |
+| Reads | status, queue, leases, players, parties, events, audit; new: activity, metrics, pool, page state | the player's lease and time left; local node connectivity (Nebula interface and own namespace API reachability); events in their namespace; their consents and what the host says of each (`edge-mesh party list`); games they have a party for |
 | Mutations | the registry of v0.4.0 | `party invite`, `party accept`, `party leave` (today's `edge-mesh party`), and two **new** verbs, `play` and `watch` (#101, #102) |
 | Never | the four CA verbs and `init`, `down` (shown disabled); `console url`, `console rotate-token` (not shown); the lighthouse and page-server scripts | anything of the host; anything of another player; the bundle's private key in any answer |
 | Runs as | the host's user, next to the state | **the player's own user, never root**: `edge-mesh join` runs as root and keeps `/etc/nebula/host.key` and `join.env` (the k3s token) root-only; today `edge-mesh join` writes `/etc/edge-mesh/kubeconfig` root-only, so #100 adds a join step: with `--user NAME` (or the `SUDO_USER` that ran it) the join also writes a copy owned by that user, 0600, and player mode reads only that, nothing under `/etc/nebula`. Loading the locally built game image into k3s (`k3s ctr images import`) needs root: it is a separate `edge-mesh` step run with sudo, once per image |
@@ -47,6 +48,9 @@ The page of #89 stays one page. What changes is which daemon serves it and which
 **The two daemons never talk to each other.** A player's console has no address of the host's console and no token for it; the host's
 console still binds the loopback of the host. Player mode adds no listener on the host and nothing a player can reach that they could not
 reach before.
+
+For player mode, **node status** means the local Nebula interface state and reachability of that player's namespaced API. The player
+credential has no cluster-scoped Node read; this view does not assert the Kubernetes Node `Ready` condition.
 
 **What a role cannot do is shown, not hidden.** `GET /actions` already says, per argument value, which roles may send it, and the page
 disables the others (`(on the host only)`). #103 extends that to whole verbs: `GET /verbs` (in `openapi.json`) serves the full list with `allowed`, `why` and `closed_values` per verb, and
@@ -186,7 +190,7 @@ poc-lighthouse and poc-weakness); the issue that builds each is in brackets.
 
 1. **#99** this RFC, decided.
 2. **#103** host mode: `GET /verbs` (each verb, allowed or not for the caller, with why), disabled verbs on the page, the new read views.
-3. **#100** player mode: `edge-mesh console`, its reads and the party verbs, on the same page.
+3. **#100** player mode: `edge-mesh console`, its reads and the party verbs, on the same page (implementation in progress on the feature branch).
 4. **#101, first:** the stream path of D7 (the daemon on the pod's node reaching the pod's IP behind the per-pod secret, WB04 and WB08), then the **spike**: one spectator
    view of a live `poc-doom` match in a tab through it; the numbers (CPU, bandwidth, frames per second, a spectator's real CPU).
 5. **#101** watching: the host's watcher identity (D6), views, the cap, the announcements, WB01 to WB05.

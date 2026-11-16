@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Player console</title>
+<link rel="stylesheet" href="/player.css">
+<script src="/player.js" defer></script>
+</head>
+<body>
+<header><h1>Player console</h1><p id="summary" class="muted">loading</p></header>
+<p id="banner" class="banner" hidden></p>
+<nav id="tabs" aria-label="Player views">
+  <button type="button" data-view="status" aria-pressed="true">Status</button>
+  <button type="button" data-view="events">My events</button>
+  <button type="button" data-view="parties">Parties</button>
+  <button type="button" data-view="games">Games I can join</button>
+</nav>
+<main>
+  <section id="view" aria-live="polite"></section>
+  <section>
+    <h2>Party actions</h2>
+    <p class="muted">Your consent is stored in your namespace. A party opens after both players agree and the host reconciles it.</p>
+    <div class="actions">
+      <label>Player name <input id="peer" autocomplete="off" maxlength="20"></label>
+      <label>Ports (optional) <input id="ports" autocomplete="off" placeholder="10666/UDP"></label>
+      <button type="button" id="invite">Invite</button>
+      <button type="button" id="accept">Accept</button>
+      <button type="button" id="leave">Leave this party</button>
+      <button type="button" id="leaveall">Leave all parties</button>
+    </div>
+  </section>
+  <section>
+    <h2>Host actions</h2>
+    <p class="muted">These are visible for orientation and disabled on this player's console. Use the host's own console or ask the host.</p>
+    <div id="hostverbs" class="actions"></div>
+  </section>
+</main>
+<footer class="muted">Local only: this page is served on your machine. It uses only your namespace kubeconfig; the countdown is informational, and the API may revoke access sooner.</footer>
+</body>
+</html>

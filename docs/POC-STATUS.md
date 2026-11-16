@@ -1,4 +1,4 @@
-# PoC status (2026-11-15)
+# PoC status (2026-11-16)
 
 Where the proof of concept stands, what was proven, and what is still open.
 the maintainer's rule for this phase: make it work first, write down every place where security was relaxed, then harden it. Phases A, B and C
@@ -356,3 +356,9 @@ and cut the game when it stopped (it took the mesh's route); the suite now tries
 - **Fuller report** (every command and its output): kept by the maintainer outside the repo.
 
 - **The v0.4.0-poc recording (2026-11-15, #90):** `SHOWCASE=<dir> INCUS_PROJECT=<own project> ONLY=poc-console make regression` on the lab host (what `make showcase-console` runs, in a project of its own; the screens copied by hand from `<dir>`) on `4806c85` (`d43096d` on #105, the same code): RESULT PASS, 21 steps (K01, K02, K10-K25 and the story-only KS1-KS3: carol approved from the web console with the plan, the confirm and the job, carol joins and is Ready, panic from the web console expels her). Its filtered screens are `poc/page/whatsnew/v0.4.0-poc/rec/`; the recording was made again on that commit after the reviews (earlier runs on `9d14a86` and `56756ce` also passed with 21).
+
+## Player console and join handoff (#100; 2026-11-16)
+
+On `4bc229e` (the code head; later PR commits only update join documentation), the local `poc-player` suite passed PM01-PM07 and the related unit tests passed. The full local checks passed: 131 tests with 3 skips, 395 PoC tests, and `make pr-check` (6 OK, 0 WARN, 0 FAIL). A Chromium smoke of the actual player page with mocked API responses confirmed the token leaves the address bar, views render safely, host verbs stay disabled, a party invite sends the scoped request, and there are no JS errors.
+
+On srv-t7910, `REGRESSION_RUNTIME=docker-vm INCUS_PROJECT=emesh-player100b ONLY="poc-join poc-vm" make regression` on commit `4bc229e` finished `ALLDONE:0`. `poc-join` passed in Docker inside the disposable VM (17 checks) and in Incus (17); `poc-vm` passed in Incus (36 checks). The generated feature table marks `join: PASS` (including its `poc-vm` proofs V01 and V04). The player status view is intentionally limited to local Nebula and namespace API connectivity; the player identity does not read a cluster-scoped Node or claim its Kubernetes Ready condition.
