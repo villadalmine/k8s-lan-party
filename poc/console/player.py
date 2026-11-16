@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import base64
 import getpass
+import http.client
 import http.server
 import ipaddress
 import json
@@ -37,12 +38,18 @@ NAME = re.compile(r"[a-z][a-z0-9-]{1,19}")
 PEER = re.compile(r"[a-z][a-z0-9-]{1,19}")
 PORT_LIST = re.compile(r"[0-9]{1,5}/(?:TCP|UDP)(?:,[0-9]{1,5}/(?:TCP|UDP))*")
 NEBULA_PATH = re.compile(r"(?<![\w.-])/etc/nebula(?:/[^\s\"'<>]*)?")
+DOOM_IMAGE = re.compile(r"localhost/emesh-doom:12\.3\.0-[a-f0-9]{12}")
 DEFAULT_PORTS = ["10666/UDP"]
 MAX_BODY = 4096
 STATIC = HERE / "player-static"
 STATIC_FILES = {"/": ("index.html", "text/html; charset=utf-8"),
                 "/player.js": ("player.js", "application/javascript; charset=utf-8"),
                 "/player.css": ("player.css", "text/css; charset=utf-8")}
+PLAYER_SECURITY_HEADERS = {
+    **server.SECURITY_HEADERS,
+    # Frames are fetched with the console bearer token and displayed from short-lived Blob URLs, never from token-bearing URLs.
+    "Content-Security-Policy": server.SECURITY_HEADERS["Content-Security-Policy"].replace("img-src 'self'", "img-src 'self' blob:"),
+}
 
 
 class PlayerError(Exception):
@@ -287,7 +294,8 @@ class Player:
                 if not PEER.fullmatch(peer) or meta.get("name") != "party-" + peer:
                     continue
                 status = (meta.get("annotations") or {}).get("edge-mesh/party-status", "waiting for host reconciliation")
-                rows.append({"peer": peer, "ports": body.get("ports", ""), "status": status})
+                rows.append({"peer": peer, "ports": body.get("ports", ""), "status": status,
+                             "watching": self._watch_pod(peer) is not None})
             return [r for r in rows if r["status"].startswith("active:")] if route == "games" else rows
         if route == "actions":
             return [{"verb": v, "summary": desc, "params": params} for v, desc, params in (
@@ -298,10 +306,81 @@ class Player:
             return actions.verbs("player")
         raise PlayerError(404, "not-found", "no such player view")
 
+    def _watch_pod(self, peer: str):
+        data = self._run(["get", "pods", "-n", self.namespace, "-o", "json"])
+        for pod in data.get("items", []):
+            if pod.get("metadata", {}).get("name") == "doom-watch-" + peer:
+                return pod
+        return None
+
+    def _watch_pods(self):
+        data = self._run(["get", "pods", "-n", self.namespace, "-o", "json"])
+        return [pod for pod in data.get("items", [])
+                if re.fullmatch(r"doom-watch-[a-z][a-z0-9-]{1,19}", pod.get("metadata", {}).get("name", ""))]
+
+    def watch_frame(self, peer: str) -> bytes:
+        if not PEER.fullmatch(peer) or peer == self.name:
+            raise PlayerError(400, "bad-peer", "peer must be a game participant")
+        pod = self._watch_pod(peer)
+        spec = pod.get("spec", {}) if pod else {}
+        status = pod.get("status", {}) if pod else {}
+        containers = spec.get("containers", [])
+        env = {item.get("name"): item.get("value") for item in containers[0].get("env", [])} if containers else {}
+        token = env.get("WATCH_TOKEN", "")
+        try:
+            addr = ipaddress.ip_address(status.get("podIP", ""))
+        except ValueError:
+            addr = None
+        if (not pod or pod.get("status", {}).get("phase") != "Running" or spec.get("nodeName") != self.name or
+                not addr or not addr.is_private or addr.is_loopback or
+                addr.is_link_local or addr.is_multicast or not re.fullmatch(r"[a-f0-9]{64}", token)):
+            raise PlayerError(404, "watch-unavailable", "the spectator is not ready")
+        conn = http.client.HTTPConnection(addr.compressed, 17777, timeout=2)
+        try:
+            conn.request("GET", "/frame", headers={"Authorization": "Bearer " + token, "Connection": "close"})
+            response = conn.getresponse()
+            data = response.read(2_000_001)
+            if response.status != 200 or len(data) > 2_000_000 or not data.startswith(b"\xff\xd8") or not data.endswith(b"\xff\xd9"):
+                raise PlayerError(502, "watch-frame", "the spectator returned an invalid frame")
+            return data
+        except (TimeoutError, OSError, http.client.HTTPException):
+            raise PlayerError(503, "watch-frame", "the spectator frame is not available yet") from None
+        finally:
+            conn.close()
+
     def act(self, verb: str, body):
-        if not isinstance(body, dict) or set(body) - {"peer", "ports"}:
-            raise PlayerError(400, "bad-body", "send only peer and optional ports")
+        allowed = {"peer", "ports"} if verb.startswith("party-") else {"peer", "image"}
+        if not isinstance(body, dict) or set(body) - allowed:
+            raise PlayerError(400, "bad-body", "send only the fields for this action")
         peer = body.get("peer", "")
+        if verb == "watch-start":
+            image = body.get("image", "")
+            if not isinstance(peer, str) or not PEER.fullmatch(peer) or peer == self.name:
+                raise PlayerError(400, "bad-peer", "peer must be a game participant")
+            if not any(game["peer"] == peer for game in self.get("games", {})):
+                raise PlayerError(403, "not-a-game", "watching needs an active party with that game")
+            if not isinstance(image, str) or not DOOM_IMAGE.fullmatch(image):
+                raise PlayerError(400, "bad-image", "build or import the pinned local Doom image first")
+            existing = self._watch_pods()
+            if existing:
+                raise PlayerError(409, "watch-exists", "stop the existing spectator before starting another")
+            token = secrets.token_hex(32)
+            env = {**os.environ, "WATCH_TOKEN": token}
+            try:
+                rendered = subprocess.run([str(POC / "doom" / "pod.sh"), "watcher", image, peer, self.name],
+                                          capture_output=True, timeout=10, check=False, env=env)
+            except (OSError, subprocess.TimeoutExpired):
+                raise PlayerError(502, "watcher", "could not prepare the spectator pod") from None
+            if rendered.returncode:
+                raise PlayerError(400, "watcher", "the spectator manifest was rejected")
+            self._run(["apply", "-n", self.namespace, "-f", "-", "-o", "json"], stdin=rendered.stdout)
+            return {"message": f"spectator starting for {peer}"}
+        if verb == "watch-stop":
+            if not isinstance(peer, str) or not PEER.fullmatch(peer) or peer == self.name:
+                raise PlayerError(400, "bad-peer", "peer must be a game participant")
+            self._run(["delete", "pod", "doom-watch-" + peer, "-n", self.namespace,
+                       "--ignore-not-found", "--wait=false"])
+            return {"message": f"spectator stopped for {peer}"}
         if verb in ("party-invite", "party-accept"):
             if not isinstance(peer, str) or not PEER.fullmatch(peer):
                 raise PlayerError(400, "bad-peer", "peer must be a player name")
@@ -343,7 +422,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             obj = redact(obj, self.player.redact)
         body = obj if isinstance(obj, bytes) else (json.dumps(obj, separators=(",", ":")) + "\n").encode()
         self.send_response(status)
-        for k, v in {**server.SECURITY_HEADERS, "Cache-Control": "no-store", **(headers or {})}.items():
+        for k, v in {**PLAYER_SECURITY_HEADERS, "Cache-Control": "no-store", **(headers or {})}.items():
             self.send_header(k, v)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
@@ -383,6 +462,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
         route = raw[len("/api/v1/"):]
         try:
             if self.command == "GET":
+                match = re.fullmatch(r"watch/([a-z][a-z0-9-]{1,19})/frame", route)
+                if match:
+                    if query_text:
+                        return self.send(400, {"error": "query", "message": "the frame route takes no query parameters"})
+                    return self.send(200, self.player.watch_frame(match.group(1)), ctype="image/jpeg")
                 query = parse_qs(query_text, keep_blank_values=True, strict_parsing=bool(query_text), max_num_fields=4)
                 return self.send(200, self.player.get(route, query))
             n = int(self.headers.get("Content-Length", "0"))

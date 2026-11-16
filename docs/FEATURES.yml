@@ -288,7 +288,7 @@ features:
     docs: [docs/DESIGN.md, docs/ADMISSION.md, docs/JOIN.md]
 
   - id: doom
-    description: the Doom deathmatch over parties (issue #75 part B) - romero's Odamex server with FreeDM and the robots of carmack and petersen play through two parties on 10666/UDP; the server log is the witness; no consent, after leave, or a third player with another's party connects nothing; the image has nothing non-free
+    description: the Doom deathmatch and spectator views over parties (issue #75 part B and #101) - romero's Odamex server with FreeDM; three players play through two parties on 10666/UDP and carmack's named spectator follows by spy; its bearer-authenticated JPEG frames reach only carmack's own node by Pod IP, with no port-forward or hostPort; other namespaces cannot reach it; the image has nothing non-free
     layer: tenancy
     user_facing: true
     releases: ["v0.3.0-poc", "v0.3.1-poc"]
@@ -298,9 +298,9 @@ features:
       real_world: "A shared service, such as a database or an inference endpoint, that each consumer reaches without reaching the other consumers."
       seen_in: "v0.3.0-poc: petersen cannot reach carmack although both play on romero's server."
     proven_by:
-      - {suite: poc-doom, steps: [DM01-DM20]}
+      - {suite: poc-doom, steps: [DM01-DM23]}
     paths: [poc/doom/*, poc/poc-doom.sh]
-    components: [k3s, Cilium, NetworkPolicy, Odamex, FreeDM, ffmpeg]
+    components: [k3s, Cilium, NetworkPolicy, Odamex, FreeDM, ffmpeg, Python stdlib]
     docs: [docs/DESIGN.md, docs/JOIN.md, docs/PUBLIC-PAGE.md]
 
   - id: public-page

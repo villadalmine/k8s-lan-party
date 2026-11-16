@@ -11,3 +11,6 @@ button[aria-pressed="true"] { border-color:var(--accent); color:var(--accent); }
 table { border-collapse:collapse; width:100%; background:var(--card); } th,td { text-align:left; padding:.3rem .5rem; border-bottom:1px solid var(--line); vertical-align:top; overflow-wrap:anywhere; }
 th { color:var(--muted); } .scroll { overflow-x:auto; } label { display:block; } input { font:inherit; width:100%; padding:.3rem; border:1px solid var(--line); border-radius:4px; background:var(--card); color:var(--fg); }
 .actions label { flex:1 1 12rem; } footer { margin-top:2rem; font-size:.85rem; } code { font-family:ui-monospace,monospace; }
+.game { border:1px solid var(--line); background:var(--card); border-radius:8px; padding:.75rem; margin:.75rem 0; }
+.game input { margin:.25rem 0 .5rem; }
+.game img { display:block; width:min(100%,640px); image-rendering:pixelated; margin-top:.75rem; border:1px solid var(--line); }

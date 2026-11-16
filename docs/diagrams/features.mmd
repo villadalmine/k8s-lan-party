@@ -76,6 +76,7 @@ flowchart LR
     c_Odamex["Odamex"]
     c_FreeDM["FreeDM"]
     c_ffmpeg["ffmpeg"]
+    c_Python_stdlib["Python stdlib"]
     c_page["page"]
     c_Caddy["Caddy"]
     c_lighthouse["lighthouse"]
@@ -283,13 +284,14 @@ flowchart LR
   f_party -.-> p_poc_party_py
   f_party -.-> p_poc_test_party_py
   f_party -.-> p_poc_poc_party_sh
-  s_poc_doom -->|"DM01-DM20"| f_doom
+  s_poc_doom -->|"DM01-DM23"| f_doom
   f_doom --> c_k3s
   f_doom --> c_Cilium
   f_doom --> c_NetworkPolicy
   f_doom --> c_Odamex
   f_doom --> c_FreeDM
   f_doom --> c_ffmpeg
+  f_doom --> c_Python_stdlib
   f_doom -.-> p_poc_doom__
   f_doom -.-> p_poc_poc_doom_sh
   s_poc_page -->|"G01-G26, G09c, G25b"| f_public_page

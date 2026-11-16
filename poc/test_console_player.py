@@ -125,7 +125,8 @@ class PlayerTest(unittest.TestCase):
                                    {"metadata": {"name": "party-carol", "annotations": {"edge-mesh/party-status": "waiting for host reconciliation"}},
                                     "data": {"peer": "carol", "ports": ""}},
                                    {"metadata": {"name": "party-bad"}, "data": {"peer": "not valid"}}]}
-        self.assertEqual(self.p.get("games", []), [{"peer": "bob", "ports": "10666/UDP", "status": "active: ports 10666/UDP"}])
+        self.assertEqual(self.p.get("games", []), [{"peer": "bob", "ports": "10666/UDP", "status": "active: ports 10666/UDP",
+                                                     "watching": False}])
         rows = self.p.get("parties", [])
         self.assertEqual([r["peer"] for r in rows], ["bob", "carol"])
         self.assertIn("-n", self.kc.calls[-1][0])

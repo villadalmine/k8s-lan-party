@@ -1,7 +1,7 @@
 "use strict";
 const $ = (id) => document.getElementById(id);
 const views = { status: "Status", events: "My events", parties: "Parties", games: "Games I can join" };
-let view = "status", timer = null, expiresAt = null;
+let view = "status", timer = null, expiresAt = null, watchTimer = null, watchUrl = null;
 
 function token() {
   const m = location.hash.match(/^#t=([A-Za-z0-9_-]{20,})$/);
@@ -45,7 +45,57 @@ function draw(rows) {
     const items = (rows.items || []).map((e) => ({ type: e.type, reason: e.reason, object: e.involvedObject && `${e.involvedObject.kind}/${e.involvedObject.name}`, message: e.message, time: e.lastTimestamp || e.eventTime }));
     return box.appendChild(table(items));
   }
+  if (view === "games") {
+    if (!Array.isArray(rows) || !rows.length) return box.appendChild(el("p", "nothing here", "muted"));
+    rows.forEach((game) => {
+      const card = el("article", null, "game");
+      card.appendChild(el("h3", `Game with ${game.peer}`));
+      card.appendChild(el("p", `${game.status} · ${game.ports || "no ports listed"}`, "muted"));
+      const image = el("input"); image.type = "text"; image.placeholder = "localhost/emesh-doom:12.3.0-<12 hex>";
+      image.setAttribute("aria-label", `Local Doom image for ${game.peer}`);
+      const start = el("button", "Watch"); start.disabled = Boolean(game.watching);
+      if (game.watching) start.textContent = "Spectator running";
+      start.addEventListener("click", async () => {
+        const r = await api("POST", "actions/watch-start", { peer: game.peer, image: image.value.trim() });
+        banner(r.data.message || `HTTP ${r.status}`); if (r.status === 202) { watching(game.peer, card); poll(); }
+      });
+      const stop = el("button", "Stop watching");
+      stop.addEventListener("click", async () => {
+        clearTimeout(watchTimer); watchTimer = null;
+        const r = await api("POST", "actions/watch-stop", { peer: game.peer });
+        banner(r.data.message || `HTTP ${r.status}`); if (r.status === 202) { stopImage(card); poll(); }
+      });
+      card.append(image, start, stop);
+      box.appendChild(card);
+      if (game.watching) watching(game.peer, card);
+    });
+    return;
+  }
   box.appendChild(table(rows));
+}
+function stopImage(card) {
+  if (watchUrl) URL.revokeObjectURL(watchUrl);
+  watchUrl = null;
+  const old = card && card.querySelector("img"); if (old) old.remove();
+}
+function watching(peer, card) {
+  clearTimeout(watchTimer); stopImage(card);
+  const img = el("img"); img.alt = `Live view of ${peer}'s game`; card.appendChild(img);
+  const frame = async () => {
+    if (view !== "games" || !card.isConnected) return;
+    try {
+      const r = await fetch(`/api/v1/watch/${encodeURIComponent(peer)}/frame`, { cache: "no-store", credentials: "omit",
+        headers: { Authorization: "Bearer " + token() } });
+      if (r.status === 401 || r.status === 403) { banner("player console access expired or was refused"); return; }
+      if (r.ok) {
+        const next = URL.createObjectURL(await r.blob());
+        if (watchUrl) URL.revokeObjectURL(watchUrl);
+        watchUrl = next; img.src = next;
+      }
+    } catch (_) { /* retry on the next frame */ }
+    watchTimer = setTimeout(frame, 500);
+  };
+  frame();
 }
 async function poll() {
   clearTimeout(timer);
@@ -75,6 +125,7 @@ document.addEventListener("DOMContentLoaded", () => {
   if (!token()) banner("No console token: run edge-mesh console and open the one-time link it prints.");
   $("tabs").addEventListener("click", (e) => {
     const b = e.target.closest("button[data-view]"); if (!b) return;
+    clearTimeout(watchTimer); watchTimer = null; stopImage($("view"));
     view = b.dataset.view; $("tabs").querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", String(x === b))); poll();
   });
   $("invite").addEventListener("click", () => action("party-invite", $("peer").value.trim(), $("ports").value.trim()));

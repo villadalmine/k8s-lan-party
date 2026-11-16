@@ -362,3 +362,11 @@ and cut the game when it stopped (it took the mesh's route); the suite now tries
 On `4bc229e` (the code head; later PR commits only update join documentation), the local `poc-player` suite passed PM01-PM07 and the related unit tests passed. The full local checks passed: 131 tests with 3 skips, 395 PoC tests, and `make pr-check` (6 OK, 0 WARN, 0 FAIL). A Chromium smoke of the actual player page with mocked API responses confirmed the token leaves the address bar, views render safely, host verbs stay disabled, a party invite sends the scoped request, and there are no JS errors.
 
 On srv-t7910, `REGRESSION_RUNTIME=docker-vm INCUS_PROJECT=emesh-player100b ONLY="poc-join poc-vm" make regression` on commit `4bc229e` finished `ALLDONE:0`. `poc-join` passed in Docker inside the disposable VM (17 checks) and in Incus (17); `poc-vm` passed in Incus (36 checks). The generated feature table marks `join: PASS` (including its `poc-vm` proofs V01 and V04). The player status view is intentionally limited to local Nebula and namespace API connectivity; the player identity does not read a cluster-scoped Node or claim its Kubernetes Ready condition.
+
+## Spectator stream spike (#101; 2026-11-16)
+
+The existing Doom proof remains `DM01-DM20: PASS` from its earlier Dell run. The current `feat/console-watch` branch adds the authenticated
+watcher endpoint and DM21-DM23; those cluster checks are **pending** a fresh Dell regression. Locally, the complete `make test` suite passes
+401 tests, including six stream/pod tests. The player-console watch API and UI are now wired to start/stop a watcher in the player's own
+namespace and proxy frames from its Pod IP. Static checks (`py_compile`, `node --check`, `bash -n`, `git diff --check`) pass. The live Doom
+spectator, the browser view and the updated `poc-doom` regression have not yet been run; the prior DM01-DM20 result does not prove this change.

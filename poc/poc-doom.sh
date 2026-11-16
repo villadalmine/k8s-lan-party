@@ -38,6 +38,7 @@ K() { local who="$1"; shift; P "$who" kubectl "$@"; }
 pod_of() { if [ "$1" = romero ]; then echo doom-bot; else echo doom-client; fi; }   # each player's robot pod (romero's is beside his server)
 SVC=doom.play-romero.svc.cluster.local
 PEOPLE="romero carmack petersen"
+WATCH_TOKEN= WATCH_IP= WATCH_NAME=doom-watch-romero
 shown() { echo "sudo edge-mesh kubectl exec $(pod_of "$1") -- client.sh $SVC 10666 $2 $1"; }   # what the player types (shown on the player's screen)
 probe() { K "$1" exec "$(pod_of "$1")" -- client.sh --probe "doom-probe.play-$2.svc.cluster.local" 10666; }   # probe <from> <to's namespace>: UDP 10666, no game, no log line
 open_now() { probe "$1" "$2"; }
@@ -92,6 +93,74 @@ start_match() { # romero's robot plays his own server (no party needed), then ca
   BOT=$!; wait_for 60 sh -c "grep -q 'in the game' '$STATE/romero.out'" || return 1
   incus exec emesh-carmack -- edge-mesh kubectl exec doom-client -- env PATTERN=a RECORD=1 RECORD_AFTER=75 RECORD_SECONDS=30 CONNECT_WAIT=40 client.sh "$SVC" 10666 "$LONG" carmack >"$STATE/carmack.out" 2>&1 &
   CARM=$!; wait_for 90 sh -c "grep -q 'in the game' '$STATE/carmack.out'" && [ "$(connects carmack)" -eq 1 ]; }
+watcher_up() { # D7: one authenticated spectator pod in carmack's namespace, private admission pins it to his own node
+  localhost_always || return 1
+  WATCH_TOKEN=$(python3 -c 'import secrets; print(secrets.token_hex(32))') || return 1
+  WATCH_TOKEN="$WATCH_TOKEN" "$POC/doom/pod.sh" watcher "$IMG" romero carmack | K carmack apply -f - || return 1
+  K carmack wait --for=condition=Ready "pod/$WATCH_NAME" --timeout=240s || return 1
+  local pod; pod=$(K carmack get pod "$WATCH_NAME" -o json) || return 1
+  read -r WATCH_IP node hostports < <(python3 -c 'import json,sys; p=json.load(sys.stdin); ports=[x for c in p["spec"]["containers"] for x in c.get("ports",[]) if "hostPort" in x]; print(p["status"].get("podIP", ""), p["spec"].get("nodeName", ""), len(ports))' <<<"$pod")
+  [ -n "$WATCH_IP" ] && [ "$node" = carmack ] && [ "$hostports" = 0 ] || return 1
+  [ "$(P carmack kubectl auth can-i create pods/portforward)" = no ] || return 1
+  wait_for 90 watcher_running || return 1
+  wait_for 60 watcher_announced || return 1
+  K carmack logs "$WATCH_NAME" | grep -E 'following carmack|PLAYERS IN GAME|watch-carmack'
+  server_log | grep 'watch-carmack has connected'
+  echo "watch stream pod=$WATCH_NAME node=$node pod-ip=$WATCH_IP port=17777 hostPort=$hostports port-forward=denied"
+}
+localhost_always() { # Kubernetes' local node-to-pod path is pinned explicitly when the PoC uses Cilium
+  [ "$CNI" != cilium ] && return 0
+  local pod= conf
+  for pod in $(k -n kube-system get pods -l k8s-app=cilium -o name); do
+    conf=$(k -n kube-system exec "$pod" -- cilium-dbg config --all) || return 1
+    echo "$conf" | grep -qiE 'allow.?localhost[^[:alnum:]]+always' || { echo "Cilium $pod does not report allow-localhost=always"; return 1; }
+  done
+  [ -n "$pod" ]
+}
+watcher_running() { K carmack logs "$WATCH_NAME" 2>/dev/null | grep -q 'following carmack'; }
+watcher_announced() { server_log | grep -q 'watch-carmack has connected'; }
+watch_frame() { # token travels over stdin; it never appears in an exec argument or a log line
+  local node="$1" token="$2" url="$3"
+  printf '%s\n' "$token" | incus exec "emesh-$node" -- python3 -c 'import sys,urllib.request; u=sys.argv[1]; t=sys.stdin.readline().strip(); r=urllib.request.urlopen(urllib.request.Request(u,headers={"Authorization":"Bearer "+t}),timeout=5); sys.stdout.buffer.write(r.read())' "$url"
+}
+watch_code() { # status only, including connection failure as 000
+  local node="$1" token="$2" url="$3"
+  if [ -n "$token" ]; then
+    printf '%s\n' "$token" | incus exec "emesh-$node" -- python3 -c 'import sys,urllib.request,urllib.error; u=sys.argv[1]; t=sys.stdin.readline().strip(); q=urllib.request.Request(u,headers={"Authorization":"Bearer "+t});
+try: print(urllib.request.urlopen(q,timeout=5).status)
+except urllib.error.HTTPError as e: print(e.code)
+except Exception: print("000")' "$url"
+  else
+    incus exec "emesh-$node" -- python3 -c 'import sys,urllib.request,urllib.error; u=sys.argv[1];
+try: print(urllib.request.urlopen(u,timeout=5).status)
+except urllib.error.HTTPError as e: print(e.code)
+except Exception: print("000")' "$url"
+  fi
+}
+watcher_local_frames() { # D7: own node succeeds; missing/wrong credentials do not; port-forward is not granted
+  local url="http://$WATCH_IP:17777/frame" code wrong tmp="$OUTD/watch.jpg" previous current changed=0
+  code=$(watch_code carmack "" "$url") || return 1; [ "$code" = 401 ] || return 1
+  wrong=$(python3 -c 'import secrets; print(secrets.token_hex(32))')
+  code=$(watch_code carmack "$wrong" "$url"); [ "$code" = 401 ] || return 1
+  wait_for 30 watch_frame_available || return 1
+  watch_frame carmack "$WATCH_TOKEN" "$url" >"$tmp" || return 1
+  python3 - "$tmp" <<'PY'
+from pathlib import Path
+import sys
+p=Path(sys.argv[1]); b=p.read_bytes()
+raise SystemExit(0 if b.startswith(b"\xff\xd8") and b.endswith(b"\xff\xd9") and 300 < len(b) < 2_000_000 else 1)
+PY
+  previous=$(sha256sum "$tmp" | cut -d' ' -f1)
+  for _ in 1 2 3 4 5; do
+    sleep 1
+    watch_frame carmack "$WATCH_TOKEN" "$url" >"$tmp" || return 1
+    current=$(sha256sum "$tmp" | cut -d' ' -f1)
+    [ "$current" = "$previous" ] || { changed=1; break; }
+  done
+  [ "$changed" = 1 ] || return 1
+  echo "watch stream: unauthenticated=401 wrong-token=401; player-node Pod-IP returned changing JPEG frames ($(wc -c <"$tmp") bytes); port-forward=denied"
+}
+watch_frame_available() { [ "$(watch_code carmack "$WATCH_TOKEN" "http://$WATCH_IP:17777/frame")" = 200 ]; }
 third_out() { # carmack is in the game: petersen's robot still gets nothing (the party is carmack's and romero's), and carmack and petersen do not reach each other
   say player "carmack is playing. petersen's robot tries the same server: carmack's party with romero is nothing to her"
   closed_now petersen romero && nobody petersen 0 && closed_both carmack petersen; }
@@ -101,6 +170,13 @@ third_in() { say player "romero invites petersen; petersen accepts"; say host "a
   out_has "party: romero -> petersen: active: ports 10666/UDP" show host "mesh host auto --once" tick &&
   out_has "active: ports 10666/UDP" show host "mesh host party" "$MESH" host party list &&
   wait_for 90 open_both petersen romero && open_both carmack romero && closed_both carmack petersen; }   # carmack and petersen stay closed: a party is a pair
+watcher_isolation() { # the exact Pod IP is unreachable from another player's node and pod, despite a party to the game server
+  local url="http://$WATCH_IP:17777/frame" node_code pod_code
+  node_code=$(watch_code petersen "" "$url") || return 1
+  pod_code=$(K petersen exec doom-client -- curl --silent --show-error --output /dev/null --write-out '%{http_code}' --connect-timeout 3 --max-time 5 "$url" 2>/dev/null) || pod_code=000
+  [ "$node_code" = 000 ] && [ "$pod_code" = 000 ] || { echo "isolation failed: petersen node=$node_code pod=$pod_code"; return 1; }
+  echo "watch stream Pod IP denied from petersen node and petersen namespace pod"
+}
 play_third() { # petersen's robot joins through her own party and plays in the same match
   local o; o=$(show player "$(shown petersen "$PLAY")" K petersen exec doom-client -- env PATTERN=c CONNECT_WAIT=40 client.sh "$SVC" 10666 "$PLAY" petersen 2>&1); echo "$o"
   echo "$o" | grep -q 'client petersen: map MAP15' && echo "$o" | grep -q 'client petersen: in the game' && echo "$o" | grep -q 'left the game'; }
@@ -115,6 +191,7 @@ server_saw() { # romero's server, not the clients, is the witness: the three con
   show host "kubectl exec -n play-romero doom-server -- grep -E 'Masters|MAP15|connected|joined|disconnected' /tmp/server.log" \
     k exec -n play-romero doom-server -- grep -E 'Masters|MAP15|connected|joined|disconnected' /tmp/server.log >/dev/null
   echo "$log" | grep -E 'has connected|joined the game|disconnected'
+  echo "$log" | grep -q 'watch-carmack has connected' || return 1
   python3 - "$log" "$PLAY" <<'PY'
 import re, sys
 log, play = sys.argv[1], int(sys.argv[2])
@@ -130,7 +207,8 @@ for who, least in (("romero", 1), ("carmack", 3 * play - 20), ("petersen", play 
 sys.exit(0 if ok else 1)
 PY
 }
-three_connects() { [ "$(connects romero)" -eq 1 ] && [ "$(connects carmack)" -eq 1 ] && [ "$(connects petersen)" -eq 1 ] && [ "$(server_log | grep -c ' has connected\.')" -eq 3 ]; }
+three_connects() { [ "$(connects romero)" -eq 1 ] && [ "$(connects carmack)" -eq 1 ] && [ "$(connects petersen)" -eq 1 ] &&
+  [ "$(server_log | grep -c ' has connected\.')" -eq 4 ] && [ "$(server_log | grep -c '^\[[0-9:]*\] watch-carmack has connected\.')" -eq 1 ]; }
 leave_closes() { say player "carmack leaves the party: the same robot, the same server, and nobody answers again; petersen's party stays"
   out_has "left: the host closes the party" show player "sudo edge-mesh party leave" P carmack party leave &&
   out_has "party: romero -> carmack: closed: carmack left the party" show host "mesh host auto --once" tick &&
@@ -155,15 +233,18 @@ step DM08 "no consent: carmack's and petersen's robots get no answer from romero
 step DM09 "romero invites carmack: one consent is not a party; carmack still gets no answer and the log has no player" one_side
 step DM10 "carmack accepts: the tick opens 10666/UDP between romero and carmack" open_party
 step DM11 "the deathmatch starts: romero's robot, then carmack's through the party, both in the game" start_match
-step DM12 "with carmack playing, petersen still gets no answer and carmack and petersen do not reach each other (negative)" third_out
-step DM13 "romero invites petersen and she accepts: a second pair opens; carmack and petersen stay closed, both ways" third_in
-step DM14 "petersen's robot joins through her own party, sees MAP15, runs and shoots, quits: three players" play_third
-step DM15 "the long sessions end; carmack's screen is a GIF" finish_match
-step DM16 "the server is the witness: the three connected, joined, stayed and left, each with frags and deaths on one line" server_saw
-step DM17 "the server saw exactly three connections, one each, and nobody else" three_connects
-step DM18 "carmack leaves: the tick closes his party, he gets no answer again, petersen's party stays open" leave_closes
-step DM19 "two policies are left (romero and petersen's pair); reconcile twice says unchanged" idempotent
-step DM20 "nothing non-free is in the image: FreeDM only, no doom.wad or doom2.wad, both licences present" free_only
+step DM12 "D7: a spectator follows carmack in a watcher pod pinned to carmack's node; server and client log name it" watcher_up
+step DM13 "D7: same-node Pod-IP returns authenticated changing JPEG frames; no port-forward or hostPort" watcher_local_frames
+step DM14 "with carmack playing, petersen still gets no answer and carmack and petersen do not reach each other (negative)" third_out
+step DM15 "romero invites petersen and she accepts: a second pair opens; carmack and petersen stay closed, both ways" third_in
+step DM16 "D7: petersen's node and pod cannot reach carmack's watcher Pod IP" watcher_isolation
+step DM17 "petersen's robot joins through her own party, sees MAP15, runs and shoots, quits: three players" play_third
+step DM18 "the long sessions end; carmack's screen is a GIF" finish_match
+step DM19 "the server is the witness: the three players and announced spectator connected, joined/stayed/left" server_saw
+step DM20 "the server saw exactly three match players, one each, and no extra match player" three_connects
+step DM21 "carmack leaves: the tick closes the party, he gets no answer again, petersen's party stays open" leave_closes
+step DM22 "two policies are left (romero and petersen's pair); reconcile twice says unchanged" idempotent
+step DM23 "nothing non-free is in the image: FreeDM only, no doom.wad or doom2.wad, both licences present" free_only
 
 [ -z "$SC" ] || [ "$FAILS" -ne 0 ] || { cp "$OUTD/match.gif" "$SC/match.gif"; for s in player host; do   # only a run that passed becomes a recording (the GIF first: down removes the state)
   python3 "$SCP" redact "$SC/$s.raw" "$SC/$s.tsv" --strip "$STATE/" --strip "$POC/" --strip "${POC%/*}/" || FAILS=$((FAILS+1)); done; }
