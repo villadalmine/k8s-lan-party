@@ -241,6 +241,35 @@ own_joins() { # the host issues its own machine (trust own, persistent CA) and i
   [ "$(k get namespace watch-host -o jsonpath='{.metadata.labels.pod-security\.kubernetes\.io/enforce}')" = restricted ] &&
   [ -z "$(k get roles,rolebindings -n watch-host -o name)" ] && [ "$(k get serviceaccounts -n watch-host -o name)" = serviceaccount/default ] &&
   [ -n "$(k get resourcequota pool -n watch-host -o name)" ] && out_has "watcher: namespace watch-host" "$MESH" host watch status; }
+HK() { k -n watch-host "$@"; }   # the host's own kubectl in its watcher namespace (cluster-admin: the host needs no consent to write there)
+host_probe() { HK exec doom-client -- client.sh --probe doom-probe.play-romero.svc.cluster.local 10666; }
+host_closed() { local rc; host_probe; rc=$?; [ "$rc" -eq 3 ]; }
+host_watch_one_side() { # the host asks romero; one consent opens nothing: a client in watch-host, on hostpc, gets no answer from romero's namespace
+  incus file push -q "$TAR" "emesh-$OWN/root/doom.tar" && incus exec "emesh-$OWN" -- sh -c 'k3s ctr -n k8s.io images import /root/doom.tar >/dev/null && rm -f /root/doom.tar' || return 1
+  "$POC/doom/pod.sh" client "$IMG" | HK apply -f - && HK wait --for=condition=Ready pod/doom-client --timeout=240s || return 1
+  [ "$(HK get pod doom-client -o jsonpath='{.spec.nodeName}')" = "$OWN" ] || { echo "the watcher's pod is not on $OWN"; return 1; }
+  say host "the host asks romero to let it watch: its half of a party, like any player's invite"
+  out_has "the party opens when romero runs" show host "mesh host watch invite romero" "$MESH" host watch invite romero &&
+  out_has "waiting for romero to accept" "$MESH" host watch status && host_closed &&
+  [ -z "$(k get networkpolicies -n watch-host -l edge-mesh/party -o name)" ]; }
+host_following() { HK logs doom-watch-romero 2>/dev/null | grep -q 'following romero'; }
+host_announced() { server_log | grep -q 'watch-host has connected'; }
+host_watch_open() { # romero accepts watch-host; the tick opens it; the host's spectator, on hostpc, follows romero's robot back in the game and is announced
+  say player "romero accepts the host as a spectator of his server: the same consent as a player's"
+  out_has "your consent is recorded" show player "sudo edge-mesh party accept watch-host" P romero party accept watch-host &&
+  out_has "party: romero -> watch-host: active: ports 10666/UDP" show host "mesh host auto --once" tick &&
+  wait_for 90 host_probe || return 1
+  # the match of DM11-DM18 is over: romero's robot plays again, so there is somebody to follow
+  incus exec emesh-romero -- edge-mesh kubectl exec doom-bot -- env PATTERN=b CONNECT_WAIT=40 client.sh doom 10666 120 romero >"$STATE/romero2.out" 2>&1 &
+  BOT2=$!; wait_for 60 sh -c "grep -q 'in the game' '$STATE/romero2.out'" || return 1
+  HOST_TOKEN=$(python3 -c 'import secrets; print(secrets.token_hex(32))') || return 1
+  WATCH_TOKEN="$HOST_TOKEN" "$POC/doom/pod.sh" watcher "$IMG" romero host romero | HK apply -f - &&
+  HK wait --for=condition=Ready pod/doom-watch-romero --timeout=240s || return 1
+  local node; node=$(HK get pod doom-watch-romero -o jsonpath='{.spec.nodeName}'); echo "host spectator on $node"
+  [ "$node" = "$OWN" ] && wait_for 90 host_following && wait_for 60 host_announced || return 1
+  say host "romero's server names the host's spectator: nobody is watched without a line saying who came in"
+  show host "kubectl exec -n play-romero doom-server -- grep 'watch-host has connected' /tmp/server.log" \
+    k exec -n play-romero doom-server -- grep 'watch-host has connected' /tmp/server.log; }
 
 step DM01 "mesh host init: lighthouse and control plane (and Cilium with CNI=cilium)" host_init
 step DM02 "the Doom image (Odamex 12.3.0, FreeDM 0.13.0, pinned) is built once and cached by the hash of its inputs" image
@@ -267,6 +296,8 @@ step DM22 "two policies are left (romero and petersen's pair); reconcile twice s
 step DM23 "nothing non-free is in the image: FreeDM only, no doom.wad or doom2.wad, both licences present" free_only
 step DM24 "D6: with no own node but the control plane, mesh host watch init refuses and makes nothing" watch_refused
 step DM25 "D6: the host's own machine joins (trust own); watch init makes watch-host: restricted, its own quota, no credential but the host's" own_joins
+step DM26 "D6: the host asks romero (watch invite): one consent opens nothing; a pod of watch-host, on hostpc, gets no answer" host_watch_one_side
+step DM27 "D6: romero accepts watch-host; the tick opens it; the host's spectator runs on hostpc, not the control plane, and the server names it" host_watch_open
 
 [ -z "$SC" ] || [ "$FAILS" -ne 0 ] || { cp "$OUTD/match.gif" "$SC/match.gif"; for s in player host; do   # only a run that passed becomes a recording (the GIF first: down removes the state)
   python3 "$SCP" redact "$SC/$s.raw" "$SC/$s.tsv" --strip "$STATE/" --strip "$POC/" --strip "${POC%/*}/" || FAILS=$((FAILS+1)); done; }
