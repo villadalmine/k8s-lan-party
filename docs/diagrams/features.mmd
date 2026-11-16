@@ -10,6 +10,7 @@ flowchart LR
     s_poc_admission["poc-admission"]
     s_poc_admission_auto["poc-admission-auto"]
     s_poc_console["poc-console"]
+    s_poc_player["poc-player"]
     s_poc_pool["poc-pool"]
     s_poc_party["poc-party"]
     s_poc_doom["poc-doom"]
@@ -36,6 +37,7 @@ flowchart LR
     f_admission_manual["admission-manual"]
     f_admission_auto["admission-auto"]
     f_host_console["host-console"]
+    f_player_console["player-console"]
     f_pool["pool"]
     f_party["party"]
     f_doom["doom"]
@@ -68,6 +70,7 @@ flowchart LR
     c_Cilium["Cilium"]
     c_admission_policy["admission policy"]
     c_admission["admission"]
+    c_Kubernetes_API["Kubernetes API"]
     c_Kyverno["Kyverno"]
     c_NetworkPolicy["NetworkPolicy"]
     c_Odamex["Odamex"]
@@ -112,9 +115,16 @@ flowchart LR
     p_poc_admission_py["poc/admission.py"]
     p_poc_pool_yaml["poc/pool.yaml"]
     p_poc_meshlock_py["poc/meshlock.py"]
-    p_poc_console___py["poc/console/*.py"]
-    p_poc_console___cjs["poc/console/*.cjs"]
+    p_poc_console_actions_py["poc/console/actions.py"]
+    p_poc_console_client_py["poc/console/client.py"]
+    p_poc_console_mutate_py["poc/console/mutate.py"]
+    p_poc_console_server_py["poc/console/server.py"]
+    p_poc_console_check_browser_cjs["poc/console/check-browser.cjs"]
     p_poc_console_static__["poc/console/static/*"]
+    p_poc_console_player_py["poc/console/player.py"]
+    p_poc_console_player_static__["poc/console/player-static/*"]
+    p_poc_test_console_player_py["poc/test_console_player.py"]
+    p_poc_test_edge_mesh_py["poc/test_edge_mesh.py"]
     p_poc_pool_py["poc/pool.py"]
     p_poc_participant_py["poc/participant.py"]
     p_poc_participant_policy_yaml["poc/participant-policy.yaml"]
@@ -242,10 +252,21 @@ flowchart LR
   f_host_console -.-> p_poc_mesh
   f_host_console -.-> p_poc_lib_sh
   f_host_console -.-> p_poc_meshlock_py
-  f_host_console -.-> p_poc_console___py
-  f_host_console -.-> p_poc_console___cjs
+  f_host_console -.-> p_poc_console_actions_py
+  f_host_console -.-> p_poc_console_client_py
+  f_host_console -.-> p_poc_console_mutate_py
+  f_host_console -.-> p_poc_console_server_py
+  f_host_console -.-> p_poc_console_check_browser_cjs
   f_host_console -.-> p_poc_console_static__
   f_host_console -.-> p_poc_admission_py
+  s_poc_player -->|"PM01-PM07"| f_player_console
+  f_player_console --> c_Kubernetes_API
+  f_player_console --> c_k3s
+  f_player_console -.-> p_poc_edge_mesh
+  f_player_console -.-> p_poc_console_player_py
+  f_player_console -.-> p_poc_console_player_static__
+  f_player_console -.-> p_poc_test_console_player_py
+  f_player_console -.-> p_poc_test_edge_mesh_py
   s_poc_pool -->|"PL01-PL25"| f_pool
   f_pool --> c_admission
   f_pool --> c_k3s

@@ -25,7 +25,7 @@ You received a **bundle** from a host. One bundle, one command.
 > What runs on someone else's machine can be seen by its owner. Nothing encrypts a pod from the owner of the node it runs on. Keep
 > private things on your own machine. ([GOLDEN-RULES.md](GOLDEN-RULES.md))
 
-**Tested by following this guide literally, 2026-10-21:** a fresh Ubuntu 24.04 VM (Incus, kernel 6.8, nothing from the PoC scripts installed) joined a control plane
+**Join flow tested literally, 2026-10-21:** a fresh Ubuntu 24.04 VM (Incus, kernel 6.8, nothing from the PoC scripts installed) joined a control plane
 with only the commands below, showed `joined: ... (trust=friends)`, reached the lighthouse and the control plane over Nebula and appeared Ready on the host; an
 expired bundle was refused with a clear message. Privileged Docker on WSL2 was run earlier with the PoC's own flow. **Native WSL2** joined on 2026-10-28 with
 these same commands (section "In WSL2"). **Not tested:** macOS, bare metal. Which host kind passes which step: [REQUIREMENTS.md](REQUIREMENTS.md), "Host kind against step". **Again on AWS** ([DEMO-AWS.md](DEMO-AWS.md)): an amd64 and an arm64 VM, another network, nothing open inbound, installed the tools below and joined, Ready in about 30 s.
@@ -49,6 +49,10 @@ mkdir -p /opt/nebula && curl -fsSL "https://github.com/slackhq/nebula/releases/d
 curl -fsSLo /usr/local/bin/k3s "https://github.com/k3s-io/k3s/releases/download/v1.37.1%2Bk3s1/$K3S_BIN" && chmod +x /usr/local/bin/k3s
 git clone -q https://github.com/villadalmine/k8s-lan-party.git                      # only for the join script, poc/edge-mesh
 install -m 755 k8s-lan-party/poc/edge-mesh /usr/local/bin/edge-mesh
+install -d -m 755 /usr/local/lib/edge-mesh/poc/console /usr/local/lib/edge-mesh/poc/page
+cp -a k8s-lan-party/poc/console/. /usr/local/lib/edge-mesh/poc/console/ # includes the player console and its static page
+install -m 644 k8s-lan-party/poc/page/page.py k8s-lan-party/poc/page/seal.py k8s-lan-party/poc/page/news.py /usr/local/lib/edge-mesh/poc/page/
+install -m 644 k8s-lan-party/poc/admission.py k8s-lan-party/poc/pool.py /usr/local/lib/edge-mesh/poc/
 /opt/nebula/nebula -version && k3s --version | head -1                               # 1.11.2 and v1.37.1+k3s1
 ```
 
@@ -57,13 +61,18 @@ install -m 755 k8s-lan-party/poc/edge-mesh /usr/local/bin/edge-mesh
 ## Join
 
 ```bash
-edge-mesh join /path/to/bundle --accept-golden-rule        # as root, [dell] [docker]
+sudo edge-mesh join /path/to/bundle --accept-golden-rule    # from the player account: SUDO_USER installs the user kubeconfig
+# Or, from a root shell: edge-mesh join /path/to/bundle --accept-golden-rule --user <player-login>
 ```
 
 What it does, in order: shows the golden rule and refuses without `--accept-golden-rule`; checks `/dev/net/tun`; copies the files to
 `/etc/nebula`; starts Nebula and waits (30 s) for the lighthouse; starts the k3s agent with `--node-ip <your Nebula IP>`, using the join
-token over the Nebula tunnel (the k3s token travels over TLS with the CA pinned). Output: `joined: <name> (trust=<level>)`. Then it installs
-your own kubeconfig as `/etc/edge-mesh/kubeconfig` (0600) and prints your namespace: `your namespace: play-<name>`.
+token over the Nebula tunnel (the k3s token travels over TLS with the CA pinned). Output: `joined: <name> (trust=<level>)`. Run the join
+with `sudo edge-mesh join ...` from the player account so `SUDO_USER` identifies the owner of the UI; from a root shell, pass `--user
+NAME` explicitly. The join copies the player's namespace kubeconfig to that user's `~/.config/edge-mesh/kubeconfig` (0600). The root-only
+node files remain in `/etc/nebula` and `/etc/edge-mesh`. The player starts the UI as their own user with `edge-mesh console` and opens
+its one-time loopback link. It also keeps the legacy root-owned
+`/etc/edge-mesh/kubeconfig` for `sudo edge-mesh kubectl`. The join prints `your namespace: play-<name>`.
 
 Exit codes you can meet:
 

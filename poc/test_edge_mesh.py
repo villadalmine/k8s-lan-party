@@ -84,6 +84,15 @@ class KubectlWrapperTest(unittest.TestCase):
         self.assertEqual(code, 2)
         self.assertIn("edge-mesh: no kubeconfig at", err)
 
+    def test_join_requires_user_value_and_rejects_duplicate_user(self):
+        for args in (("--accept-golden-rule", "--user"),
+                     ("--accept-golden-rule", "--user", "alice", "--user", "bob")):
+            with self.subTest(args=args):
+                r = subprocess.run([SH, str(HERE / "edge-mesh"), "join", str(self.tmp / "bundle"), *args],
+                                   env={"PATH": "/usr/bin:/bin"}, capture_output=True, text=True)
+                self.assertEqual(r.returncode, 2)
+                self.assertIn("usage: edge-mesh join", r.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

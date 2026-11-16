@@ -2,8 +2,9 @@
 
 Status: **decided** (RFC of [#99](https://github.com/villadalmine/k8s-lan-party/issues/99), milestone v0.6.0). The maintainer accepted
 D1-D7 as proposed on 2026-11-15, recorded in [#99](https://github.com/villadalmine/k8s-lan-party/issues/99#issuecomment-6899297603).
-#103's host mode is built: `GET /verbs` (PR #109) and the Pool and Public page read views, alongside activity and metrics.
-#100 to #102 follow this document. It builds on the host console of v0.4.0
+#103's host mode is merged: `GET /verbs` and the Pool and Public page read views, alongside activity and metrics (PR #110).
+#100's player mode is implemented on `feat/console-player-mode` and is being verified for review; #101 and #102 follow this document.
+It builds on the host console of v0.4.0
 ([CONSOLE.md](CONSOLE.md)), and changes none of that document's decisions unless a row of *Decisions* below says so.
 
 ## What was asked
@@ -186,7 +187,7 @@ poc-lighthouse and poc-weakness); the issue that builds each is in brackets.
 
 1. **#99** this RFC, decided.
 2. **#103** host mode: `GET /verbs` (each verb, allowed or not for the caller, with why), disabled verbs on the page, the new read views.
-3. **#100** player mode: `edge-mesh console`, its reads and the party verbs, on the same page.
+3. **#100** player mode: `edge-mesh console`, its reads and the party verbs, on the same page (implementation in progress on the feature branch).
 4. **#101, first:** the stream path of D7 (the daemon on the pod's node reaching the pod's IP behind the per-pod secret, WB04 and WB08), then the **spike**: one spectator
    view of a live `poc-doom` match in a tab through it; the numbers (CPU, bandwidth, frames per second, a spectator's real CPU).
 5. **#101** watching: the host's watcher identity (D6), views, the cap, the announcements, WB01 to WB05.

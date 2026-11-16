@@ -42,7 +42,8 @@ meta:
 cluster_paths: [poc/lib.sh, poc/pool-lease.sh, poc/up.sh, poc/down.sh, poc/vm/up.sh, poc/vm/lib-vm.sh, poc/vm/down.sh, poc/issue.sh, poc/revoke.sh, poc/cilium.sh,
   poc/gateway.sh, poc/install-placement.sh, poc/lighthouse-vps.sh, poc/spire-args.sh, poc/game-env.sh, poc/edge-mesh, poc/mesh, poc/kc,
   poc/stack.env, poc/*.yaml, poc/placement/*, poc/gateway/*, poc/admission.py, poc/pool.py, poc/nodes_sweep.py, poc/node_password.py,
-  poc/participant.py, poc/participants.py, poc/party.py, poc/page/*, examples/aws/*.tf, examples/aws/*.tftpl, examples/aws/leftovers.sh]
+  poc/participant.py, poc/participants.py, poc/party.py, poc/page/*, poc/console/player.py, poc/console/player-static/*,
+  examples/aws/*.tf, examples/aws/*.tftpl, examples/aws/leftovers.sh]
 
 suites:
   - {id: poc-participants, script: poc/poc-participants.sh, runtime: [none]}
@@ -60,6 +61,7 @@ suites:
   - {id: poc-pool, script: poc/poc-pool.sh, runtime: [incus]}
   - {id: poc-party, script: poc/poc-party.sh, runtime: [incus]}
   - {id: poc-console, script: poc/poc-console.sh, runtime: [incus]}
+  - {id: poc-player, script: poc/poc-player.sh, runtime: [none]}
   - {id: poc-doom, script: poc/poc-doom.sh, runtime: [incus]}
   - {id: poc-participants-e2e, script: poc/poc-participants-e2e.sh, runtime: [incus]}
   - {id: poc-page, script: poc/poc-page.sh, runtime: [incus]}
@@ -234,9 +236,24 @@ features:
       seen_in: "v0.4.0-poc: the host approves carol and then presses panic from the web console; each is a job of the console daemon with a plan, a confirmation and one audit line."
     proven_by:
       - {suite: poc-console, steps: [K01, K02, K10-K26]}
-    paths: [poc/mesh, poc/lib.sh, poc/meshlock.py, poc/console/*.py, poc/console/*.cjs, poc/console/static/*, poc/admission.py]
+    paths: [poc/mesh, poc/lib.sh, poc/meshlock.py, poc/console/actions.py, poc/console/client.py, poc/console/mutate.py, poc/console/server.py, poc/console/check-browser.cjs, poc/console/static/*, poc/admission.py]
     components: [admission]
     docs: [docs/CONSOLE.md, docs/HOST-YOUR-OWN.md]
+
+  - id: player-console
+    description: the player's local console on loopback; owns only the player's namespace kubeconfig, shows their lease, own events/parties/joinable games and allows only their party consents
+    layer: tenancy
+    user_facing: true
+    learn:
+      concept: "Least privilege: a player's local UI uses only the namespace credential already issued to that player, and the API still enforces its RBAC boundary."
+      analogy: "A key opens your room and the shared doors your friends agreed to; the host's office stays locked."
+      real_world: "A namespace-scoped Kubernetes dashboard or developer portal that uses a user's own short-lived credential."
+      seen_in: "The player sees their lease countdown, own events and parties, and the API refuses a handwritten host action or a read outside their namespace."
+    proven_by:
+      - {suite: poc-player, steps: [PM01-PM07]}
+    paths: [poc/edge-mesh, poc/console/player.py, poc/console/player-static/*, poc/test_console_player.py, poc/test_edge_mesh.py]
+    components: [Kubernetes API, k3s]
+    docs: [docs/CONSOLE.md, docs/CONSOLE-MODES.md, docs/JOIN.md]
 
   - id: pool
     description: a namespace and a kubeconfig per player (RBAC, quota, NetworkPolicy), the error matrix, the idle kick, the lease end removes node, namespace and token
