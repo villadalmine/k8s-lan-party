@@ -102,8 +102,10 @@ watcher_up() { # D7: one authenticated spectator pod in carmack's namespace, pri
   K carmack wait --for=condition=Ready "pod/$WATCH_NAME" --timeout=240s || return 1
   local pod; pod=$(K carmack get pod "$WATCH_NAME" -o json) || return 1
   read -r WATCH_IP node hostports < <(python3 -c 'import json,sys; p=json.load(sys.stdin); ports=[x for c in p["spec"]["containers"] for x in c.get("ports",[]) if "hostPort" in x]; print(p["status"].get("podIP", ""), p["spec"].get("nodeName", ""), len(ports))' <<<"$pod")
+  echo "watcher pod: ip=$WATCH_IP node=$node hostPorts=$hostports"
   [ -n "$WATCH_IP" ] && [ "$node" = carmack ] && [ "$hostports" = 0 ] || return 1
-  [ "$(P carmack kubectl auth can-i create pods/portforward)" = no ] || return 1
+  local pf; pf=$(P carmack kubectl auth can-i create pods/portforward 2>&1); echo "carmack can-i create pods/portforward: $pf"
+  [ "$(echo "$pf" | head -1)" = no ] || return 1
   wait_for 90 watcher_running && wait_for 60 watcher_announced || { watcher_why carmack; return 1; }
   K carmack logs "$WATCH_NAME" | grep -E 'following carmack|PLAYERS IN GAME|watch-carmack'
   server_log | grep 'watch-carmack has connected'
