@@ -9,13 +9,11 @@ case "$PORT" in 10666) ;; *) echo "watch client only supports the consented Odam
 [[ "$TARGET" =~ ^[a-z][a-z0-9-]{1,19}$ && "$WATCHER" =~ ^[a-z][a-z0-9-]{1,19}$ && "$NAME" =~ ^[a-z][a-z0-9-]{1,29}$ ]] || { echo "invalid Doom player name" >&2; exit 2; }
 [[ "${WATCH_TOKEN:-}" =~ ^[a-f0-9]{64}$ ]] || { echo "watch token missing or invalid" >&2; exit 2; }
 export DISPLAY=:99 SDL_AUDIODRIVER=dummy HOME=/tmp
-key() { xdotool keydown "$1"; sleep 0.25; xdotool keyup "$1"; sleep 0.25; }   # as client.sh: a press shorter than a frame is lost (the text went to chat)
-console() { key grave; xdotool type --delay 100 "$1"; sleep 0.3; key Return; key grave; }   # one console command, console closed again
 mkdir -p /tmp/doom
 rm -f /tmp/doom/* /tmp/.odamex/odamex.log
 Xvfb :99 -screen 0 320x200x24 -nolisten tcp >/tmp/doom/xvfb.log 2>&1 & XVFB=$!
 cd /opt/odamex
-./odamex -iwad /opt/wad/freedm.wad -waddir /opt/wad -width 320 -height 200 +cl_name "$NAME" -connect "$HOST:$PORT" >/tmp/doom/client.out 2>&1 & GAME=$!
+./odamex -iwad /opt/wad/freedm.wad -waddir /opt/wad -width 320 -height 200 +cl_name "$NAME" +spy "$TARGET" -connect "$HOST:$PORT" >/tmp/doom/client.out 2>&1 & GAME=$!
 STREAM=
 cleanup() { [ -z "$STREAM" ] || kill "$STREAM" 2>/dev/null || true; kill "$GAME" "$XVFB" 2>/dev/null || true; wait 2>/dev/null || true; }
 trap cleanup EXIT INT TERM
@@ -24,13 +22,13 @@ until grep -q 'Requesting server state' /tmp/.odamex/odamex.log 2>/dev/null && g
   kill -0 "$GAME" 2>/dev/null || { echo "Odamex exited before connecting" >&2; exit 1; }
   sleep 1; t=$((t + 1)); [ "$t" -lt "${CONNECT_WAIT:-40}" ] || { echo "spectator did not connect in ${CONNECT_WAIT:-40}s" >&2; exit 1; }
 done
-# A newly connected client is a spectator. Do not send `join`: `spy <player>` follows the target without entering the match.
-console players
+# A newly connected client is a spectator and stays one: nothing types `join`. No keyboard at all: `+spy <player>` on the command line
+# sets the name Odamex follows, and it applies it again on connecting and on every respawn (CL_CheckDisplayPlayer, cl_main.cpp of 12.3.0).
+# Typing in the console with xdotool lost keys and sent the text to chat (`<SPEC> watch-host: ers`, the Dell run of 124c098).
 t=0
-until grep -q 'PLAYERS IN GAME:' /tmp/.odamex/odamex.log 2>/dev/null && grep -q "$NAME" /tmp/.odamex/odamex.log 2>/dev/null; do
-  sleep 1; t=$((t + 1)); [ "$t" -lt 10 ] || { echo "Odamex roster did not announce spectator" >&2; exit 1; }
+until grep -q "$NAME has connected" /tmp/.odamex/odamex.log 2>/dev/null; do   # the server's announcement, as every player sees it
+  sleep 1; t=$((t + 1)); [ "$t" -lt 10 ] || { echo "the server did not announce the spectator $NAME" >&2; exit 1; }
 done
-console "spy $TARGET"
 t=0
 until grep -q "Following player '$TARGET'" /tmp/.odamex/odamex.log 2>/dev/null; do
   sleep 1; t=$((t + 1)); [ "$t" -lt 10 ] || { echo "Odamex did not accept spectator target" >&2; exit 1; }

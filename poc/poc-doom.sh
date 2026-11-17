@@ -104,9 +104,12 @@ watcher_up() { # D7: one authenticated spectator pod in carmack's namespace, pri
   read -r WATCH_IP node hostports < <(python3 -c 'import json,sys; p=json.load(sys.stdin); ports=[x for c in p["spec"]["containers"] for x in c.get("ports",[]) if "hostPort" in x]; print(p["status"].get("podIP", ""), p["spec"].get("nodeName", ""), len(ports))' <<<"$pod")
   echo "watcher pod: ip=$WATCH_IP node=$node hostPorts=$hostports"
   [ -n "$WATCH_IP" ] && [ "$node" = carmack ] && [ "$hostports" = 0 ] || return 1
-  local pf; pf=$(P carmack kubectl auth can-i create pods/portforward 2>&1); echo "carmack can-i create pods/portforward: $pf"
+  # `can-i create pods/portforward` would ask about a POD called portforward (yes: a player creates pods); the subresource is a flag
+  local pf; pf=$(P carmack kubectl auth can-i create pods --subresource=portforward 2>&1); echo "carmack can-i create pods --subresource=portforward: $pf"
   [ "$(echo "$pf" | head -1)" = no ] || return 1
   wait_for 90 watcher_running && wait_for 60 watcher_announced || { watcher_why carmack; return 1; }
+  # a restarted spectator connects twice (DM20 counts one): say why here, where it happened
+  [ "$(K carmack get pod "$WATCH_NAME" -o jsonpath='{.status.containerStatuses[0].restartCount}')" = 0 ] || { watcher_why carmack; return 1; }
   K carmack logs "$WATCH_NAME" | grep -E 'following carmack|PLAYERS IN GAME|watch-carmack'
   server_log | grep 'watch-carmack has connected'
   echo "watch stream pod=$WATCH_NAME node=$node pod-ip=$WATCH_IP port=17777 hostPort=$hostports port-forward=denied"
@@ -122,7 +125,8 @@ localhost_always() { # Kubernetes' local node-to-pod path is pinned explicitly w
 }
 watcher_why() { # what the spectator saw, when it did not get there: its own output and Odamex's log (no token is in either)
   local who="$1" ns; ns=$([ "$who" = host ] && echo watch-host || echo "play-$who")
-  k -n "$ns" get pods -o wide; k -n "$ns" logs "$( [ "$who" = host ] && echo doom-watch-romero || echo "$WATCH_NAME")" --tail=40
+  local pod; pod=$([ "$who" = host ] && echo doom-watch-romero || echo "$WATCH_NAME")
+  k -n "$ns" get pods -o wide; k -n "$ns" logs "$pod" --tail=40; k -n "$ns" logs "$pod" --previous --tail=40 2>&1 | sed 's/^/previous: /' 
   k -n "$ns" exec "$( [ "$who" = host ] && echo doom-watch-romero || echo "$WATCH_NAME")" -- sh -c 'tail -40 /tmp/.odamex/odamex.log; tail -20 /tmp/doom/client.out' 2>&1 | tail -60
   server_log | tail -15; }
 watcher_running() { K carmack logs "$WATCH_NAME" 2>/dev/null | grep -q 'following carmack'; }
@@ -208,7 +212,7 @@ def at(pat):
     return m and int(m[1]) * 3600 + int(m[2]) * 60 + int(m[3])
 ok = True
 for who, least in (("romero", 1), ("carmack", 3 * play - 20), ("petersen", play - 5)):
-    c, j, d = at(who + r" has connected\."), at(who + r" joined the game\."), at(who + r" disconnected\. \((?:\d+) (?:KILLS|FRAGS), \d+ DEATHS\)")
+    c, j, d = at(who + r" has connected\."), at(who + r" joined the game\."), at(who + r" disconnected\. \((?:-?\d+) (?:KILLS|FRAGS), \d+ DEATHS\)")
     good = None not in (c, j, d) and c <= j < d and d - j >= least
     print(f"server: {who} joined and stayed {d - j if None not in (c, j, d) else '?'} s")
     ok = ok and good
