@@ -173,6 +173,12 @@ class LedgerTest(unittest.TestCase):
         self.assertEqual((pos, what), (1, "this identity is already in the list as ana; not added"))
         self.assertIsNone(self.at(2).find("otra"))
 
+    def test_the_hosts_watcher_names_are_reserved(self):
+        import admission
+        for name in ("watch-host", "host"):   # host: a player's spectator is announced as watch-<player> (PR #112 review)
+            with self.subTest(name=name), self.assertRaises(AdmissionError):
+                admission.check_name(name)
+
     def test_a_name_is_used_once(self):
         self.request(0, "ana", "10.0.0.1")
         self.approve(0)

@@ -104,7 +104,7 @@ case "$1 ${2:-}" in
     name="${3:-}"; [ -n "$name" ] || usage; ttl=2h; trust=friends; shift 3
     # the name becomes a node name, a certificate name and a directory (the same rule as admission.py)
     printf '%s' "$name" | grep -Eqx '[a-z][a-z0-9-]{1,19}' && [ "$(printf '%s' "$name" | wc -l)" -eq 0 ] || { echo "invalid name '$name': 2 to 20 characters, a-z, 0-9 and '-', starting with a letter"; exit 2; }
-    [ "$name" != watch-host ] || { echo "invalid name 'watch-host': reserved for the host's watcher (docs/CONSOLE-MODES.md, D6)"; exit 2; }
+    case "$name" in watch-host|host) echo "invalid name '$name': reserved for the host's watcher (docs/CONSOLE-MODES.md, D6; a spectator is announced as watch-<name>)"; exit 2 ;; esac
     pub=""
     while [ $# -gt 0 ]; do case "$1" in --ttl) ttl="$2"; shift 2 ;; --trust) trust="$2"; shift 2 ;; --pub) pub="$2"; shift 2 ;; *) usage ;; esac; done
     case "$trust" in friends|public) ;; *) echo "trust must be friends or public (own is for your own machines)"; exit 2 ;; esac
@@ -223,7 +223,7 @@ case "$1 ${2:-}" in
         python3 "$POC/party.py" list --config "${POOL_CONFIG:-$POC/pool.yaml}" --bundles "$STATE/bundles" \
           --nebula-cert "$CACHE/nebula-cert" --kc "$POC/kc" | awk -v w="$w" 'NR == 1 || $1 == w || $2 == w' ;;
       invite|leave)
-        printf '%s' "$owner" | grep -Eqx '[a-z][a-z0-9-]{1,19}' && [ "$owner" != "$w" ] || { echo "usage: mesh host watch $sub <owner>"; exit 2; }
+        printf '%s' "$owner" | grep -Eqx '[a-z][a-z0-9-]{1,19}' && [ "$(printf '%s' "$owner" | wc -l)" -eq 0 ] && [ "$owner" != "$w" ] || { echo "usage: mesh host watch $sub <owner>"; exit 2; }
         [ -n "$(k get namespace "$w" --ignore-not-found -o name)" ] || { echo "no watcher: run mesh host watch init first"; exit 3; }
         if [ "$sub" = invite ]; then
           printf 'apiVersion: v1\nkind: ConfigMap\nmetadata: {name: party-%s, namespace: %s, labels: {edge-mesh/party-consent: "yes"}}\ndata: {peer: "%s", ports: ""}\n' \

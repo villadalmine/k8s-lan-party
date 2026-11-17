@@ -167,6 +167,15 @@ class Watcher(unittest.TestCase):
         self.assertIn(["configmap", "watch-host", "party-alice"], act["delete"])
         self.assertIn(["networkpolicy", "watch-host", "party-alice"], act["delete"])
 
+    def test_a_new_watcher_namespace_inherits_nothing(self):
+        # down + init gives watch-host a new UID: the owner's consent to the old one is deleted, as for a player of the same name
+        d, _ = settle(world([ns("alice"), watcher()], [cm("alice", "watch-host"), wcm("alice")]))
+        new = dict(d, namespaces={"items": [ns("alice", labels={"party.edge-mesh/watch-host": "yes"}), watcher(uid="uid-watch-2")]},
+                   configmaps={"items": [c for c in d["configmaps"]["items"] if c["metadata"]["namespace"] == "play-alice"]})
+        _, act = settle(new)
+        self.assertIn(["configmap", "play-alice", "party-watch-host"], act["delete"])
+        self.assertEqual([o for o in act["apply"]], [])
+
     def test_the_name_cannot_be_taken_by_a_player(self):
         # a player namespace play-watch-host, however labelled, is not the watcher, and its consents count for nobody
         fake = ns("watch-host")

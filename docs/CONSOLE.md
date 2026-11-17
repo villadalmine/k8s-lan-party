@@ -151,6 +151,7 @@ simulation of a player's machine, not host actions.
 | `host revoke <name>` | mutates | high | `revoke` | type the name | local, console |
 | `host party reconcile` | mutates | low: what the tick does | `party-reconcile` | none | local, console |
 | `host party end <a> <b>` | mutates | medium | `party-end` | click | local, console |
+| `host watch [status]`, `host watch init\|invite <owner>\|leave <owner>\|down` | mutates (status reconciles, like `party list`): the host's watcher, D6 of CONSOLE-MODES.md | low | none yet: CLI only, under the engine's lock (#101) | | local |
 | `host invite <name>` | mutates, signs (persistent CA for `friends`), writes a private key | high | `invite` | none (local only) | local |
 | `host bundle <name>` | writes a tarball with the player's key | high | `bundle` | none (local only) | local |
 | `host refresh <name>` | rewrites and applies a running machine's Nebula config (`lh`, `cp` too) | high | `refresh` | none (local only) | local |

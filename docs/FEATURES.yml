@@ -283,7 +283,7 @@ features:
       seen_in: "v0.3.0-poc: romero invites carmack, carmack accepts, and only then the Doom match starts."
     proven_by:
       - {suite: poc-party, steps: [PY01-PY17]}
-      - {suite: poc-doom, steps: [DM24-DM27]}
+      - {suite: poc-doom, steps: [DM24-DM29]}
     paths: [poc/party.py, poc/test_party.py, poc/poc-party.sh, poc/watcher.py, poc/watcher-policy.yaml, poc/test_watcher.py]
     components: [k3s, NetworkPolicy, admission]
     docs: [docs/DESIGN.md, docs/ADMISSION.md, docs/JOIN.md]

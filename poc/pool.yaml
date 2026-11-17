@@ -28,6 +28,8 @@ quota_storage_mib: 2048     # ephemeral storage (emptyDir, container layers) of 
 quota_services: 5           # ClusterIP only (the participant guard, poc/participant-policy.yaml)
 quota_configmaps: 10        # object counts: etcd is the host's
 quota_deployments: 5
+# watch_quota_cpu_millis: 1000   # the host's watcher namespace (watch-host, D6; poc/watcher.py): its own CPU cap, the cap on the host's views;
+# watch_quota_pods: 10           # unset = a player's numbers above
 limit_default_cpu_millis: 200   # a container that sets no limit gets this one, and half of it as its request
 limit_default_memory_mib: 128
 limit_default_storage_mib: 256

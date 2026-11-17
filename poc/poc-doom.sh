@@ -280,6 +280,27 @@ host_watch_open() { # romero accepts watch-host; the tick opens it; the host's s
   say host "romero's server names the host's spectator: nobody is watched without a line saying who came in"
   show host "kubectl exec -n play-romero doom-server -- grep 'watch-host has connected' /tmp/server.log" \
     k exec -n play-romero doom-server -- grep 'watch-host has connected' /tmp/server.log; }
+guard_try() { # guard_try <what> <python expression on the pod text t>: a server-side dry run in watch-host (every admission runs, nothing is made)
+  # 100m: the client (400m) and the spectator (300m) already count against watch-host's 1000m; a refusal must be the guard's, not the quota's
+  "$POC/doom/pod.sh" client "$DOOM_IMG" guard-probe | sed 's/limits: {cpu: 400m/limits: {cpu: 100m/' | python3 -c "import sys; t=sys.stdin.read(); sys.stdout.write($2)" |
+    k -n watch-host apply --dry-run=server -o json -f - 2>&1; }
+watcher_guard() { # each case is refused by poc/watcher-policy.yaml itself: Kyverno lets nodeName cp through (cp is own), and the cp taint is not a trust taint
+  local o
+  o=$(guard_try nodeName 't.replace("spec:\n", "spec:\n  nodeName: cp\n", 1)'); echo "nodeName cp: $o" | head -3
+  echo "$o" | grep -q "may not set spec.nodeName" || return 1
+  o=$(guard_try toleration 't.replace("spec:\n", "spec:\n  tolerations: [{key: node-role.kubernetes.io/control-plane, operator: Exists, effect: NoSchedule}]\n", 1)')
+  echo "control-plane toleration: $o" | head -3; echo "$o" | grep -q "may not tolerate the control plane" || return 1
+  o=$(guard_try shareable 't.replace("labels: {app: guard-probe}", "labels: {app: guard-probe, edge-mesh/sensitivity: shareable}", 1)')
+  echo "shareable: $o" | head -3; echo "$o" | grep -qi "denied\|forbidden\|refused\|error" || return 1
+  # positive control: the plain pod is admitted, and what admission made of it keeps it off every control plane
+  o=$(guard_try plain 't') || { echo "$o"; return 1; }
+  echo "$o" | python3 -c 'import json,sys; p=json.load(sys.stdin); e=p["spec"]["affinity"]["nodeAffinity"]["requiredDuringSchedulingIgnoredDuringExecution"]["nodeSelectorTerms"][0]["matchExpressions"]; print("admitted, affinity:", e); sys.exit(0 if {"key":"node-role.kubernetes.io/control-plane","operator":"DoesNotExist"} in e else 1)'; }
+host_watch_closes() { # romero's second robot ended; the host leaves (the party closes), then removes its watcher
+  wait "$BOT2" && grep -q 'left the game' "$STATE/romero2.out" || { cat "$STATE/romero2.out"; return 1; }
+  out_has "watcher: left romero" show host "mesh host watch leave romero" "$MESH" host watch leave romero &&
+  [ -z "$(k get networkpolicies -n watch-host -l edge-mesh/party -o name)" ] && [ -z "$(k get networkpolicies -n play-romero party-watch-host --ignore-not-found -o name)" ] &&
+  wait_for 60 host_closed && out_has "watcher: removed" "$MESH" host watch down &&
+  [ -z "$(k get namespace watch-host --ignore-not-found -o name)" ] && out_has "watcher: none" "$MESH" host watch status; }
 
 step DM01 "mesh host init: lighthouse and control plane (and Cilium with CNI=cilium)" host_init
 step DM02 "the Doom image (Odamex 12.3.0, FreeDM 0.13.0, pinned) is built once and cached by the hash of its inputs" image
@@ -308,6 +329,8 @@ step DM24 "D6: with no own node but the control plane, mesh host watch init refu
 step DM25 "D6: the host's own machine joins (trust own); watch init makes watch-host: restricted, its own quota, no credential but the host's" own_joins
 step DM26 "D6: the host asks romero (watch invite): one consent opens nothing; a pod of watch-host, on hostpc, gets no answer" host_watch_one_side
 step DM27 "D6: romero accepts watch-host; the tick opens it; the host's spectator runs on hostpc, not the control plane, and the server names it" host_watch_open
+step DM28 "D6: the watcher guard refuses a watch-host pod that names the control plane, tolerates its taint or is shareable; a plain one gets the affinity" watcher_guard
+step DM29 "D6: watch leave closes the host's party at once; watch down removes watch-host; romero's second robot ended cleanly" host_watch_closes
 
 [ -z "$SC" ] || [ "$FAILS" -ne 0 ] || { cp "$OUTD/match.gif" "$SC/match.gif"; for s in player host; do   # only a run that passed becomes a recording (the GIF first: down removes the state)
   python3 "$SCP" redact "$SC/$s.raw" "$SC/$s.tsv" --strip "$STATE/" --strip "$POC/" --strip "${POC%/*}/" || FAILS=$((FAILS+1)); done; }

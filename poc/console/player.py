@@ -364,7 +364,7 @@ class Player:
         peer = body.get("peer", "")
         if verb == "watch-start":
             image = body.get("image", "")
-            if not isinstance(peer, str) or not PEER.fullmatch(peer) or peer == self.name:
+            if not isinstance(peer, str) or not PEER.fullmatch(peer) or peer in (self.name, "watch-host"):
                 raise PlayerError(400, "bad-peer", "peer must be a game participant")
             if not any(game["peer"] == peer for game in self.get("games", {})):
                 raise PlayerError(403, "not-a-game", "watching needs an active party with that game")

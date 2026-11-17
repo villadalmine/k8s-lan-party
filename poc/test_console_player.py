@@ -142,6 +142,14 @@ class PlayerTest(unittest.TestCase):
         self.assertEqual(self.p.get("games", {}), [{"peer": "bob", "ports": "",
                          "status": "inactive: party ended; stop the spectator", "watching": True}])
 
+    def test_watch_host_is_the_hosts_watcher_not_a_game(self):
+        # a party with watch-host is the host watching the owner; it serves no game, so no spectator is built for it (PR #112 review)
+        with patch.object(self.p, "get", return_value=[{"peer": "watch-host", "status": "active: ports 10666/UDP"}]):
+            with self.assertRaises(player.PlayerError) as e:
+                self.p.act("watch-start", {"peer": "watch-host", "image": "localhost/emesh-doom:12.3.0-abcdef012345"})
+        self.assertEqual((e.exception.status, e.exception.code), (400, "bad-peer"))
+        self.assertEqual(self.kc.calls, [])
+
     def test_frames_stop_when_the_party_is_no_longer_active(self):
         with patch.object(self.p, "get", return_value=[{"peer": "bob", "status": "inactive: party ended; stop it"}]):
             with self.assertRaises(player.PlayerError) as e:

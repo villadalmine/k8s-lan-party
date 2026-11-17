@@ -134,8 +134,9 @@ host's half of a party; the owner's half is `edge-mesh party accept watch-host`;
 lease; closed when the owner leaves, is kicked or their lease ends, or with `mesh host watch leave <owner>` or `down`). No player can be
 called `watch-host` (`admission.py`, `mesh host invite`) and a namespace without the host's label never counts. `mesh host watch` verbs are
 CLI only for now: they take the engine's lock but are not in the web registry. D3 is in the public page's join text (`poc/page/page.py`) and in
-JOIN.md. Proved by `poc-doom` DM24 to DM27 (refusal without an own node; the namespace; one consent opens nothing; after the owner accepts, the
-host's spectator runs on the host's own machine and the server names it).
+JOIN.md. Proved by `poc-doom` DM24 to DM29 (refusal without an own node; the namespace; one consent opens nothing; after the owner accepts, the
+host's spectator runs on the host's own machine and the server names it; the watcher guard's refusals, by a server-side dry run; `leave` and
+`down` close it). `host` is reserved too: a player's spectator is announced as `watch-<player>`.
 
 ## Playing in the browser
 
