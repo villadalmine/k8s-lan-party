@@ -365,7 +365,7 @@ On srv-t7910, `REGRESSION_RUNTIME=docker-vm INCUS_PROJECT=emesh-player100b ONLY=
 
 ## Spectator stream spike (#101; 2026-11-16)
 
-The existing Doom proof remains `DM01-DM20: PASS` from its earlier Dell run. The current `feat/console-watch` branch adds the authenticated
+Superseded by the next section (2026-11-17): `poc-doom` DM01-DM27 PASS on `71aba03`. The text below is the state on 2026-11-16. The existing Doom proof remained `DM01-DM20: PASS` from its earlier Dell run. The current `feat/console-watch` branch adds the authenticated
 watcher endpoint and DM21-DM23; those cluster checks are **pending** a fresh Dell regression. Locally, the complete `make test` suite passes
 401 tests, including six stream/pod tests. The player-console watch API and UI are now wired to start/stop a watcher in the player's own
 namespace and proxy frames from its Pod IP. Static checks (`py_compile`, `node --check`, `bash -n`, `git diff --check`) pass. The live Doom
@@ -391,4 +391,7 @@ tests pass 12/12; final cluster regression and browser verification remain pendi
     DM12 then failed on its own check `kubectl auth can-i create pods/portforward`, which asks about a pod *named* portforward (yes); the
     subresource is `--subresource=portforward`, which the participant Role does not grant. DM19 failed once on a negative frag count.
   - `71aba03`: the spectator follows with `+spy <player>` on Odamex's command line (no keyboard), DM12 asks `can-i` with the subresource, DM19
-    takes negative frags. Result below when it lands.
+    takes negative frags. **`poc-doom` RESULT PASS, 27/27** (`ALLDONE:0`, project `emesh-doom101d`, left behind: nothing). D7 passes
+    on the lab for the first time: carmack's spectator on his own node (hostPorts 0), `can-i create pods --subresource=portforward`: no,
+    unauthenticated and wrong-token requests 401, changing JPEG frames from the pod's IP on his node, nothing from petersen's node or pod;
+    the server names `watch-carmack` once; and D6 again (DM24-DM27, `watch-host` on `hostpc`).
