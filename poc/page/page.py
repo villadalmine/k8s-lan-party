@@ -555,8 +555,8 @@ openssl genpkey -algorithm X25519 -out seal.key &amp;&amp; openssl pkey -in seal
 <p>It prints <code>joined: YOUR-NAME (trust=public)</code> and your own namespace. Check it with <code>sudo edge-mesh kubectl get pods</code>. Your place ends when its
 time is up (see the numbers above); you can leave earlier by stopping <code>edge-mesh</code> on your machine. Keep the golden rule in mind: the host can see what runs here.</p>
 <p>If you run a game server here, it can be watched: whoever you accepted a party with (a player, or the host as <code>watch-host</code>, who
-asks like anyone else) can enter it as a spectator. The server announces every spectator by name, so nobody is watched without a line saying who
-came in. A view shows the game, never your screen or your keys.</p>
+asks like anyone else) can enter it as a spectator. The server announces every spectator, so nobody is watched without a line saying someone came in; who can
+watch is your list of parties (<code>sudo edge-mesh party list</code>), since a client picks its own name. A view shows the game, never your screen or your keys.</p>
 <p>Without a browser, everything here is a JSON API (<code>/api/v1/...</code>): docs/PUBLIC-PAGE.md in the repository.</p>
 <noscript><p>The form needs JavaScript for the proof of work; or use <code>visit.py</code>.</p></noscript>
 </main><script src=/static/page.js></script></body></html>

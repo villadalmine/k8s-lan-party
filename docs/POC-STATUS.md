@@ -395,3 +395,8 @@ tests pass 12/12; final cluster regression and browser verification remain pendi
     on the lab for the first time: carmack's spectator on his own node (hostPorts 0), `can-i create pods --subresource=portforward`: no,
     unauthenticated and wrong-token requests 401, changing JPEG frames from the pod's IP on his node, nothing from petersen's node or pod;
     the server names `watch-carmack` once; and D6 again (DM24-DM27, `watch-host` on `hostpc`).
+- **The suites the full regression skipped, and `poc-party` again** (`party.py` changed), on `bcb2530` (`REGRESSION_RUNTIME=docker-vm`, project
+  `emesh-rest101`, `ALLDONE:0`): `poc-party` 17 PASS, `poc-participants-e2e` 11 PASS, `poc-page` 31 PASS, `poc-nat` 26 PASS, `poc-bgp` 20 PASS,
+  `poc-vm` 36 PASS, `poc-golden` 31 PASS (1 DEP), `poc-down` teardown done on Docker and Incus. With the full run on `dddf9d0` and `poc-doom` on
+  `71aba03`, every suite of the table has passed on this branch, though not all on one commit. The commits after `bcb2530` touch cluster paths only
+  for `poc-doom` (DM28-DM29), the reserved names (`admission.py`, `mesh`, `participants/policy.yaml`) and the player console's watch-start check.

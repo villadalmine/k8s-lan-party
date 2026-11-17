@@ -150,6 +150,15 @@ class PlayerTest(unittest.TestCase):
         self.assertEqual((e.exception.status, e.exception.code), (400, "bad-peer"))
         self.assertEqual(self.kc.calls, [])
 
+    def test_the_hosts_watcher_is_not_listed_as_a_game(self):
+        # the owner's party with watch-host is the host watching them: no Watch button for it (PR #112 verification)
+        self.kc.replies = [{"items": [
+            {"metadata": {"name": "party-watch-host", "annotations": {"edge-mesh/party-status": "active: ports 10666/UDP"}},
+             "data": {"peer": "watch-host", "ports": ""}},
+            {"metadata": {"name": "party-bob", "annotations": {"edge-mesh/party-status": "active: ports 10666/UDP"}},
+             "data": {"peer": "bob", "ports": ""}}]}, {"items": []}]
+        self.assertEqual([g["peer"] for g in self.p.get("games", [])], ["bob"])
+
     def test_frames_stop_when_the_party_is_no_longer_active(self):
         with patch.object(self.p, "get", return_value=[{"peer": "bob", "status": "inactive: party ended; stop it"}]):
             with self.assertRaises(player.PlayerError) as e:

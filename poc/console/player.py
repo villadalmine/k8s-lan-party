@@ -298,7 +298,8 @@ class Player:
                 rows.append({"peer": peer, "ports": body.get("ports", ""), "status": status,
                              "watching": peer in watchers})
             if route == "games":
-                active = [r for r in rows if r["status"].startswith("active:")]
+                # a party with watch-host is the host watching this player's game: it serves no game to watch (PR #112 review)
+                active = [r for r in rows if r["status"].startswith("active:") and r["peer"] != "watch-host"]
                 active_peers = {r["peer"] for r in active}
                 active.extend({"peer": peer, "ports": "", "status": "inactive: party ended; stop the spectator", "watching": True}
                               for peer in sorted(watchers - active_peers))

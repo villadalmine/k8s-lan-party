@@ -207,8 +207,9 @@ parties off. The consent is a ConfigMap `party-<friend>` in your namespace: it c
 **A game can be watched** ([CONSOLE-MODES.md](CONSOLE-MODES.md), D2, D3 and D6). A spectator is one more client of the game server, so the rule is the
 party's: whoever you accepted a party with can watch the games you host, and nobody else. That includes the host, who has no special way in: the
 host asks as `watch-host` (`mesh host watch invite <you>`) and watches only after you run `sudo edge-mesh party accept watch-host`; `sudo edge-mesh
-party leave watch-host` ends it. The game server announces every spectator by name (the Doom example logs `watch-<name> has connected`), so nobody
-is watched without a line saying who came in. A view shows what the game sends about a player, never a screen, a desktop or keys.
+party leave watch-host` ends it. The game server announces every spectator by the name its client gives (the Doom example logs `watch-<name> has
+connected`), so nobody is watched without a line saying that someone came in. The name is the client's choice: any party peer running its own
+client could call itself `watch-host`. Who *can* watch is your list of parties (`sudo edge-mesh party list`), not the name in the log. A view shows what the game sends about a player, never a screen, a desktop or keys.
 
 ### A game to play: Doom (an example, [DESIGN.md 14.3](DESIGN.md))
 

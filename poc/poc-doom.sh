@@ -281,8 +281,10 @@ host_watch_open() { # romero accepts watch-host; the tick opens it; the host's s
   show host "kubectl exec -n play-romero doom-server -- grep 'watch-host has connected' /tmp/server.log" \
     k exec -n play-romero doom-server -- grep 'watch-host has connected' /tmp/server.log; }
 guard_try() { # guard_try <what> <python expression on the pod text t>: a server-side dry run in watch-host (every admission runs, nothing is made)
-  # 100m: the client (400m) and the spectator (300m) already count against watch-host's 1000m; a refusal must be the guard's, not the quota's
-  "$POC/doom/pod.sh" client "$DOOM_IMG" guard-probe | sed 's/limits: {cpu: 400m/limits: {cpu: 100m/' | python3 -c "import sys; t=sys.stdin.read(); sys.stdout.write($2)" |
+  # small and valid (request <= limit, else the API refuses the object before any admission): the client (400m, 384Mi) and the spectator
+  # (300m, 256Mi) already count against watch-host's 1000m and 1024Mi; a refusal must be the guard's, not the quota's or the schema's
+  "$POC/doom/pod.sh" client "$DOOM_IMG" guard-probe |
+    sed 's/requests: {cpu: 200m, memory: 128Mi}, limits: {cpu: 400m, memory: 384Mi/requests: {cpu: 50m, memory: 64Mi}, limits: {cpu: 100m, memory: 128Mi/' | python3 -c "import sys; t=sys.stdin.read(); sys.stdout.write($2)" |
     k -n watch-host apply --dry-run=server -o json -f - 2>&1; }
 watcher_guard() { # each case is refused by poc/watcher-policy.yaml itself: Kyverno lets nodeName cp through (cp is own), and the cp taint is not a trust taint
   local o
@@ -290,8 +292,10 @@ watcher_guard() { # each case is refused by poc/watcher-policy.yaml itself: Kyve
   echo "$o" | grep -q "may not set spec.nodeName" || return 1
   o=$(guard_try toleration 't.replace("spec:\n", "spec:\n  tolerations: [{key: node-role.kubernetes.io/control-plane, operator: Exists, effect: NoSchedule}]\n", 1)')
   echo "control-plane toleration: $o" | head -3; echo "$o" | grep -q "may not tolerate the control plane" || return 1
+  o=$(guard_try everything 't.replace("spec:\n", "spec:\n  tolerations: [{operator: Exists}]\n", 1)')   # an empty key tolerates every taint
+  echo "tolerate everything: $o" | head -3; echo "$o" | grep -q "may not tolerate the control plane" || return 1
   o=$(guard_try shareable 't.replace("labels: {app: guard-probe}", "labels: {app: guard-probe, edge-mesh/sensitivity: shareable}", 1)')
-  echo "shareable: $o" | head -3; echo "$o" | grep -qi "denied\|forbidden\|refused\|error" || return 1
+  echo "shareable: $o" | head -3; echo "$o" | grep -q "a watcher pod is private" || return 1
   # positive control: the plain pod is admitted, and what admission made of it keeps it off every control plane
   o=$(guard_try plain 't') || { echo "$o"; return 1; }
   echo "$o" | python3 -c 'import json,sys; p=json.load(sys.stdin); e=p["spec"]["affinity"]["nodeAffinity"]["requiredDuringSchedulingIgnoredDuringExecution"]["nodeSelectorTerms"][0]["matchExpressions"]; print("admitted, affinity:", e); sys.exit(0 if {"key":"node-role.kubernetes.io/control-plane","operator":"DoesNotExist"} in e else 1)'; }
