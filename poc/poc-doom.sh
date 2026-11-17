@@ -53,7 +53,7 @@ connects() { server_log | grep -c "^\[[0-9:]*\] $1 has connected\."; }   # conne
 host_init() { "$MESH" host init && { [ "$CNI" != cilium ] || "$POC/cilium.sh"; }; }
 image() { # the image, once (cached by the hash of its inputs), and its name
   local out; out=$("$POC/doom/build.sh") || { echo "$out"; return 1; }
-  IMG=$(echo "$out" | tail -2 | head -1); TAR=$(echo "$out" | tail -1); echo "$IMG $TAR"; [ -s "$TAR" ] && [ -n "$IMG" ]; }
+  DOOM_IMG=$(echo "$out" | tail -2 | head -1); TAR=$(echo "$out" | tail -1); echo "$DOOM_IMG $TAR"; [ -s "$TAR" ] && [ -n "$DOOM_IMG" ]; }
 admitted() { "$MESH" host request romero --ip 198.51.100.10 && "$MESH" host request carmack --ip 198.51.100.20 && "$MESH" host request petersen --ip 198.51.100.30 &&
   "$MESH" host auto on && say host "three friends ask for a place; one tick of the host admits all three" && out_has "approved 3 | slots 3/3 used" show host "mesh host auto --once" tick; }
 joined() { local w; for w in $PEOPLE; do "$MESH" play "$w" || return 1; done; for w in $PEOPLE; do wait_for 420 ready "$w" || return 1; done; }
@@ -63,14 +63,14 @@ loaded() { # no registry: the tarball goes into each player's node (k3s ctr), wh
     incus exec "emesh-$who" -- sh -c "k3s crictl images 2>/dev/null | grep -q 'emesh-doom'" || return 1; done; }
 srv_init() { server_log | grep -q 'Odamex Server Initialized'; }
 server_up() { # romero's server and its UDP Service; Ready; the log says the map is loaded and the public master servers are not contacted
-  "$POC/doom/pod.sh" server "$IMG" | K romero apply -f - && K romero expose pod doom-server --name doom --port 10666 --protocol UDP &&
+  "$POC/doom/pod.sh" server "$DOOM_IMG" | K romero apply -f - && K romero expose pod doom-server --name doom --port 10666 --protocol UDP &&
   K romero wait --for=condition=Ready pod/doom-server --timeout=240s &&
   wait_for 60 srv_init &&
   server_log | grep -q 'Masters will not be contacted because sv_usemasters is 0' && server_log | grep -q 'MAP15' &&
   say player "romero: a Doom deathmatch server (Odamex, FreeDM) in his namespace, on a UDP Service" && show player "sudo edge-mesh kubectl get pods,svc" K romero get pods,svc; }
 robots_up() { # a robot pod and a UDP echo (the probe: an open party from a closed one, without joining the game) in every namespace
-  local w; "$POC/doom/pod.sh" client "$IMG" doom-bot | K romero apply -f - || return 1
-  for w in carmack petersen; do "$POC/doom/pod.sh" client "$IMG" | K "$w" apply -f - || return 1; done
+  local w; "$POC/doom/pod.sh" client "$DOOM_IMG" doom-bot | K romero apply -f - || return 1
+  for w in carmack petersen; do "$POC/doom/pod.sh" client "$DOOM_IMG" | K "$w" apply -f - || return 1; done
   for w in $PEOPLE; do "$POC/doom/pod.sh" probe "$AGNHOST_IMAGE" | K "$w" apply -f - && K "$w" expose pod doom-probe --name doom-probe --port 10666 --protocol UDP || return 1; done
   for w in $PEOPLE; do K "$w" wait --for=condition=Ready "pod/$(pod_of "$w")" pod/doom-probe --timeout=240s || return 1; done
   say player "carmack and petersen: a robot pod each in their own namespace (a virtual screen, a recorder, a script that plays); romero's is beside his server"
@@ -98,14 +98,13 @@ start_match() { # romero's robot plays his own server (no party needed), then ca
 watcher_up() { # D7: one authenticated spectator pod in carmack's namespace, private admission pins it to his own node
   localhost_always || return 1
   WATCH_TOKEN=$(python3 -c 'import secrets; print(secrets.token_hex(32))') || return 1
-  WATCH_TOKEN="$WATCH_TOKEN" "$POC/doom/pod.sh" watcher "$IMG" romero carmack carmack | K carmack apply -f - || return 1
+  WATCH_TOKEN="$WATCH_TOKEN" "$POC/doom/pod.sh" watcher "$DOOM_IMG" romero carmack carmack | K carmack apply -f - || return 1
   K carmack wait --for=condition=Ready "pod/$WATCH_NAME" --timeout=240s || return 1
   local pod; pod=$(K carmack get pod "$WATCH_NAME" -o json) || return 1
   read -r WATCH_IP node hostports < <(python3 -c 'import json,sys; p=json.load(sys.stdin); ports=[x for c in p["spec"]["containers"] for x in c.get("ports",[]) if "hostPort" in x]; print(p["status"].get("podIP", ""), p["spec"].get("nodeName", ""), len(ports))' <<<"$pod")
   [ -n "$WATCH_IP" ] && [ "$node" = carmack ] && [ "$hostports" = 0 ] || return 1
   [ "$(P carmack kubectl auth can-i create pods/portforward)" = no ] || return 1
-  wait_for 90 watcher_running || return 1
-  wait_for 60 watcher_announced || return 1
+  wait_for 90 watcher_running && wait_for 60 watcher_announced || { watcher_why carmack; return 1; }
   K carmack logs "$WATCH_NAME" | grep -E 'following carmack|PLAYERS IN GAME|watch-carmack'
   server_log | grep 'watch-carmack has connected'
   echo "watch stream pod=$WATCH_NAME node=$node pod-ip=$WATCH_IP port=17777 hostPort=$hostports port-forward=denied"
@@ -119,6 +118,11 @@ localhost_always() { # Kubernetes' local node-to-pod path is pinned explicitly w
   done
   [ -n "$pod" ]
 }
+watcher_why() { # what the spectator saw, when it did not get there: its own output and Odamex's log (no token is in either)
+  local who="$1" ns; ns=$([ "$who" = host ] && echo watch-host || echo "play-$who")
+  k -n "$ns" get pods -o wide; k -n "$ns" logs "$( [ "$who" = host ] && echo doom-watch-romero || echo "$WATCH_NAME")" --tail=40
+  k -n "$ns" exec "$( [ "$who" = host ] && echo doom-watch-romero || echo "$WATCH_NAME")" -- sh -c 'tail -40 /tmp/.odamex/odamex.log; tail -20 /tmp/doom/client.out' 2>&1 | tail -60
+  server_log | tail -15; }
 watcher_running() { K carmack logs "$WATCH_NAME" 2>/dev/null | grep -q 'following carmack'; }
 watcher_announced() { server_log | grep -q 'watch-carmack has connected'; }
 watch_frame() { # token travels over stdin; it never appears in an exec argument or a log line
@@ -246,7 +250,7 @@ host_probe() { HK exec doom-client -- client.sh --probe doom-probe.play-romero.s
 host_closed() { local rc; host_probe; rc=$?; [ "$rc" -eq 3 ]; }
 host_watch_one_side() { # the host asks romero; one consent opens nothing: a client in watch-host, on hostpc, gets no answer from romero's namespace
   incus file push -q "$TAR" "emesh-$OWN/root/doom.tar" && incus exec "emesh-$OWN" -- sh -c 'k3s ctr -n k8s.io images import /root/doom.tar >/dev/null && rm -f /root/doom.tar' || return 1
-  "$POC/doom/pod.sh" client "$IMG" | HK apply -f - && HK wait --for=condition=Ready pod/doom-client --timeout=240s || return 1
+  "$POC/doom/pod.sh" client "$DOOM_IMG" | HK apply -f - && HK wait --for=condition=Ready pod/doom-client --timeout=240s || return 1
   [ "$(HK get pod doom-client -o jsonpath='{.spec.nodeName}')" = "$OWN" ] || { echo "the watcher's pod is not on $OWN"; return 1; }
   say host "the host asks romero to let it watch: its half of a party, like any player's invite"
   out_has "the party opens when romero runs" show host "mesh host watch invite romero" "$MESH" host watch invite romero &&
@@ -263,10 +267,10 @@ host_watch_open() { # romero accepts watch-host; the tick opens it; the host's s
   incus exec emesh-romero -- edge-mesh kubectl exec doom-bot -- env PATTERN=b CONNECT_WAIT=40 client.sh doom 10666 120 romero >"$STATE/romero2.out" 2>&1 &
   BOT2=$!; wait_for 60 sh -c "grep -q 'in the game' '$STATE/romero2.out'" || return 1
   HOST_TOKEN=$(python3 -c 'import secrets; print(secrets.token_hex(32))') || return 1
-  WATCH_TOKEN="$HOST_TOKEN" "$POC/doom/pod.sh" watcher "$IMG" romero host romero | HK apply -f - &&
+  WATCH_TOKEN="$HOST_TOKEN" "$POC/doom/pod.sh" watcher "$DOOM_IMG" romero host romero | HK apply -f - &&
   HK wait --for=condition=Ready pod/doom-watch-romero --timeout=240s || return 1
   local node; node=$(HK get pod doom-watch-romero -o jsonpath='{.spec.nodeName}'); echo "host spectator on $node"
-  [ "$node" = "$OWN" ] && wait_for 90 host_following && wait_for 60 host_announced || return 1
+  [ "$node" = "$OWN" ] && wait_for 90 host_following && wait_for 60 host_announced || { watcher_why host; return 1; }
   say host "romero's server names the host's spectator: nobody is watched without a line saying who came in"
   show host "kubectl exec -n play-romero doom-server -- grep 'watch-host has connected' /tmp/server.log" \
     k exec -n play-romero doom-server -- grep 'watch-host has connected' /tmp/server.log; }
