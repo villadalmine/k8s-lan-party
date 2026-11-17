@@ -456,7 +456,12 @@ class T10Headers(Base):
         self.assertNotRegex(body, r"\son[a-z]+=")   # no inline event handlers
         self.assertIn("Closed:", body)              # no report yet: closed
         self.open_page()
-        self.assertIn("2</b> of 2 places free", self.http("GET", "/")[2])
+        page = self.http("GET", "/")[2]
+        self.assertIn("2</b> of 2 places free", page)
+        # D3 (docs/CONSOLE-MODES.md): the join text says a game can be watched, by whom, and that spectators are announced
+        self.assertIn("it can be watched", page)
+        self.assertIn("<code>watch-host</code>", page)
+        self.assertIn("announces every spectator by name", page)
 
     def test_puller_reason_is_cleaned(self):
         self.open_page()

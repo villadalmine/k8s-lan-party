@@ -374,3 +374,21 @@ spectator, the browser view and the updated `poc-doom` regression have not yet b
 PR #112 review found that a watcher could outlive a closed party and disappear from the player's Games view, leaving no Stop control. The player view
 now keeps an inactive watcher row available for cleanup, and the frame proxy returns 404 once the party is no longer active. The focused player
 tests pass 12/12; final cluster regression and browser verification remain pending.
+
+## Watching on the lab: what the Dell runs found, and the host's watcher (#101, D6; 2026-11-17)
+
+- **Full regression on `dddf9d0`** (`REGRESSION_RUNTIME=docker-vm`, project `emesh-watch101`): every suite through `poc-player` PASS; `poc-doom`
+  FAIL on DM12, DM13, DM19 and DM20. The spectator pod was never created: `pod.sh watcher` wrote the port as a bare YAML number and the API
+  refuses a command that is not all strings. `poc-participants-e2e`, `poc-page`, `poc-nat`, `poc-bgp`, `poc-vm`, `poc-golden` and `poc-down`
+  were SKIP(pool): the storage pool passed 85 % during the run. They have **not** run on this branch.
+- **`ONLY=poc-doom`, four runs** (projects `emesh-doom101a` to `d`), each fix on the next commit:
+  - `44f76af`: argument quoting fixed; DM19 and DM20 PASS, DM24 PASS; DM25 FAIL because the Doom image name overwrote the VM image variable
+    of `lib-vm.sh` (`hostpc` never booted).
+  - `124c098`: DM24 to DM26 PASS. DM27 showed the host's spectator reach romero's server through the party (`watch-host has connected`) and then
+    fail: its console keys were too short and went to chat.
+  - `7c55de8`: **DM24 to DM27 PASS** (D6 end to end: no watcher without an own node; `hostpc` joins as own; `watch-host` without credentials;
+    one consent opens nothing; after romero's consent the host's spectator runs on `hostpc`, not the control plane, and the server names it).
+    DM12 then failed on its own check `kubectl auth can-i create pods/portforward`, which asks about a pod *named* portforward (yes); the
+    subresource is `--subresource=portforward`, which the participant Role does not grant. DM19 failed once on a negative frag count.
+  - `71aba03`: the spectator follows with `+spy <player>` on Odamex's command line (no keyboard), DM12 asks `can-i` with the subresource, DM19
+    takes negative frags. Result below when it lands.

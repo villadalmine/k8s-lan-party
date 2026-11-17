@@ -125,6 +125,18 @@ player's eyes and change whom is Odamex's documented behaviour, **to be confirme
   Asking keeps "pairwise, by consent" true for the one case where the host is a participant. Needs D6.
 - D3: the join text and JOIN.md say that a game can be watched by whoever has a party with its server, and that spectators are announced.
 
+**As built (#101), D6 and D3.** `mesh host watch init` makes the namespace `watch-host` (`poc/watcher.py`): labelled `edge-mesh/watcher=host`,
+Pod Security restricted, a quota of its own (`watch_quota_cpu_millis` and `watch_quota_pods` in pool.yaml, a player's numbers when unset: the
+cap on the host's views), the same default-deny NetworkPolicy as a player, and no ServiceAccount, Role or kubeconfig: only the host writes
+there. It refuses when no Ready node of trust `own` other than the control plane exists. `poc/watcher-policy.yaml` binds every pod of that
+namespace to such a node and refuses one that names its node or tolerates the control plane's taint. `mesh host watch invite <owner>` is the
+host's half of a party; the owner's half is `edge-mesh party accept watch-host`; `poc/party.py` then treats `watch-host` as one more peer (no
+lease; closed when the owner leaves, is kicked or their lease ends, or with `mesh host watch leave <owner>` or `down`). No player can be
+called `watch-host` (`admission.py`, `mesh host invite`) and a namespace without the host's label never counts. `mesh host watch` verbs are
+CLI only for now: they take the engine's lock but are not in the web registry. D3 is in the public page's join text (`poc/page/page.py`) and in
+JOIN.md. Proved by `poc-doom` DM24 to DM27 (refusal without an own node; the namespace; one consent opens nothing; after the owner accepts, the
+host's spectator runs on the host's own machine and the server names it).
+
 ## Playing in the browser
 
 The browser cannot be the game: Odamex speaks UDP, a tab cannot, and a Doom built for the browser would not speak Odamex's protocol
