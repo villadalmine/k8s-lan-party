@@ -17,7 +17,8 @@ case "${1:-}" in
     target="${3:?target player}"; watcher="${4:?watcher identity}"; follow="${5:-$target}"
     [[ "$target" =~ ^[a-z][a-z0-9-]{1,19}$ && "$watcher" =~ ^[a-z][a-z0-9-]{1,19}$ && "$follow" =~ ^[a-z][a-z0-9-]{1,19}$ ]] || { echo "invalid player name" >&2; exit 2; }
     [[ "${WATCH_TOKEN:-}" =~ ^[a-f0-9]{64}$ ]] || { echo "WATCH_TOKEN must be 64 lowercase hex characters" >&2; exit 2; }
-    name="doom-watch-$target"; cmd="/usr/local/bin/watch-client.sh, doom.play-$target.svc.cluster.local, 10666, $follow, $watcher"
+    name="doom-watch-$target"; # every argument quoted: a bare 10666 is a YAML number (the API refuses a command that is not all strings), and a player may be called `no` or `true`
+    cmd="/usr/local/bin/watch-client.sh, \"doom.play-$target.svc.cluster.local\", \"10666\", \"$follow\", \"$watcher\""
     port=17777; pull=Never; cpu=300m; mem=256Mi ;;
   probe) name=doom-probe cmd="/agnhost, netexec, --udp-port=10666, --http-port=8080" port=10666 pull=IfNotPresent cpu=200m mem=128Mi ;;   # a public image, pulled as poc-party's
   *) echo "usage: pod.sh server|client|watcher|probe <image> [target] [watcher] [follow]" >&2; exit 2 ;;

@@ -4,6 +4,7 @@
 # idempotent.
 #  - the mutation replaces any nodeAffinity with one term: trust In [own] AND node-role.kubernetes.io/control-plane DoesNotExist (the
 #    trust label is under node-restriction.kubernetes.io/, which no kubelet can set on its own Node);
+#    (dyn(): a CEL map literal needs one value type, and here they are a string and a list, as in participant-policy.yaml);
 #  - the validation refuses a pod that names its node (spec.nodeName skips the scheduler and the affinity), that tolerates the control
 #    plane's taint or every taint, that is not exactly that affinity after the mutation, or that calls itself shareable.
 apiVersion: admissionregistration.k8s.io/v1
@@ -28,12 +29,12 @@ spec:
           has(object.spec.affinity) ?
           [JSONPatch{op: "add", path: "/spec/affinity/nodeAffinity",
                      value: {"requiredDuringSchedulingIgnoredDuringExecution": {"nodeSelectorTerms": [{"matchExpressions": [
-                       {"key": "node-restriction.kubernetes.io/trust", "operator": "In", "values": ["own"]},
-                       {"key": "node-role.kubernetes.io/control-plane", "operator": "DoesNotExist"}]}]}}}] :
+                       {"key": dyn("node-restriction.kubernetes.io/trust"), "operator": dyn("In"), "values": dyn(["own"])},
+                       {"key": dyn("node-role.kubernetes.io/control-plane"), "operator": dyn("DoesNotExist")}]}]}}}] :
           [JSONPatch{op: "add", path: "/spec/affinity",
                      value: {"nodeAffinity": {"requiredDuringSchedulingIgnoredDuringExecution": {"nodeSelectorTerms": [{"matchExpressions": [
-                       {"key": "node-restriction.kubernetes.io/trust", "operator": "In", "values": ["own"]},
-                       {"key": "node-role.kubernetes.io/control-plane", "operator": "DoesNotExist"}]}]}}}}]
+                       {"key": dyn("node-restriction.kubernetes.io/trust"), "operator": dyn("In"), "values": dyn(["own"])},
+                       {"key": dyn("node-role.kubernetes.io/control-plane"), "operator": dyn("DoesNotExist")}]}]}}}}]
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: MutatingAdmissionPolicyBinding

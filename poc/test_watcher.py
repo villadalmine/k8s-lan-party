@@ -65,7 +65,7 @@ class Nodes(unittest.TestCase):
     def test_the_policy_says_the_same(self):
         text = (HERE / "watcher-policy.yaml").read_text()
         self.assertIn("matchLabels: {edge-mesh/watcher: host}", text)
-        self.assertIn("node-role.kubernetes.io/control-plane\", \"operator\": \"DoesNotExist\"", text)
+        self.assertEqual(text.count('{"key": dyn("node-role.kubernetes.io/control-plane"), "operator": dyn("DoesNotExist")}'), 2)
 
 
 if __name__ == "__main__":

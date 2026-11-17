@@ -89,10 +89,22 @@ class WatchStreamTests(unittest.TestCase):
         self.assertFalse(pod["spec"]["automountServiceAccountToken"])
         container = pod["spec"]["containers"][0]
         self.assertEqual(container["command"][0], "/usr/local/bin/watch-client.sh")
+        # the API takes a command of strings only: the port must not be a YAML number (DM12 failed on the lab for that)
+        self.assertEqual(container["command"][1:], ["doom.play-romero.svc.cluster.local", "10666", "romero", "carmack"])
+
         self.assertEqual(container["ports"], [{"containerPort": 17777, "protocol": "TCP"}])
         self.assertTrue(all("hostPort" not in port for port in container["ports"]))
         self.assertEqual(container["env"], [{"name": "WATCH_TOKEN", "value": token}])
         self.assertEqual(pod["spec"]["securityContext"]["runAsUser"], 65534)
+
+    def test_watcher_command_is_strings_whatever_the_names(self):
+        env = {**os.environ, "WATCH_TOKEN": "c" * 64}
+        proc = subprocess.run([str(Path(__file__).parent / "doom" / "pod.sh"), "watcher",
+                              "localhost/emesh-doom:test", "romero", "no", "true"],
+                             env=env, capture_output=True, text=True, check=True)
+        command = yaml.safe_load(proc.stdout)["spec"]["containers"][0]["command"]
+        self.assertEqual(command[1:], ["doom.play-romero.svc.cluster.local", "10666", "true", "no"])
+        self.assertTrue(all(isinstance(item, str) for item in command))
 
     def test_watcher_generator_rejects_invalid_secret(self):
         env = {**os.environ, "WATCH_TOKEN": "not-a-token"}

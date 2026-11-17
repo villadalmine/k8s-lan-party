@@ -10,7 +10,7 @@
 # Needs a Linux host with Incus. PASS/FAIL per step; identical across runs. CNI=cilium by default (the demo's CNI); CNI=flannel also runs.
 # D6 (#101, DM24 on): the host's watcher needs an `own` machine that is not the control plane: hostpc, issued by the host like n1 (never through
 # `mesh host invite`, which refuses own), joins after the match.
-# POOL_LEASE (default 1800 s) must cover DM03-DM18. KEEP=1 leaves the VMs. SHOWCASE=<dir> also writes the player's and the host's screens there.
+# POOL_LEASE (default 2700 s) must cover DM03-DM27 (romero's lease must still run when the host watches). KEEP=1 leaves the VMs. SHOWCASE=<dir> also writes the player's and the host's screens there.
 set -u
 export RUNTIME=incus MAX_VMS=6 CNI="${CNI:-cilium}" TAINT=no   # TAINT pinned as poc-pool (issue #59)
 . "$(dirname "$0")/lib.sh"
@@ -19,7 +19,7 @@ export RUNTIME=incus MAX_VMS=6 CNI="${CNI:-cilium}" TAINT=no   # TAINT pinned as
 mkdir -p "$STATE"
 LOG="$CACHE/poc-doom.log"; : >"$LOG"
 MESH="$POC/mesh"
-LEASE="${POOL_LEASE:-1800}"
+LEASE="${POOL_LEASE:-2700}"
 PLAY="${DOOM_SECONDS:-40}"   # how long petersen plays; carmack plays long enough to still be in the game when she has joined
 LONG=$((PLAY * 3 + 30))
 export POOL_CONFIG="$STATE/pool-test.yaml"
@@ -98,7 +98,7 @@ start_match() { # romero's robot plays his own server (no party needed), then ca
 watcher_up() { # D7: one authenticated spectator pod in carmack's namespace, private admission pins it to his own node
   localhost_always || return 1
   WATCH_TOKEN=$(python3 -c 'import secrets; print(secrets.token_hex(32))') || return 1
-  WATCH_TOKEN="$WATCH_TOKEN" "$POC/doom/pod.sh" watcher "$IMG" romero carmack | K carmack apply -f - || return 1
+  WATCH_TOKEN="$WATCH_TOKEN" "$POC/doom/pod.sh" watcher "$IMG" romero carmack carmack | K carmack apply -f - || return 1
   K carmack wait --for=condition=Ready "pod/$WATCH_NAME" --timeout=240s || return 1
   local pod; pod=$(K carmack get pod "$WATCH_NAME" -o json) || return 1
   read -r WATCH_IP node hostports < <(python3 -c 'import json,sys; p=json.load(sys.stdin); ports=[x for c in p["spec"]["containers"] for x in c.get("ports",[]) if "hostPort" in x]; print(p["status"].get("podIP", ""), p["spec"].get("nodeName", ""), len(ports))' <<<"$pod")
