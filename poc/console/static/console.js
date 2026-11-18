@@ -8,6 +8,10 @@ const POLL_MS = 5000, JOB_MS = 1000;
 const asked = new Map();   // player -> the last activity answer
 const checking = new Set();   // players whose activity is being asked now: one question at a time each
 let view = "status", timer = null, current = null;   // current: {verb, action, args, plan}
+const byVerb = new Map();   // the registry entries this role may run (GET /actions), for the buttons of a view
+const frames = new Map();   // owner -> {img, url}: the host's spectators, kept across redraws so a frame does not blink
+const fetching = new Set();   // owners whose frame is being fetched: one at a time each
+const FRAME_MS = 500;
 
 function token() {
   const m = location.hash.match(/^#t=([A-Za-z0-9_-]{20,})$/);
@@ -118,6 +122,7 @@ async function show() {
   }
   if (view === "metrics") { box.appendChild(el("pre", data.text || "")); return; }
   if (view === "players" && Array.isArray(data)) { box.appendChild(players(data)); return; }
+  if (view === "watch") { box.appendChild(watching(data || {})); return; }
   const rows = listOf(data);
   box.appendChild(rows ? table(view === "events" || view === "audit" ? rows.slice().reverse() : rows) : pairs(data));
 }
@@ -152,6 +157,78 @@ function players(rows) {   // the list, and per player a button that asks the cl
   return wrap;
 }
 
+function verbButton(verb, text, preset) {   // a registry verb with its arguments filled in: the same dialog, plan and confirm
+  const b = el("button", text), a = byVerb.get(verb);
+  b.type = "button";
+  b.disabled = !a;
+  if (a) b.addEventListener("click", () => openAction(a, preset));
+  return b;
+}
+
+function watching(data) {   // the host's watcher (D6): its parties with game owners, its spectators and their frames (D7, through the API server)
+  const wrap = el("div");
+  if (!data.watcher) {
+    wrap.appendChild(el("p", "No watcher yet. On the host: mesh host watch init (it needs an own machine that is not the control plane).", "muted"));
+    return wrap;
+  }
+  const specs = Array.isArray(data.spectators) ? data.spectators : [], running = new Set(specs.map((s) => s.owner));
+  wrap.appendChild(el("h3", "Games the host may watch"));
+  const parties = Array.isArray(data.parties) ? data.parties : [];
+  const pt = table(parties), t = pt.querySelector ? pt.querySelector("table") : null;
+  if (t) {
+    t.querySelector("tr").appendChild(el("th", ""));
+    [...t.querySelectorAll("tr")].slice(1).forEach((tr, i) => {
+      const td = el("td"), p = parties[i] || {};
+      tr.appendChild(td);
+      if (typeof p.owner !== "string") return;
+      if (String(p.status).startsWith("active") && !running.has(p.owner)) td.appendChild(verbButton("watch-start", "watch", { owner: p.owner }));
+      td.appendChild(verbButton("watch-leave", "leave", { owner: p.owner }));
+    });
+  }
+  wrap.appendChild(pt);
+  const ask = el("p");
+  ask.appendChild(verbButton("watch-invite", "ask an owner", {}));
+  ask.appendChild(el("span", " The owner accepts on their machine: edge-mesh party accept watch-host.", "muted"));
+  wrap.appendChild(ask);
+  wrap.appendChild(el("h3", "Spectators"));
+  if (specs.length === 0) wrap.appendChild(el("p", "none running", "muted"));
+  const grid = el("div", null, "frames");
+  specs.forEach((s) => {
+    if (!frames.has(s.owner)) { const img = el("img"); img.alt = "the game of " + s.owner; frames.set(s.owner, { img, url: null }); }
+    const fig = el("figure"), cap = el("figcaption");
+    fig.appendChild(frames.get(s.owner).img);
+    cap.appendChild(el("span", `${s.owner}'s game, following ${s.following || s.owner} · ${s.phase}${s.ready ? "" : " (starting)"} · ${s.node} `));
+    cap.appendChild(verbButton("watch-stop", "stop", { owner: s.owner }));
+    fig.appendChild(cap);
+    grid.appendChild(fig);
+  });
+  for (const owner of [...frames.keys()]) if (!running.has(owner)) { const f = frames.get(owner); if (f.url) URL.revokeObjectURL(f.url); frames.delete(owner); }
+  wrap.appendChild(grid);
+  wrap.appendChild(el("p", "Frames come through the API server to the host's own spectator on the host's own machine, never the mesh; " +
+    "the host watches only games whose owner accepted.", "muted"));
+  return wrap;
+}
+
+async function frameLoop() {   // only while the Watch view is open: a closed tab asks for nothing
+  if (view === "watch" && !document.hidden) {
+    for (const [owner, f] of frames) {
+      if (fetching.has(owner)) continue;
+      fetching.add(owner);
+      fetch("/api/v1/watch/" + encodeURIComponent(owner) + "/frame", { cache: "no-store", credentials: "omit", headers: { Authorization: "Bearer " + token() } })
+        .then(async (r) => {
+          if (!r.ok || (r.headers.get("Content-Type") || "") !== "image/jpeg") return;
+          const url = URL.createObjectURL(await r.blob());
+          if (f.url) URL.revokeObjectURL(f.url);
+          f.url = url;
+          f.img.src = url;
+        })
+        .catch(() => {})
+        .finally(() => fetching.delete(owner));
+    }
+  }
+  setTimeout(frameLoop, FRAME_MS);
+}
+
 function summary(s) {
   const bits = [];
   if ("slots_used" in s) bits.push(`${s.slots_used}/${s.slots_total} places`);
@@ -171,6 +248,7 @@ async function loadActions() {
   const box = $("actions");
   box.replaceChildren();
   if (status !== 200 || !Array.isArray(data)) return;
+  data.forEach((a) => byVerb.set(a.verb, a));
   data.forEach((a) => {
     const b = el("button", a.verb, a.confirm === "none" ? "" : "danger");
     b.type = "button";
@@ -204,7 +282,7 @@ async function loadHostOnly() {   // what this role may not run: on the page, ne
   });
 }
 
-function openAction(a) {
+function openAction(a, preset) {
   current = { verb: a.verb, action: a, args: {}, plan: null };
   $("dtitle").textContent = a.verb;
   $("dsummary").textContent = a.summary;
@@ -228,6 +306,7 @@ function openAction(a) {
       if (schema.maxLength) input.maxLength = schema.maxLength;
     }
     input.name = k;
+    if (preset && typeof preset[k] === "string") input.value = preset[k];
     label.appendChild(input);
     $("fields").appendChild(label);
   });
@@ -318,4 +397,5 @@ document.addEventListener("DOMContentLoaded", () => {
   loadActions();
   loadHostOnly();
   poll();
+  frameLoop();
 });

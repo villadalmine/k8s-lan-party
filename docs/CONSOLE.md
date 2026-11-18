@@ -151,6 +151,14 @@ simulation of a player's machine, not host actions.
 | `host revoke <name>` | mutates | high | `revoke` | type the name | local, console |
 | `host party reconcile` | mutates | low: what the tick does | `party-reconcile` | none | local, console |
 | `host party end <a> <b>` | mutates | medium | `party-end` | click | local, console |
+| `host watch status --json --read-only` | read: the host's watcher, its parties with game owners and its spectators (D6 of CONSOLE-MODES.md) | | `GET /watch` | | local, console |
+| `host watch frame <owner>` | read: one JPEG of the host's spectator, through the API server to the host's own pod (D7's host path) | | `GET /watch/{owner}/frame` (the daemon's own channel, at most 4 a second) | | local, console |
+| `host watch invite <owner>` | mutates: the host's half of a party with a game's owner | medium: the host asks to watch | `watch-invite` | click | local, console |
+| `host watch leave <owner>` | mutates: that party closes | none: leaving is always safe | `watch-leave` | none | local, console |
+| `host watch start <owner> [--follow <player>]` | mutates: a spectator pod in watch-host, on an own machine; needs the open party | low: only what the owner accepted | `watch-start` | none | local, console |
+| `host watch stop <owner>` | mutates: removes that spectator | none | `watch-stop` | none | local, console |
+| `host watch init`, `host watch down` | create or remove the watcher's namespace (down closes its parties and removes every spectator) | | **never**: typed on the host (`GET /verbs` shows them disabled) | | |
+| `host watch [status]` | mutates (reconciles, like `party list`) | | `GET /watch` is its pure read | | |
 | `host invite <name>` | mutates, signs (persistent CA for `friends`), writes a private key | high | `invite` | none (local only) | local |
 | `host bundle <name>` | writes a tarball with the player's key | high | `bundle` | none (local only) | local |
 | `host refresh <name>` | rewrites and applies a running machine's Nebula config (`lh`, `cp` too) | high | `refresh` | none (local only) | local |
@@ -173,11 +181,12 @@ the socket and on the loopback; only the role differs.
 | `GET /api/v1/health` | the daemon answers, its version and the caller's role; calls no engine |
 | `GET /api/v1/status` | places used and total, waiting, eligible now, next to end, auto, panic, last tick |
 | `GET /api/v1/requests`, `/leases`, `/players`, `/players/{name}/activity`, `/parties` | the lists, from pure reads |
-| `GET /api/v1/verbs` | every registry verb, plus `init` and `down`, with `allowed` for the caller's role; for the others `why`, and the `command` to type on the host (`invite`, `bundle`, `refresh`, and `init` and `down`, which no role runs). A description for a client to draw disabled buttons: the refusal is each POST's (#103) |
+| `GET /api/v1/verbs` | every registry verb, plus `init`, `down`, `watch-init` and `watch-down`, with `allowed` for the caller's role; for the others `why`, and the `command` to type on the host (`invite`, `bundle`, `refresh`, and those four, which no role runs). A description for a client to draw disabled buttons: the refusal is each POST's (#103) |
 | `GET /api/v1/events?since=&limit=`, `GET /api/v1/audit?limit=` | the last lines of each log (at most 500) |
 | `GET /api/v1/pool` | capacity and admission switches, active leases and the queue, grouped from existing pure reads; sampled in sequence, so a tick may occur between them |
 | `GET /api/v1/page` | the puller's last local observation: `state` (open/closed/unknown), `reported_at`, `age_seconds`, `admission_closed`; no network call or page control |
 | `GET /api/v1/metrics` | the admission metrics, Prometheus text, no identities |
+| `GET /api/v1/watch`, `GET /api/v1/watch/{owner}/frame` | the host's watcher (D6): its parties and spectators, from a pure read; one JPEG of the host's spectator of that game, through the API server to the host's own pod, at most 4 a second (429 beyond); 404 when none runs. The page draws them as the Watch view (CONSOLE-MODES.md) |
 | `GET /api/v1/actions` | the registry entries the caller's role may run: verb, params, confirmation, timeout |
 | `POST /api/v1/actions/{verb}` | `{"args": {...}}`: starts a job (202), or answers with a plan to confirm (200) |
 | `GET /api/v1/jobs/{id}` | a job: running, done, failed or timeout; the engine's exit code; its output, redacted |

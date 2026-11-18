@@ -70,6 +70,8 @@ class LockTest(unittest.TestCase):
         for words, want in ((["host", "players"], "mutate"), (["host", "players", "--json", "--read-only"], "read"),
                             (["host", "party"], "mutate"), (["host", "party", "list", "--read-only", "--json"], "read"),
                             (["host", "waitlist"], "read"), (["host", "auto", "status"], "read"), (["host", "activity", "ana"], "read"),
+                            (["host", "watch"], "mutate"), (["host", "watch", "init"], "mutate"), (["host", "watch", "down"], "mutate"),
+                            (["host", "watch", "status", "--json", "--read-only"], "read"), (["host", "watch", "frame", "ana"], "read"),
                             (["host", "init"], "free"), (["host", "console"], "free"), (["play", "ana"], "free")):
             r = subprocess.run([BASH, "-c", f'. "{HERE}/lib.sh"; verb_class "$@"', "x", *words], env=self.env, capture_output=True,
                                text=True, timeout=10)

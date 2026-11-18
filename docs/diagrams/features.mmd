@@ -76,6 +76,7 @@ flowchart LR
     c_Odamex["Odamex"]
     c_FreeDM["FreeDM"]
     c_ffmpeg["ffmpeg"]
+    c_Python_stdlib["Python stdlib"]
     c_page["page"]
     c_Caddy["Caddy"]
     c_lighthouse["lighthouse"]
@@ -131,6 +132,9 @@ flowchart LR
     p_poc_party_py["poc/party.py"]
     p_poc_test_party_py["poc/test_party.py"]
     p_poc_poc_party_sh["poc/poc-party.sh"]
+    p_poc_watcher_py["poc/watcher.py"]
+    p_poc_watcher_policy_yaml["poc/watcher-policy.yaml"]
+    p_poc_test_watcher_py["poc/test_watcher.py"]
     p_poc_doom__["poc/doom/*"]
     p_poc_poc_doom_sh["poc/poc-doom.sh"]
     p_poc_page__["poc/page/*"]
@@ -277,19 +281,24 @@ flowchart LR
   f_pool -.-> p_poc_participant_policy_yaml
   f_pool -.-> p_poc_admission_py
   s_poc_party -->|"PY01-PY17"| f_party
+  s_poc_doom -->|"DM24-DM30"| f_party
   f_party --> c_k3s
   f_party --> c_NetworkPolicy
   f_party --> c_admission
   f_party -.-> p_poc_party_py
   f_party -.-> p_poc_test_party_py
   f_party -.-> p_poc_poc_party_sh
-  s_poc_doom -->|"DM01-DM20"| f_doom
+  f_party -.-> p_poc_watcher_py
+  f_party -.-> p_poc_watcher_policy_yaml
+  f_party -.-> p_poc_test_watcher_py
+  s_poc_doom -->|"DM01-DM23"| f_doom
   f_doom --> c_k3s
   f_doom --> c_Cilium
   f_doom --> c_NetworkPolicy
   f_doom --> c_Odamex
   f_doom --> c_FreeDM
   f_doom --> c_ffmpeg
+  f_doom --> c_Python_stdlib
   f_doom -.-> p_poc_doom__
   f_doom -.-> p_poc_poc_doom_sh
   s_poc_page -->|"G01-G26, G09c, G25b"| f_public_page

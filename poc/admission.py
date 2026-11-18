@@ -66,7 +66,8 @@ from pool import Pool, client_ip, identity, load_config  # noqa: E402
 # A name becomes a node name, a certificate name and a directory: nothing else gets through. fullmatch, not match:
 # with match, `$` also matches before a trailing newline (a name ending in a line break).
 NAME = re.compile(r"[a-z][a-z0-9-]{1,19}")
-RESERVED = {"lh", "cp", "n1", "n2"}   # the lighthouse, the control plane and the PoC's own nodes
+RESERVED = {"lh", "cp", "n1", "n2", "watch-host", "host"}   # the lighthouse, the control plane, the PoC's own nodes, the host's watcher
+# (party.py) and `host`: a player's spectator is announced as watch-<player>, so a player called host would be announced as the host
 OPEN = ("waiting", "deferred")
 # Every fact the admission records, in the fixed order of the metrics (emesh_admission_events_total{type=...}).
 EVENT_TYPES = ("request", "refused", "approved", "bundle_ready", "expiring", "expelled", "rejected", "kick_failed",

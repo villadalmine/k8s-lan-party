@@ -24,6 +24,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE / "console"))
 import actions  # noqa: E402
+import mutate  # noqa: E402
 import server  # noqa: E402
 
 SPEC = json.loads((HERE / "console" / "openapi.json").read_text(encoding="utf-8"))
@@ -56,6 +57,9 @@ elif key == "host players --json":
     print(json.dumps([{"name": "ana", "ready": "True", "cert_expires": "2030-01-01T00:00:00Z"}]))
 elif key == "host party list":
     print(json.dumps([{"player": "ana", "peer": "beto", "status": "waiting " + plant}]))
+elif key == "host watch status":
+    print(json.dumps({"watcher": True, "parties": [{"owner": "ana", "status": "active: ports 10666/UDP"}],
+                      "spectators": [{"owner": "ana", "node": "own1", "phase": "Running", "ready": True, "restarts": 0, "following": "ana"}]}))
 elif key == "host admission-metrics --read-only":
     print("emesh_admission_waiting 1\n# " + plant)
 elif a[:2] == ["host", "activity"]:
@@ -131,6 +135,22 @@ class RegistryTest(unittest.TestCase):
         self.assertEqual(actions.argv("kick", {"name": "cpu"}, "local"), ["host", "kick", "cpu"])   # only the exact names
         self.assertEqual(actions.argv("refresh", {"name": "cp"}, "local"), ["host", "refresh", "cp"])
 
+    def test_the_hosts_watch_verbs(self):
+        """D6 on the web: invite (confirmed), leave, start and stop; init and down only on the host; never the watcher's own names."""
+        self.assertEqual(actions.argv("watch-invite", {"owner": "ana"}, "console"), ["host", "watch", "invite", "ana"])
+        self.assertEqual(actions.argv("watch-start", {"owner": "ana", "follow": "beto"}, "console"),
+                         ["host", "watch", "start", "ana", "--follow", "beto"])
+        self.assertEqual(actions.argv("watch-start", {"owner": "ana"}, "console"), ["host", "watch", "start", "ana"])
+        self.assertEqual(actions.argv("watch-stop", {"owner": "ana"}, "console"), ["host", "watch", "stop", "ana"])
+        self.assertEqual(actions.REGISTRY["watch-invite"].confirm, "click")
+        for bad in ("watch-host", "host", "cp", "-x"):
+            with self.assertRaises(actions.Refused):
+                actions.argv("watch-start", {"owner": bad}, "console")
+        self.assertEqual(actions.parse(["host", "watch", "start", "ana", "--follow", "beto"]), ("watch-start", {"owner": "ana", "follow": "beto"}))
+        self.assertIsNone(actions.parse(["host", "watch", "init"]))
+        will = mutate.plan("watch-invite", {"owner": "ana"}, None)
+        self.assertIn("party accept watch-host", will[1])
+
     def test_c08_console_never_reaches_the_persistent_ca_or_a_key(self):
         for verb, args in (("invite", {"name": "ana"}), ("bundle", {"name": "ana"}), ("refresh", {"name": "cp"}),
                            ("approve", {"trust": "friends"}), ("approve", {"name": "ana", "trust": "friends"})):
@@ -144,14 +164,14 @@ class RegistryTest(unittest.TestCase):
         self.assertEqual({a["verb"] for a in actions.describe("console")} & {"invite", "bundle", "refresh"}, set())
         # GET /verbs shows them to the console role as not allowed, with where to type them; init and down are never anybody's
         shown = {v["verb"]: v for v in actions.verbs("console")}
-        self.assertEqual({k for k, v in shown.items() if not v["allowed"]}, {"invite", "bundle", "refresh", "init", "down"})
+        self.assertEqual({k for k, v in shown.items() if not v["allowed"]}, {"invite", "bundle", "refresh", "init", "down", "watch-init", "watch-down"})
         self.assertEqual(shown["invite"]["command"], "mesh host invite <name> --ttl <ttl> --trust <trust>")
         self.assertTrue(all(v["why"] for v in shown.values() if not v["allowed"]) and not any(v["why"] for v in shown.values() if v["allowed"]))
         local = {v["verb"]: v["allowed"] for v in actions.verbs("local")}
-        self.assertEqual({k for k, ok in local.items() if not ok}, {"init", "down"})
+        self.assertEqual({k for k, ok in local.items() if not ok}, {"init", "down", "watch-init", "watch-down"})
         self.assertEqual([c["value"] for v in actions.verbs("console") for c in v["closed_values"]], ["friends"])
         self.assertEqual([c for v in actions.verbs("local") for c in v["closed_values"]], [])
-        self.assertEqual(set(shown) - {"init", "down"}, set(actions.REGISTRY))
+        self.assertEqual(set(shown) - {"init", "down", "watch-init", "watch-down"}, set(actions.REGISTRY))
 
 
 @unittest.skipUnless(LINUX, "the daemon needs Linux (SO_PEERCRED)")
@@ -223,6 +243,41 @@ class DaemonTest(unittest.TestCase):
         self.assertEqual([e["seq"] for e in self.get("events?since=600")[1]], [6, 7])
         self.assertEqual(self.get("audit")[1], [])
 
+    def test_watch_is_a_pure_read(self):
+        status, w = self.get("watch")
+        self.assertEqual(status, 200)
+        self.assertEqual((w["watcher"], w["spectators"][0]["following"]), (True, "ana"))
+        self.assertIn(["host", "watch", "status", "--json", "--read-only"], self.engine_calls())
+
+    def test_a_frame_of_the_hosts_spectator(self):
+        """D7's host path: the daemon asks the host's own spectator with the secret `watch start` wrote; it never reaches the client."""
+        import watcher
+        self.assertEqual(self.get("watch/ana/frame")[0], 404)   # no spectator: no secret under the state
+        for bad in ("watch-host", "host", "Ana", "a"):
+            self.assertEqual(self.get(f"watch/{bad}/frame")[0], 400, bad)
+        (self.state / "watch").mkdir()
+        (self.state / "watch" / "ana.token").write_text("c" * 64 + "\n")
+        seen = []
+
+        class Fake:
+            def __init__(self, kc, pod, tok):
+                seen.append((Path(kc).name, pod, Path(tok).name))
+
+            def fetch(self):
+                return b"\xff\xd8jpeg\xff\xd9"
+
+            def close(self):
+                pass
+        with unittest.mock.patch.object(watcher, "Tap", Fake):
+            status, data, r = self.call("GET", "/api/v1/watch/ana/frame")
+            self.assertEqual((status, data, r.getheader("Content-Type")), (200, b"\xff\xd8jpeg\xff\xd9", "image/jpeg"))
+            self.assertIn("img-src 'self' blob:", r.getheader("Content-Security-Policy"))
+            self.assertNotIn(b"c" * 64, data)
+            codes = [self.call("GET", "/api/v1/watch/ana/frame")[0] for _ in range(6)]
+            self.assertIn(429, codes)   # at most FRAME_MAX_PER_SECOND a second
+        self.assertEqual(seen, [("kc", "doom-watch-ana", "ana.token")])   # one channel, kept
+        self.assertEqual(self.call("POST", "/api/v1/watch/ana/frame")[0], 405)
+
     def test_pool_groups_pure_reads_and_redacts_notes(self):
         os.environ["FAKE_PLANT"] = str(self.state) + "/bundles/beto"
         before = snapshot(self.state)
@@ -261,9 +316,10 @@ class DaemonTest(unittest.TestCase):
             self.assertIn(f"/api/v1/{route}", spec_paths)
         for p in spec_paths:
             if "get" in SPEC["paths"][p]:
-                path = p.replace("{name}", "ana").replace("{id}", "0123456789abcdef")
+                path = p.replace("{name}", "ana").replace("{id}", "0123456789abcdef").replace("{owner}", "ana")
                 status, _ = self.get(path[len("/api/v1/"):])
-                self.assertIn(status, (200, 404) if "{id}" in p else (200,), p)   # no job exists before #87
+                # no job exists before #87; no spectator of ana runs (no secret under the state)
+                self.assertIn(status, (200, 404) if "{id}" in p or "{owner}" in p else (200,), p)
 
     def test_the_spec_lists_every_status_a_get_can_answer(self):
         for p, item in SPEC["paths"].items():

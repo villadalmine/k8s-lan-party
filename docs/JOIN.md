@@ -204,6 +204,13 @@ no access to the friend's namespace with kubectl, your private pods still run on
 party also ends when either of you is kicked or a lease ends, when the host ends it (`mesh host party end alice bob`), or when the host turns
 parties off. The consent is a ConfigMap `party-<friend>` in your namespace: it counts against your quota of ConfigMaps. Proved by `make poc-party`.
 
+**A game can be watched** ([CONSOLE-MODES.md](CONSOLE-MODES.md), D2, D3 and D6). A spectator is one more client of the game server, so the rule is the
+party's: whoever you accepted a party with can watch the games you host, and nobody else. That includes the host, who has no special way in: the
+host asks as `watch-host` (`mesh host watch invite <you>`) and watches only after you run `sudo edge-mesh party accept watch-host`; `sudo edge-mesh
+party leave watch-host` ends it. The game server announces every spectator by the name its client gives (the Doom example logs `watch-<name> has
+connected`), so nobody is watched without a line saying that someone came in. The name is the client's choice: any party peer running its own
+client could call itself `watch-host`. Who *can* watch is your list of parties (`sudo edge-mesh party list`), not the name in the log. A view shows what the game sends about a player, never a screen, a desktop or keys.
+
 ### A game to play: Doom (an example, [DESIGN.md 14.3](DESIGN.md))
 
 `poc/doom/` has a Doom server and an automated player for exactly this: [Odamex](https://odamex.net) (GPL-2.0-or-later) with
@@ -226,7 +233,7 @@ sudo edge-mesh kubectl exec doom-server -- grep -E 'connected|joined|disconnecte
 ```
 
 Before the party (or after `edge-mesh party leave`) the robot prints `no server answered` and the log has no line for it: that is the party working,
-not a failure. It is a deathmatch: romero's own robot (`poc/doom/pod.sh client "$IMAGE" doom-bot`, in his namespace) plays too. The whole run is `poc/poc-doom.sh` (DM01-DM20); `make poc-doom` does it on Incus VMs.
+not a failure. It is a deathmatch: romero's own robot (`poc/doom/pod.sh client "$IMAGE" doom-bot`, in his namespace) plays too. The whole run is `poc/poc-doom.sh` (DM01-DM30, with the spectators of carmack and of the host); `make poc-doom` does it on Incus VMs.
 
 ## Leaving
 

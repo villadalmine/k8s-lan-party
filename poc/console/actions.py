@@ -11,9 +11,10 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-# a player's name: admission.py's rule, minus its RESERVED names (the lighthouse, the control plane, the PoC's own nodes): `kick cp`
-# would drain and blocklist the control plane. refresh takes lh and cp on purpose, with its own pattern, and is local only.
-NAME = {"type": "string", "pattern": "^(?!(?:lh|cp|n1|n2)$)[a-z][a-z0-9-]{1,19}$"}
+# a player's name: admission.py's rule, minus its RESERVED names (the lighthouse, the control plane, the PoC's own nodes, the host's
+# watcher and its announced name): `kick cp` would drain and blocklist the control plane. refresh takes lh and cp on purpose, with its own
+# pattern, and is local only.
+NAME = {"type": "string", "pattern": "^(?!(?:lh|cp|n1|n2|host|watch-host)$)[a-z][a-z0-9-]{1,19}$"}
 LOCAL, BOTH = ("local",), ("local", "console")
 CONFIRMS = ("none", "click", "type:name", "type:all")
 
@@ -64,6 +65,15 @@ REGISTRY: dict[str, Action] = {a.verb: a for a in (
     Action("party-reconcile", "mesh host party reconcile", {}, summary="open the parties both sides agreed to, close the rest"),
     Action("party-end", "mesh host party end {a} {b}", {"a": NAME, "b": NAME}, ("a", "b"), "click",
            summary="end a party: both consents and its NetworkPolicies removed"),
+    # the host's watcher (D6, #101): it asks a game's owner like any peer, and watches only what that owner accepted
+    Action("watch-invite", "mesh host watch invite {owner}", {"owner": NAME}, ("owner",), "click", timeout_seconds=120,
+           summary="ask a game's owner to let the host watch (the owner accepts: party accept watch-host)"),
+    Action("watch-leave", "mesh host watch leave {owner}", {"owner": NAME}, ("owner",), timeout_seconds=120,
+           summary="stop asking: the host's party with that owner closes"),
+    Action("watch-start", "mesh host watch start {owner} [--follow {follow}]", {"owner": NAME, "follow": NAME}, ("owner",),
+           timeout_seconds=120, summary="the host's spectator of the owner's game, on the host's own machine (needs the party)"),
+    Action("watch-stop", "mesh host watch stop {owner}", {"owner": NAME}, ("owner",), timeout_seconds=120,
+           summary="remove the host's spectator of that game"),
     Action("invite", "mesh host invite {name} --ttl {ttl} --trust {trust}",
            {"name": NAME, "ttl": {"type": "string", "pattern": "^([0-9]+[hms]){1,3}$", "default": "2h"},
             "trust": {"enum": ["friends", "public"], "default": "friends"}}, ("name",), roles=LOCAL, timeout_seconds=300,
@@ -198,6 +208,10 @@ def describe(role: str) -> list[dict]:
 HOST_ONLY = (
     ("init", "mesh host init", "create the CA, the lighthouse and the control plane", "the daemon lives in the state this creates"),
     ("down", "mesh host down", "remove everything, the state too", "it would delete the daemon's own socket and audit log"),
+    ("watch-init", "mesh host watch init", "make the host's watcher namespace on an own machine (D6)",
+     "it creates the namespace and admission policies the watcher lives in: typed on the host only"),
+    ("watch-down", "mesh host watch down", "remove the host's watcher and close its parties",
+     "it deletes the namespace, its spectators and the frames' secrets: typed on the host only"),
 )
 WHY_LOCAL = "it signs with the persistent CA, or writes a private key or a running machine's configuration: typed on the host only"
 

@@ -39,12 +39,14 @@ class FakeKubectl:
     def __init__(self):
         self.calls = []
         self.reply = {"items": []}
+        self.replies = []
         self.returncode = 0
         self.stderr = ""
 
     def __call__(self, argv, *, input=None, capture_output=False, timeout=None, check=False):
         self.calls.append((argv, input))
-        return type("Result", (), {"returncode": self.returncode, "stdout": json.dumps(self.reply), "stderr": self.stderr})()
+        reply = self.replies.pop(0) if self.replies else self.reply
+        return type("Result", (), {"returncode": self.returncode, "stdout": json.dumps(reply), "stderr": self.stderr})()
 
 
 class PlayerTest(unittest.TestCase):
@@ -125,11 +127,44 @@ class PlayerTest(unittest.TestCase):
                                    {"metadata": {"name": "party-carol", "annotations": {"edge-mesh/party-status": "waiting for host reconciliation"}},
                                     "data": {"peer": "carol", "ports": ""}},
                                    {"metadata": {"name": "party-bad"}, "data": {"peer": "not valid"}}]}
-        self.assertEqual(self.p.get("games", []), [{"peer": "bob", "ports": "10666/UDP", "status": "active: ports 10666/UDP"}])
+        self.assertEqual(self.p.get("games", []), [{"peer": "bob", "ports": "10666/UDP", "status": "active: ports 10666/UDP",
+                                                     "watching": False}])
         rows = self.p.get("parties", [])
         self.assertEqual([r["peer"] for r in rows], ["bob", "carol"])
         self.assertIn("-n", self.kc.calls[-1][0])
         self.assertIn("play-alice", self.kc.calls[-1][0])
+
+    def test_a_watcher_stays_stoppable_when_the_host_closes_its_party(self):
+        self.kc.replies = [
+            {"items": []},
+            {"items": [{"metadata": {"name": "doom-watch-bob"}, "status": {"phase": "Running"}}]},
+        ]
+        self.assertEqual(self.p.get("games", {}), [{"peer": "bob", "ports": "",
+                         "status": "inactive: party ended; stop the spectator", "watching": True}])
+
+    def test_watch_host_is_the_hosts_watcher_not_a_game(self):
+        # a party with watch-host is the host watching the owner; it serves no game, so no spectator is built for it (PR #112 review)
+        with patch.object(self.p, "get", return_value=[{"peer": "watch-host", "status": "active: ports 10666/UDP"}]):
+            with self.assertRaises(player.PlayerError) as e:
+                self.p.act("watch-start", {"peer": "watch-host", "image": "localhost/emesh-doom:12.3.0-abcdef012345"})
+        self.assertEqual((e.exception.status, e.exception.code), (400, "bad-peer"))
+        self.assertEqual(self.kc.calls, [])
+
+    def test_the_hosts_watcher_is_not_listed_as_a_game(self):
+        # the owner's party with watch-host is the host watching them: no Watch button for it (PR #112 verification)
+        self.kc.replies = [{"items": [
+            {"metadata": {"name": "party-watch-host", "annotations": {"edge-mesh/party-status": "active: ports 10666/UDP"}},
+             "data": {"peer": "watch-host", "ports": ""}},
+            {"metadata": {"name": "party-bob", "annotations": {"edge-mesh/party-status": "active: ports 10666/UDP"}},
+             "data": {"peer": "bob", "ports": ""}}]}, {"items": []}]
+        self.assertEqual([g["peer"] for g in self.p.get("games", [])], ["bob"])
+
+    def test_frames_stop_when_the_party_is_no_longer_active(self):
+        with patch.object(self.p, "get", return_value=[{"peer": "bob", "status": "inactive: party ended; stop it"}]):
+            with self.assertRaises(player.PlayerError) as e:
+                self.p.watch_frame("bob")
+        self.assertEqual((e.exception.status, e.exception.code), (404, "watch-unavailable"))
+        self.assertEqual(self.kc.calls, [])
 
     def test_pm04_party_mutations_are_validated_and_scoped(self):
         self.p.act("party-invite", {"peer": "bob", "ports": "10666/UDP"})

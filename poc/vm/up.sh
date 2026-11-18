@@ -18,9 +18,10 @@ MACHINES="lh cp"; [ -z "${LH_EXTERNAL:-}" ] || MACHINES="cp"
 vm_up cp 2 3GiB "${VMIP[cp]}"
 [ "${PERSIST:-0}" != 1 ] || incus config set emesh-cp boot.autostart=true
 [ "${HOST_ONLY:-0}" = 1 ] || { vm_up n1 2 3GiB "${VMIP[n1]}"; vm_up n2 2 3GiB "${VMIP[n2]}"; }
-[ -n "${LH_EXTERNAL:-}" ] || "$POC/issue.sh" lh "$LH_NEB" lighthouse 24h
-# a throw-away control plane lives a day; a persistent one (PERSIST=1) a season, renewed before it ends (docs/HOST-YOUR-OWN.md)
+# a throw-away control plane and lighthouse live a day; persistent ones (PERSIST=1) a season, renewed before it ends (docs/HOST-YOUR-OWN.md)
 CP_CERT="${CP_CERT_DURATION:-24h}"; [ "${PERSIST:-0}" != 1 ] || CP_CERT="${CP_CERT_DURATION:-4320h}"
+LH_CERT="${LH_CERT_DURATION:-24h}"; [ "${PERSIST:-0}" != 1 ] || LH_CERT="${LH_CERT_DURATION:-4320h}"
+[ -n "${LH_EXTERNAL:-}" ] || "$POC/issue.sh" lh "$LH_NEB" lighthouse "$LH_CERT"
 "$POC/issue.sh" cp "$CP_NEB" own "$CP_CERT"
 for n in $MACHINES; do push_bundle $n; start_nebula $n; done
 # Host TCP over the Cilium node-to-node WireGuard: the default MSS comes from nebula1 (NEBULA_MTU 1300 -> 1248), but cilium_wg0 is 1055, and oversized

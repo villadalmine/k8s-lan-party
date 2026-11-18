@@ -114,6 +114,80 @@ class Party(unittest.TestCase):
         self.assertEqual(act["apply"], [])
 
 
+
+def watcher(uid="uid-watch", labels=None, phase="Active"):
+    """The host's watcher namespace (D6): named watch-host, labelled edge-mesh/watcher=host, no participant label."""
+    return {"metadata": {"name": "watch-host", "uid": uid, "labels": {"edge-mesh/watcher": "host", **(labels or {})}},
+            "status": {"phase": phase}}
+
+
+def wcm(peer, ports="", status="", uid=""):
+    """The host's consent, in watch-host."""
+    c = cm("x", peer, ports, status, uid); c["metadata"]["namespace"] = "watch-host"
+    return c
+
+
+class Watcher(unittest.TestCase):
+    """D6 (#101): the host watches through a party like any peer, as `watch-host`, with the owner's consent."""
+
+    def test_both_consents_open_the_watcher_namespace_and_settle(self):
+        d, act = settle(world([ns("alice"), watcher()], [cm("alice", "watch-host"), wcm("alice")]))
+        self.assertEqual(sorted(o["metadata"]["namespace"] for o in act["apply"]), ["play-alice", "watch-host"])
+        np = next(o for o in act["apply"] if o["metadata"]["namespace"] == "play-alice")
+        self.assertEqual(np["metadata"]["name"], "party-watch-host")
+        self.assertEqual(np["spec"]["ingress"][0]["from"][0]["namespaceSelector"]["matchLabels"],
+                         {"kubernetes.io/metadata.name": "watch-host", "party.edge-mesh/alice": "yes"})
+        self.assertEqual(sorted(act["label"]), [["play-alice", "party.edge-mesh/watch-host=yes"], ["watch-host", "party.edge-mesh/alice=yes"]])
+        self.assertEqual(act["status"], [["alice", "watch-host", "active: ports 8080/TCP,10666/UDP"],
+                                         ["watch-host", "alice", "active: ports 8080/TCP,10666/UDP"]])
+        _, again = settle(d)
+        self.assertTrue(empty(again), again)
+
+    def test_the_host_alone_opens_nothing(self):
+        _, act = settle(world([ns("alice"), watcher()], [wcm("alice")]))
+        self.assertEqual(act["apply"], [])
+        self.assertEqual(act["status"], [["watch-host", "alice", "waiting for alice to accept"]])
+
+    def test_an_owner_consent_waits_for_a_watcher(self):
+        _, act = settle(world([ns("alice")], [cm("alice", "watch-host")]))
+        self.assertEqual(act["apply"], [])
+        self.assertEqual(act["status"], [["alice", "watch-host", "waiting: the host has no watcher yet (watch-host)"]])
+
+    def test_the_watcher_has_no_lease_but_the_owner_has(self):
+        d, _ = settle(world([ns("alice"), watcher()], [cm("alice", "watch-host"), wcm("alice")], ends={"alice": NOW + 600}))
+        self.assertEqual(len(d["netpols"]["items"]), 2)   # no lease entry for watch-host: still active
+        _, act = settle(dict(d, ends={"alice": NOW}))
+        self.assertIn(["configmap", "watch-host", "party-alice"], act["delete"])
+        self.assertIn(["configmap", "play-alice", "party-watch-host"], act["delete"])
+
+    def test_the_owner_leaving_closes_it(self):
+        d, _ = settle(world([ns("alice"), watcher()], [cm("alice", "watch-host"), wcm("alice")]))
+        left = dict(d, configmaps={"items": [c for c in d["configmaps"]["items"] if c["metadata"]["namespace"] == "watch-host"]})
+        _, act = settle(left)
+        self.assertIn(["configmap", "watch-host", "party-alice"], act["delete"])
+        self.assertIn(["networkpolicy", "watch-host", "party-alice"], act["delete"])
+
+    def test_a_new_watcher_namespace_inherits_nothing(self):
+        # down + init gives watch-host a new UID: the owner's consent to the old one is deleted, as for a player of the same name
+        d, _ = settle(world([ns("alice"), watcher()], [cm("alice", "watch-host"), wcm("alice")]))
+        new = dict(d, namespaces={"items": [ns("alice", labels={"party.edge-mesh/watch-host": "yes"}), watcher(uid="uid-watch-2")]},
+                   configmaps={"items": [c for c in d["configmaps"]["items"] if c["metadata"]["namespace"] == "play-alice"]})
+        _, act = settle(new)
+        self.assertIn(["configmap", "play-alice", "party-watch-host"], act["delete"])
+        self.assertEqual([o for o in act["apply"]], [])
+
+    def test_the_name_cannot_be_taken_by_a_player(self):
+        # a player namespace play-watch-host, however labelled, is not the watcher, and its consents count for nobody
+        fake = ns("watch-host")
+        _, act = settle(world([ns("alice"), fake], [cm("alice", "watch-host"), cm("watch-host", "alice")]))
+        self.assertEqual(act["apply"], [])
+        self.assertEqual(act["status"], [["alice", "watch-host", "waiting: the host has no watcher yet (watch-host)"]])
+        # nor is a namespace called watch-host without the host's label
+        bare = watcher(); bare["metadata"]["labels"] = {"edge-mesh/participant": "watch-host"}
+        _, act = settle(world([ns("alice"), bare], [cm("alice", "watch-host"), wcm("alice")]))
+        self.assertEqual(act["apply"], [])
+
+
 FAKE_KC = r"""#!/usr/bin/env python3
 import json, os, sys
 open(os.environ["FAKE_LOG"], "a").write(" ".join(sys.argv[1:]) + "\n")

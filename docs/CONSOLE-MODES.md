@@ -125,6 +125,35 @@ player's eyes and change whom is Odamex's documented behaviour, **to be confirme
   Asking keeps "pairwise, by consent" true for the one case where the host is a participant. Needs D6.
 - D3: the join text and JOIN.md say that a game can be watched by whoever has a party with its server, and that spectators are announced.
 
+**As built (#101), D6 and D3.** `mesh host watch init` makes the namespace `watch-host` (`poc/watcher.py`): labelled `edge-mesh/watcher=host`,
+Pod Security restricted, a quota of its own (`watch_quota_cpu_millis` and `watch_quota_pods` in pool.yaml, a player's numbers when unset: the
+cap on the host's views), the same default-deny NetworkPolicy as a player, and no ServiceAccount, Role or kubeconfig: only the host writes
+there. It refuses when no Ready node of trust `own` other than the control plane exists. `poc/watcher-policy.yaml` binds every pod of that
+namespace to such a node and refuses one that names its node or tolerates the control plane's taint. `mesh host watch invite <owner>` is the
+host's half of a party; the owner's half is `edge-mesh party accept watch-host`; `poc/party.py` then treats `watch-host` as one more peer (no
+lease; closed when the owner leaves, is kicked or their lease ends, or with `mesh host watch leave <owner>` or `down`). No player can be
+called `watch-host` (`admission.py`, `mesh host invite`) and a namespace without the host's label never counts.
+
+The host's views (owner's decision of 2026-11-18: the web gets the everyday verbs, the namespace stays on the host).
+`mesh host watch start <owner> [--follow <player>]` runs the host's spectator of that game in `watch-host` (only with the party open; one per
+game) and writes its per-pod secret, 0600, under the host's state; `stop` removes both. The host console has a **Watch** view: the parties
+of `watch-host`, a button per game to start or stop its spectator, and the frames. `GET /api/v1/watch` is the pure read
+`mesh host watch status --json --read-only`; `GET /api/v1/watch/{owner}/frame` is one JPEG, at most 4 a second. `watch-invite` (one click),
+`watch-leave`, `watch-start` and `watch-stop` are registry verbs, audited like the rest; `watch init` and `watch down` are not: they create or
+delete the namespace, so `GET /verbs` shows them disabled with the command to type on the host.
+
+The frames reach the host as D7 says, through the API server and the kubelet of the host's own machine and never over the mesh, but by
+`kubectl exec -i` into the host's own spectator instead of a port-forward (`watcher.Tap`): the engine's kubectl runs inside the control
+plane's VM, so a port-forward's local port would open there, out of the console's reach. Both are the API server's streaming channel to that
+kubelet, both are the host's as cluster-admin already, and nothing changes for players (they still have no `pods/portforward`). The exec
+runs a few lines of the image's Python that ask the pod's own endpoint at `127.0.0.1` with the secret, which the console sends on stdin,
+never on a command line; nothing new listens anywhere.
+
+D3 is in the public page's join text (`poc/page/page.py`) and in JOIN.md. Proved by `poc-doom` DM24 to DM30 (refusal without an own node; the
+namespace; one consent opens nothing; after the owner accepts, `watch start` runs the host's spectator on the host's own machine, the server
+names it and `watch status`/`watch frame`, the console's two reads, see it and return changing JPEGs; the watcher guard's refusals, by a
+server-side dry run; the cap, WB05: the spectator counts against `watch-host`'s quota and at the cap one more is refused by the API server; `leave`, `stop` and `down` close it). `host` is reserved too: a player's spectator is announced as `watch-<player>`.
+
 ## Playing in the browser
 
 The browser cannot be the game: Odamex speaks UDP, a tab cannot, and a Doom built for the browser would not speak Odamex's protocol
@@ -174,17 +203,17 @@ poc-lighthouse and poc-weakness); the issue that builds each is in brackets.
 | 3 | the bundle's private key, the k3s token or the kubeconfig leak through the player's API | the same redaction as the host's; no endpoint returns a file of the bundle | PM03: no answer of the player daemon carries a PEM, a token or a path under `/etc/nebula`; the daemon runs as the player's user and cannot open `host.key` or `join.env` [#100] |
 | 4 | a disabled button is the only thing between a role and a verb | the daemon checks the role; the page is not trusted | PM04, and C-tests of v0.4.0 for the host: the verb POSTed by hand is 403 [#103] |
 | 5 | the web makes the persistent CA sign | the four verbs are not in the `console` role (unchanged) | the C-tests of v0.4.0; a new one that the disabled verbs are 403 [#103] |
-| 6 | someone watches a game without a party | a view is a game client: no party, no path (NetworkPolicy) | WB01: a watcher with no party gets no frame (as DM's "a third player connects nothing") [#101] |
-| 7 | someone is watched without knowing | the server announces spectators; the join text says games can be watched | WB02: the server log and a player's log name the spectator [#101] |
-| 8 | a view shows more than the game (a screen, a desktop) | the frames come from the watcher's own spectator client, never from the watched machine | WB03: the watched player's node runs no new pod and no new listener [#101] |
-| 9 | the picture or the keys leave the machine | between the tab and the local daemon, the loopback; between a player's pod and that player's daemon, the pod's IP reached from the player's own node only (D7); the party carries only the game's UDP; players have no `pods/portforward` | WB04: the stream port answers from the pod's own node and from no other node and no pod of another namespace, no pod has a `hostPort`, Cilium's `allow-localhost` is `always` on every agent, and a player's `kubectl port-forward` is a 403 [#101, #102] |
+| 6 | someone watches a game without a party | a view is a game client: no party, no path (NetworkPolicy) | WB01: a watcher with no party gets no frame (as DM's "a third player connects nothing") [#101]. **Proved:** poc-doom DM08, DM09 (no consent, one consent), DM26 (the host's pod before the owner accepts); the player console refuses `watch-start` without an active party (`test_console_player.py`) |
+| 7 | someone is watched without knowing | the server announces spectators; the join text says games can be watched | WB02: the server log and a player's log name the spectator [#101]. **Proved:** DM12 (server and client logs name `watch-carmack`), DM19 (the server announced it), DM27 (`watch-host has connected`) |
+| 8 | a view shows more than the game (a screen, a desktop) | the frames come from the watcher's own spectator client, never from the watched machine | WB03: the watched player's node runs no new pod and no new listener [#101]. **Proved:** DM12 (the spectator is pinned to the watcher's own node), DM27 (the host's on `hostpc`, never the control plane); neither has a `hostPort` (DM13, DM27) |
+| 9 | the picture or the keys leave the machine | between the tab and the local daemon, the loopback; between a player's pod and that player's daemon, the pod's IP reached from the player's own node only (D7); the party carries only the game's UDP; players have no `pods/portforward` | WB04: the stream port answers from the pod's own node and from no other node and no pod of another namespace, no pod has a `hostPort`, Cilium's `allow-localhost` is `always` on every agent, and a player's `kubectl port-forward` is a 403 [#101, #102]. **Proved (#101):** DM13 (same-node Pod IP, no `hostPort`, the player's `can-i --subresource=portforward` is no), DM16 (not from petersen's node or pod), `allow-localhost` checked on every Cilium agent at DM12 |
 | 10 | the page pulls code from the network | C06 unchanged; a vendored viewer is pinned and hashed | C06 extended to the new files [#102] |
-| 11 | many views exhaust the server or the watcher | the watcher's namespace quota (`poc/pool.yaml`) caps the spectator pods; spectators count against the server's client limit | WB05 [#101] |
+| 11 | many views exhaust the server or the watcher | the watcher's namespace quota (`poc/pool.yaml`) caps the spectator pods; spectators count against the server's client limit | WB05 [#101]. **Proved:** DM29 (the host's spectator counts against `watch-host`'s quota; at the cap one more is refused by the API server); the watcher guard (DM28) keeps every such pod off the control plane |
 | 12 | a new public surface | none is added: the only change near the page server is the join text of D3 (`poc/page/page.py`) | the privacy gate of the public page, unchanged |
 | 13 | the game image comes from somewhere new | built on the player's machine by `poc/doom/build.sh`; no registry | WB06: the player's node pulls nothing for the game pod (`imagePullPolicy: Never` kept), and the build checks every fetched source against the hashes of `doom.env` [#102] |
 | 14 | the page's input reaches the player's real screen | the daemon injects only into the pod's virtual display (`DISPLAY=:99` fixed in the pod); it has no access to the player's own display | WB07: a key sent from the tab changes nothing outside the pod [#102] |
 | 15 | a web page in the player's browser drives the player daemon (DNS rebinding, a cross-site POST) | the C03 check of v0.4.0 (Host and Origin must be the loopback address and port) in the player daemon too | PM05 [#100] |
-| 16 | another user or program on the player's node reads the frames or types into the game through the pod's IP | the pod's stream and input endpoints refuse a request without the per-pod secret the player daemon set at creation | WB08: a request without the secret, or with another pod's, is refused [#101, #102] |
+| 16 | another user or program on the player's node reads the frames or types into the game through the pod's IP | the pod's stream and input endpoints refuse a request without the per-pod secret the player daemon set at creation | WB08: a request without the secret, or with another pod's, is refused [#101, #102]. **Proved (#101):** DM13 (no secret and a wrong secret get no frame); `test_watcher.py` (the host's channel with another secret gets none) |
 
 ## The pieces, in order
 
