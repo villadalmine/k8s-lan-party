@@ -11,6 +11,8 @@
 # D6 (#101, DM24 on): the host's watcher needs an `own` machine that is not the control plane: hostpc, issued by the host like n1 (never through
 # `mesh host invite`, which refuses own), joins after the match.
 # POOL_LEASE (default 2700 s) must cover DM03-DM27 (romero's lease must still run when the host watches). KEEP=1 leaves the VMs. SHOWCASE=<dir> also writes the player's and the host's screens there.
+# UNTIL=DMxx stops after that step and keeps the VMs (poc/doom/week.sh: UNTIL=DM27 leaves a match and the host's spectator running).
+# OWN_CERT_DURATION (default 2h): the certificate of the host's own machine hostpc.
 set -u
 export RUNTIME=incus MAX_VMS=6 CNI="${CNI:-cilium}" TAINT=no   # TAINT pinned as poc-pool (issue #59)
 . "$(dirname "$0")/lib.sh"
@@ -241,7 +243,7 @@ watch_refused() { # with no own node but the control plane (cp is own; the playe
   [ "$rc" -eq 3 ] && echo "$o" | grep -q "not the control plane" && [ -z "$(k get namespace watch-host --ignore-not-found -o name)" ]; }
 own_joins() { # the host issues its own machine (trust own, persistent CA) and it joins like n1 of poc-up; then the watcher can be made
   local ip="${LH_NEB%.*}.60"
-  "$POC/issue.sh" "$OWN" "$ip" own 2h && node_guard && vm_new "$OWN" &&
+  "$POC/issue.sh" "$OWN" "$ip" own "${OWN_CERT_DURATION:-2h}" && node_guard && vm_new "$OWN" &&
   incus exec "emesh-$OWN" -- edge-mesh join /bundle --accept-golden-rule && wait_for 420 ready "$OWN" &&
   k label node "$OWN" node-restriction.kubernetes.io/trust=own --overwrite >/dev/null || return 1
   say host "the host's own machine joins (trust own, not the control plane): the host can now have a watcher, watch-host"
@@ -338,6 +340,11 @@ host_watch_closes() { # romero's second robot ended; the host leaves (the party 
   wait_for 60 host_closed && out_has "watcher: removed" "$MESH" host watch down &&
   [ -z "$(k get namespace watch-host --ignore-not-found -o name)" ] && out_has "watcher: none" "$MESH" host watch status; }
 
+if [ -n "${UNTIL:-}" ]; then   # stop after that step, the VMs kept: what runs then is left running
+  [[ "$UNTIL" =~ ^DM[0-9]{2}$ ]] || { echo "UNTIL=$UNTIL: a step id like DM27"; exit 2; }
+  eval "_$(declare -f step)"
+  step() { _step "$@"; [ "$1" != "$UNTIL" ] || { echo "----"; if [ "$FAILS" -eq 0 ]; then echo "RESULT PASS (until $UNTIL, the machines kept)"; else echo "RESULT FAIL ($FAILS)"; fi; exit "$FAILS"; }; }
+fi
 step DM01 "mesh host init: lighthouse and control plane (and Cilium with CNI=cilium)" host_init
 step DM02 "the Doom image (Odamex 12.3.0, FreeDM 0.13.0, pinned) is built once and cached by the hash of its inputs" image
 step DM03 "romero, carmack and petersen ask; one tick admits all three" admitted
