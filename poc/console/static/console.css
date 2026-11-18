@@ -37,3 +37,7 @@ footer { margin-top: 2rem; font-size: .85rem; }
 .hostverb code { overflow-wrap: anywhere; }
 @media (max-width: 560px) { .hostverb { grid-template-columns: 1fr; } }
 td button { padding: .1rem .5rem; font-size: .9em; }
+.frames { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr)); gap: .75rem; }
+.frames figure { margin: 0; background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: .4rem; }
+.frames img { display: block; width: 100%; height: auto; aspect-ratio: 4 / 3; object-fit: contain; background: #000; }
+.frames figcaption { font-size: .9em; padding-top: .3rem; }

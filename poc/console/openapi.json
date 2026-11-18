@@ -1923,6 +1923,257 @@
     },
     "description": "Reads only page/last-report.json; never contacts the page. State unknown without a valid observation. The timestamp and age describe an observation, not current reachability or current switch state."
    }
+  },
+  "/api/v1/watch": {
+   "get": {
+    "operationId": "watch",
+    "summary": "the host's watcher: its parties with game owners and its spectators (host watch status)",
+    "tags": [
+     "read"
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "watcher": {
+           "type": "boolean"
+          },
+          "parties": {
+           "type": "array",
+           "items": {
+            "type": "object"
+           }
+          },
+          "spectators": {
+           "type": "array",
+           "items": {
+            "type": "object"
+           }
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "description": "a bad name, id or query",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "no or wrong credential",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "404": {
+      "description": "no such route, or no such job",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "405": {
+      "description": "another method",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "429": {
+      "description": "too many bad tokens",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "500": {
+      "description": "the console could not answer",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "502": {
+      "description": "the engine's read failed or was not JSON",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "503": {
+      "description": "too many connections at once",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "504": {
+      "description": "the engine did not answer in time",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/watch/{owner}/frame": {
+   "get": {
+    "operationId": "watchFrame",
+    "summary": "one JPEG of the host's spectator of <owner>'s game, through the API server to the host's own spectator (D7: the host's own views only)",
+    "tags": [
+     "read"
+    ],
+    "responses": {
+     "200": {
+      "description": "a JPEG",
+      "content": {
+       "image/jpeg": {
+        "schema": {
+         "type": "string",
+         "format": "binary"
+        }
+       }
+      }
+     },
+     "400": {
+      "description": "a bad name, id or query",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "no or wrong credential",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "404": {
+      "description": "no such route, or no such job",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "405": {
+      "description": "another method",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "429": {
+      "description": "too many bad tokens, or frames asked too fast",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "500": {
+      "description": "the console could not answer",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "502": {
+      "description": "the engine's read failed or was not JSON",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "503": {
+      "description": "too many connections at once",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "504": {
+      "description": "the engine did not answer in time",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     }
+    },
+    "parameters": [
+     {
+      "name": "owner",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "pattern": "^(?!(?:lh|cp|n1|n2|host|watch-host)$)[a-z][a-z0-9-]{1,19}$"
+      }
+     }
+    ]
+   }
   }
  },
  "components": {
@@ -2216,6 +2467,10 @@
      "revoke",
      "party-reconcile",
      "party-end",
+     "watch-invite",
+     "watch-leave",
+     "watch-start",
+     "watch-stop",
      "invite",
      "refresh",
      "bundle"
@@ -2515,7 +2770,7 @@
    "params": {
     "name": {
      "type": "string",
-     "pattern": "^(?!(?:lh|cp|n1|n2)$)[a-z][a-z0-9-]{1,19}$"
+     "pattern": "^(?!(?:lh|cp|n1|n2|host|watch-host)$)[a-z][a-z0-9-]{1,19}$"
     },
     "ip": {
      "type": "string",
@@ -2545,7 +2800,7 @@
    "params": {
     "name": {
      "type": "string",
-     "pattern": "^(?!(?:lh|cp|n1|n2)$)[a-z][a-z0-9-]{1,19}$"
+     "pattern": "^(?!(?:lh|cp|n1|n2|host|watch-host)$)[a-z][a-z0-9-]{1,19}$"
     },
     "reason": {
      "type": "string",
@@ -2570,7 +2825,7 @@
    "params": {
     "name": {
      "type": "string",
-     "pattern": "^(?!(?:lh|cp|n1|n2)$)[a-z][a-z0-9-]{1,19}$"
+     "pattern": "^(?!(?:lh|cp|n1|n2|host|watch-host)$)[a-z][a-z0-9-]{1,19}$"
     },
     "trust": {
      "enum": [
@@ -2714,7 +2969,7 @@
    "params": {
     "name": {
      "type": "string",
-     "pattern": "^(?!(?:lh|cp|n1|n2)$)[a-z][a-z0-9-]{1,19}$"
+     "pattern": "^(?!(?:lh|cp|n1|n2|host|watch-host)$)[a-z][a-z0-9-]{1,19}$"
     }
    },
    "required": [
@@ -2735,7 +2990,7 @@
    "params": {
     "name": {
      "type": "string",
-     "pattern": "^(?!(?:lh|cp|n1|n2)$)[a-z][a-z0-9-]{1,19}$"
+     "pattern": "^(?!(?:lh|cp|n1|n2|host|watch-host)$)[a-z][a-z0-9-]{1,19}$"
     }
    },
    "required": [
@@ -2756,7 +3011,7 @@
    "params": {
     "name": {
      "type": "string",
-     "pattern": "^(?!(?:lh|cp|n1|n2)$)[a-z][a-z0-9-]{1,19}$"
+     "pattern": "^(?!(?:lh|cp|n1|n2|host|watch-host)$)[a-z][a-z0-9-]{1,19}$"
     }
    },
    "required": [
@@ -2791,11 +3046,11 @@
    "params": {
     "a": {
      "type": "string",
-     "pattern": "^(?!(?:lh|cp|n1|n2)$)[a-z][a-z0-9-]{1,19}$"
+     "pattern": "^(?!(?:lh|cp|n1|n2|host|watch-host)$)[a-z][a-z0-9-]{1,19}$"
     },
     "b": {
      "type": "string",
-     "pattern": "^(?!(?:lh|cp|n1|n2)$)[a-z][a-z0-9-]{1,19}$"
+     "pattern": "^(?!(?:lh|cp|n1|n2|host|watch-host)$)[a-z][a-z0-9-]{1,19}$"
     }
    },
    "required": [
@@ -2812,12 +3067,100 @@
    "summary": "end a party: both consents and its NetworkPolicies removed"
   },
   {
+   "verb": "watch-invite",
+   "engine": "mesh host watch invite {owner}",
+   "params": {
+    "owner": {
+     "type": "string",
+     "pattern": "^(?!(?:lh|cp|n1|n2|host|watch-host)$)[a-z][a-z0-9-]{1,19}$"
+    }
+   },
+   "required": [
+    "owner"
+   ],
+   "confirm": "click",
+   "roles": [
+    "local",
+    "console"
+   ],
+   "arg_roles": {},
+   "timeout_seconds": 120,
+   "summary": "ask a game's owner to let the host watch (the owner accepts: party accept watch-host)"
+  },
+  {
+   "verb": "watch-leave",
+   "engine": "mesh host watch leave {owner}",
+   "params": {
+    "owner": {
+     "type": "string",
+     "pattern": "^(?!(?:lh|cp|n1|n2|host|watch-host)$)[a-z][a-z0-9-]{1,19}$"
+    }
+   },
+   "required": [
+    "owner"
+   ],
+   "confirm": "none",
+   "roles": [
+    "local",
+    "console"
+   ],
+   "arg_roles": {},
+   "timeout_seconds": 120,
+   "summary": "stop asking: the host's party with that owner closes"
+  },
+  {
+   "verb": "watch-start",
+   "engine": "mesh host watch start {owner} [--follow {follow}]",
+   "params": {
+    "owner": {
+     "type": "string",
+     "pattern": "^(?!(?:lh|cp|n1|n2|host|watch-host)$)[a-z][a-z0-9-]{1,19}$"
+    },
+    "follow": {
+     "type": "string",
+     "pattern": "^(?!(?:lh|cp|n1|n2|host|watch-host)$)[a-z][a-z0-9-]{1,19}$"
+    }
+   },
+   "required": [
+    "owner"
+   ],
+   "confirm": "none",
+   "roles": [
+    "local",
+    "console"
+   ],
+   "arg_roles": {},
+   "timeout_seconds": 120,
+   "summary": "the host's spectator of the owner's game, on the host's own machine (needs the party)"
+  },
+  {
+   "verb": "watch-stop",
+   "engine": "mesh host watch stop {owner}",
+   "params": {
+    "owner": {
+     "type": "string",
+     "pattern": "^(?!(?:lh|cp|n1|n2|host|watch-host)$)[a-z][a-z0-9-]{1,19}$"
+    }
+   },
+   "required": [
+    "owner"
+   ],
+   "confirm": "none",
+   "roles": [
+    "local",
+    "console"
+   ],
+   "arg_roles": {},
+   "timeout_seconds": 120,
+   "summary": "remove the host's spectator of that game"
+  },
+  {
    "verb": "invite",
    "engine": "mesh host invite {name} --ttl {ttl} --trust {trust}",
    "params": {
     "name": {
      "type": "string",
-     "pattern": "^(?!(?:lh|cp|n1|n2)$)[a-z][a-z0-9-]{1,19}$"
+     "pattern": "^(?!(?:lh|cp|n1|n2|host|watch-host)$)[a-z][a-z0-9-]{1,19}$"
     },
     "ttl": {
      "type": "string",
@@ -2869,7 +3212,7 @@
    "params": {
     "name": {
      "type": "string",
-     "pattern": "^(?!(?:lh|cp|n1|n2)$)[a-z][a-z0-9-]{1,19}$"
+     "pattern": "^(?!(?:lh|cp|n1|n2|host|watch-host)$)[a-z][a-z0-9-]{1,19}$"
     }
    },
    "required": [

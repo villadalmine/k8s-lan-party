@@ -37,6 +37,10 @@
 #   mesh host watch [status]               the host's watcher (D6, docs/CONSOLE-MODES.md): its namespace, nodes and parties
 #   mesh host watch init                   make `watch-host` (poc/watcher.py): needs a Ready node of trust own that is not the control plane
 #   mesh host watch invite|leave <owner>   the host's half of a party with a game's owner (the owner accepts: party accept watch-host)
+#   mesh host watch start <owner> [--follow <player>]   the host's spectator of <owner>'s game (needs the party; the image on the own node)
+#   mesh host watch stop <owner>           remove that spectator
+#   mesh host watch status --json --read-only   the host's parties and spectators, without reconciling (the host console)
+#   mesh host watch frame <owner>          one JPEG of that spectator on stdout, through the API server (D7: the host's own views only)
 #   mesh host watch down                   remove the watcher namespace and all in it; its parties close
 #   mesh party invite|accept <peer> [--ports P/UDP,...] --as <player>   (local simulation, like play) the player's own
 #   mesh party leave [<peer>] | list --as <player>                      `edge-mesh party ...`, run on that player's machine
@@ -210,7 +214,7 @@ case "$1 ${2:-}" in
     python3 "$POC/party.py" "$sub" "$@" --config "${POOL_CONFIG:-$POC/pool.yaml}" --bundles "$STATE/bundles" \
       --nebula-cert "$CACHE/nebula-cert" --kc "$POC/kc" ;;
   "host watch")
-    sub="${3:-status}"; owner="${4:-}"; w=watch-host
+    sub="${3:-status}"; owner="${4:-}"; w=watch-host; WD="$STATE/watch"
     case "$sub" in
       init)
         nodes=$(k get nodes -o json | python3 "$POC/watcher.py" nodes) || exit 3
@@ -218,10 +222,37 @@ case "$1 ${2:-}" in
         python3 "$POC/watcher.py" manifests --config "${POOL_CONFIG:-$POC/pool.yaml}" | k apply -f - >/dev/null || exit 1
         echo "watcher: namespace $w ready; its pods run on: $(echo $nodes)" ;;
       status)
+        if [ "${4:-}" = --json ]; then   # --json --read-only: only reads (party list --read-only, get pods): the host console's view
+          [ "${5:-}" = --read-only ] || usage
+          python3 "$POC/watcher.py" status --kc "$POC/kc" --parties "$(python3 "$POC/party.py" list --read-only --json --config "${POOL_CONFIG:-$POC/pool.yaml}" \
+            --bundles "$STATE/bundles" --nebula-cert "$CACHE/nebula-cert" --kc "$POC/kc")"; exit $?
+        fi
         [ -n "$(k get namespace "$w" --ignore-not-found -o name)" ] || { echo "watcher: none (mesh host watch init)"; exit 0; }
         echo "watcher: namespace $w; nodes it may use: $(k get nodes -o json | python3 "$POC/watcher.py" nodes 2>&1 | tr '\n' ' ')"
         python3 "$POC/party.py" list --config "${POOL_CONFIG:-$POC/pool.yaml}" --bundles "$STATE/bundles" \
           --nebula-cert "$CACHE/nebula-cert" --kc "$POC/kc" | awk -v w="$w" 'NR == 1 || $1 == w || $2 == w' ;;
+      start|stop|frame)
+        printf '%s' "$owner" | grep -Eqx '[a-z][a-z0-9-]{1,19}' && [ "$(printf '%s' "$owner" | wc -l)" -eq 0 ] && [ "$owner" != "$w" ] || { echo "usage: mesh host watch $sub <owner>"; exit 2; }
+        pod="doom-watch-$owner"
+        case "$sub" in
+          start)
+            follow="$owner"; [ "${5:-}" != --follow ] || follow="${6:-}"
+            printf '%s' "$follow" | grep -Eqx '[a-z][a-z0-9-]{1,19}' && [ "$(printf '%s' "$follow" | wc -l)" -eq 0 ] || { echo "usage: mesh host watch start <owner> [--follow <player>]"; exit 2; }
+            st=$(python3 "$POC/party.py" list --read-only --json --config "${POOL_CONFIG:-$POC/pool.yaml}" --bundles "$STATE/bundles" \
+              --nebula-cert "$CACHE/nebula-cert" --kc "$POC/kc" | python3 -c 'import json,sys; o=sys.argv[1]; print(next((r["status"] for r in json.load(sys.stdin) if r["player"]=="watch-host" and r["peer"]==o), ""))' "$owner") || exit 1
+            case "$st" in active:*) ;; *) echo "no party with $owner (${st:-none}): mesh host watch invite $owner, then $owner accepts watch-host"; exit 3 ;; esac
+            [ -z "$(k get pod "$pod" -n "$w" --ignore-not-found -o name)" ] || { echo "a spectator of $owner runs already: mesh host watch stop $owner"; exit 3; }
+            img=$("$POC/doom/build.sh" --name) || exit 1
+            mkdir -p "$WD"; chmod 700 "$WD"; tok=$(python3 -c 'import secrets; print(secrets.token_hex(32))')
+            (umask 077; printf '%s\n' "$tok" >"$WD/$owner.token")
+            WATCH_TOKEN="$tok" "$POC/doom/pod.sh" watcher "$img" "$owner" host "$follow" | k apply -n "$w" -f - >/dev/null || { rm -f "$WD/$owner.token"; exit 1; }
+            echo "watcher: spectator of $owner's game, following $follow (pod $pod in $w; frames: mesh host watch frame $owner)" ;;
+          stop)
+            k delete pod "$pod" -n "$w" --ignore-not-found --wait=false >/dev/null || exit 1; rm -f "$WD/$owner.token"; echo "watcher: stopped the spectator of $owner" ;;
+          frame)
+            [ -s "$WD/$owner.token" ] || { echo "no spectator of $owner (mesh host watch start $owner)" >&2; exit 3; }
+            python3 "$POC/watcher.py" frame --kc "$POC/kc" --pod "$pod" --token-file "$WD/$owner.token" ;;
+        esac ;;
       invite|leave)
         printf '%s' "$owner" | grep -Eqx '[a-z][a-z0-9-]{1,19}' && [ "$(printf '%s' "$owner" | wc -l)" -eq 0 ] && [ "$owner" != "$w" ] || { echo "usage: mesh host watch $sub <owner>"; exit 2; }
         [ -n "$(k get namespace "$w" --ignore-not-found -o name)" ] || { echo "no watcher: run mesh host watch init first"; exit 3; }
@@ -235,7 +266,7 @@ case "$1 ${2:-}" in
         party_sync ;;
       down)
         k delete namespace "$w" --ignore-not-found --wait=true --timeout=120s >/dev/null || exit 4
-        party_sync; echo "watcher: removed" ;;
+        rm -rf "$WD"; party_sync; echo "watcher: removed" ;;
       *) usage ;;
     esac ;;
   "party invite"|"party accept"|"party leave"|"party list")

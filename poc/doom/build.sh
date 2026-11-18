@@ -4,12 +4,14 @@
 # again. Builds with podman or docker when this machine has one; otherwise in a throwaway Incus VM of the run's project (emesh-doombuild, on
 # the game's underlay: `poc/vm/down.sh` removes it too). Prints, on its last two lines: the image name:tag and the tarball path.
 #   poc/doom/build.sh          idempotent: a second run prints the same two lines and builds nothing
+#   poc/doom/build.sh --name   only the image name:tag these inputs give, building nothing (`mesh host watch start`)
 set -eu
 D="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; POC="$(dirname "$D")"
 . "$POC/stack.env"; . "$D/doom.env"
 CACHE="${EMESH_CACHE:-$POC/.cache}/doom"; mkdir -p "$CACHE"
 HASH=$(cat "$D/Containerfile" "$D/server.sh" "$D/client.sh" "$D/watch-client.sh" "$D/watch_stream.py" | { cat; echo "$DOOM_DEBIAN_IMAGE $DOOM_ODAMEX_VERSION $DOOM_ODAMEX_SHA256 $DOOM_FREEDM_VERSION $DOOM_FREEDM_SHA256"; } | sha256sum | cut -c1-12)
 IMAGE="localhost/emesh-doom:$DOOM_ODAMEX_VERSION-$HASH"; TAR="$CACHE/emesh-doom-$DOOM_ODAMEX_VERSION-$HASH.tar"
+[ "${1:-}" != --name ] || { echo "$IMAGE"; exit 0; }
 ARGS=(--build-arg "DEBIAN_IMAGE=$DOOM_DEBIAN_IMAGE" --build-arg "ODAMEX_VERSION=$DOOM_ODAMEX_VERSION" --build-arg "ODAMEX_SHA256=$DOOM_ODAMEX_SHA256"
       --build-arg "FREEDM_VERSION=$DOOM_FREEDM_VERSION" --build-arg "FREEDM_SHA256=$DOOM_FREEDM_SHA256")
 if [ ! -s "$TAR" ]; then

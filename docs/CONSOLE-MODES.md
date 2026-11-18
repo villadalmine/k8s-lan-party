@@ -132,11 +132,27 @@ there. It refuses when no Ready node of trust `own` other than the control plane
 namespace to such a node and refuses one that names its node or tolerates the control plane's taint. `mesh host watch invite <owner>` is the
 host's half of a party; the owner's half is `edge-mesh party accept watch-host`; `poc/party.py` then treats `watch-host` as one more peer (no
 lease; closed when the owner leaves, is kicked or their lease ends, or with `mesh host watch leave <owner>` or `down`). No player can be
-called `watch-host` (`admission.py`, `mesh host invite`) and a namespace without the host's label never counts. `mesh host watch` verbs are
-CLI only for now: they take the engine's lock but are not in the web registry. D3 is in the public page's join text (`poc/page/page.py`) and in
-JOIN.md. Proved by `poc-doom` DM24 to DM29 (refusal without an own node; the namespace; one consent opens nothing; after the owner accepts, the
-host's spectator runs on the host's own machine and the server names it; the watcher guard's refusals, by a server-side dry run; `leave` and
-`down` close it). `host` is reserved too: a player's spectator is announced as `watch-<player>`.
+called `watch-host` (`admission.py`, `mesh host invite`) and a namespace without the host's label never counts.
+
+The host's views (owner's decision of 2026-11-18: the web gets the everyday verbs, the namespace stays on the host).
+`mesh host watch start <owner> [--follow <player>]` runs the host's spectator of that game in `watch-host` (only with the party open; one per
+game) and writes its per-pod secret, 0600, under the host's state; `stop` removes both. The host console has a **Watch** view: the parties
+of `watch-host`, a button per game to start or stop its spectator, and the frames. `GET /api/v1/watch` is the pure read
+`mesh host watch status --json --read-only`; `GET /api/v1/watch/{owner}/frame` is one JPEG, at most 4 a second. `watch-invite` (one click),
+`watch-leave`, `watch-start` and `watch-stop` are registry verbs, audited like the rest; `watch init` and `watch down` are not: they create or
+delete the namespace, so `GET /verbs` shows them disabled with the command to type on the host.
+
+The frames reach the host as D7 says, through the API server and the kubelet of the host's own machine and never over the mesh, but by
+`kubectl exec -i` into the host's own spectator instead of a port-forward (`watcher.Tap`): the engine's kubectl runs inside the control
+plane's VM, so a port-forward's local port would open there, out of the console's reach. Both are the API server's streaming channel to that
+kubelet, both are the host's as cluster-admin already, and nothing changes for players (they still have no `pods/portforward`). The exec
+runs a few lines of the image's Python that ask the pod's own endpoint at `127.0.0.1` with the secret, which the console sends on stdin,
+never on a command line; nothing new listens anywhere.
+
+D3 is in the public page's join text (`poc/page/page.py`) and in JOIN.md. Proved by `poc-doom` DM24 to DM29 (refusal without an own node; the
+namespace; one consent opens nothing; after the owner accepts, `watch start` runs the host's spectator on the host's own machine, the server
+names it and `watch status`/`watch frame`, the console's two reads, see it and return changing JPEGs; the watcher guard's refusals, by a
+server-side dry run; `leave`, `stop` and `down` close it). `host` is reserved too: a player's spectator is announced as `watch-<player>`.
 
 ## Playing in the browser
 

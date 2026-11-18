@@ -272,14 +272,28 @@ host_watch_open() { # romero accepts watch-host; the tick opens it; the host's s
   # the match of DM11-DM18 is over: romero's robot plays again, so there is somebody to follow
   incus exec emesh-romero -- edge-mesh kubectl exec doom-bot -- env PATTERN=b CONNECT_WAIT=40 client.sh doom 10666 120 romero >"$STATE/romero2.out" 2>&1 &
   BOT2=$!; wait_for 60 sh -c "grep -q 'in the game' '$STATE/romero2.out'" || return 1
-  HOST_TOKEN=$(python3 -c 'import secrets; print(secrets.token_hex(32))') || return 1
-  WATCH_TOKEN="$HOST_TOKEN" "$POC/doom/pod.sh" watcher "$DOOM_IMG" romero host romero | HK apply -f - &&
+  [ "$("$POC/doom/build.sh" --name)" = "$DOOM_IMG" ] || { echo "build.sh --name is not the image this run built"; return 1; }
+  out_has "watcher: spectator of romero's game, following romero" show host "mesh host watch start romero" "$MESH" host watch start romero &&
   HK wait --for=condition=Ready pod/doom-watch-romero --timeout=240s || return 1
   local node; node=$(HK get pod doom-watch-romero -o jsonpath='{.spec.nodeName}'); echo "host spectator on $node"
   [ "$node" = "$OWN" ] && wait_for 90 host_following && wait_for 60 host_announced || { watcher_why host; return 1; }
   say host "romero's server names the host's spectator: nobody is watched without a line saying who came in"
   show host "kubectl exec -n play-romero doom-server -- grep 'watch-host has connected' /tmp/server.log" \
-    k exec -n play-romero doom-server -- grep 'watch-host has connected' /tmp/server.log; }
+    k exec -n play-romero doom-server -- grep 'watch-host has connected' /tmp/server.log && host_views; }
+host_views() { # the host console's reads: GET /watch (status --json --read-only) and GET /watch/romero/frame (frame), the same engine calls
+  local st; st=$("$MESH" host watch status --json --read-only) || return 1; echo "$st"
+  echo "$st" | python3 -c 'import json,sys; d=json.load(sys.stdin); s=d["spectators"]; o=sys.argv[1]
+ok = d["watcher"] and any(p["owner"]=="romero" and p["status"].startswith("active") for p in d["parties"]) and [(x["owner"], x["node"], x["following"], x["ready"]) for x in s]==[("romero", o, "romero", True)]
+sys.exit(0 if ok else 1)' "$OWN" || return 1
+  "$MESH" host watch frame romero >"$STATE/host1.jpg" && sleep 2 && "$MESH" host watch frame romero >"$STATE/host2.jpg" || return 1
+  python3 - "$STATE/host1.jpg" "$STATE/host2.jpg" <<'PY' || return 1
+import sys
+a, b = (open(f, "rb").read() for f in sys.argv[1:3])
+print("host frames:", len(a), len(b), "bytes; changed:", a != b)
+sys.exit(0 if all(x[:2] == b"\xff\xd8" and x[-2:] == b"\xff\xd9" and len(x) > 1000 for x in (a, b)) and a != b else 1)
+PY
+  say host "the host's frames come through the API server to its own pod: nothing new listens, the mesh carries no frame for the host"
+  [ -z "$(HK get pod doom-watch-romero -o jsonpath='{.spec.containers[*].ports[*].hostPort}')" ]; }
 guard_try() { # guard_try <what> <python expression on the pod text t>: a server-side dry run in watch-host (every admission runs, nothing is made)
   # small and valid (request <= limit, else the API refuses the object before any admission): the client (400m, 384Mi) and the spectator
   # (300m, 256Mi) already count against watch-host's 1000m and 1024Mi; a refusal must be the guard's, not the quota's or the schema's
@@ -302,6 +316,8 @@ watcher_guard() { # each case is refused by poc/watcher-policy.yaml itself: Kyve
 host_watch_closes() { # romero's second robot ended; the host leaves (the party closes), then removes its watcher
   wait "$BOT2" && grep -q 'left the game' "$STATE/romero2.out" || { cat "$STATE/romero2.out"; return 1; }
   out_has "watcher: left romero" show host "mesh host watch leave romero" "$MESH" host watch leave romero &&
+  out_has "watcher: stopped the spectator of romero" show host "mesh host watch stop romero" "$MESH" host watch stop romero &&
+  [ ! -e "$STATE/watch/romero.token" ] && ! "$MESH" host watch frame romero >/dev/null 2>&1 &&
   [ -z "$(k get networkpolicies -n watch-host -l edge-mesh/party -o name)" ] && [ -z "$(k get networkpolicies -n play-romero party-watch-host --ignore-not-found -o name)" ] &&
   wait_for 60 host_closed && out_has "watcher: removed" "$MESH" host watch down &&
   [ -z "$(k get namespace watch-host --ignore-not-found -o name)" ] && out_has "watcher: none" "$MESH" host watch status; }
@@ -332,9 +348,9 @@ step DM23 "nothing non-free is in the image: FreeDM only, no doom.wad or doom2.w
 step DM24 "D6: with no own node but the control plane, mesh host watch init refuses and makes nothing" watch_refused
 step DM25 "D6: the host's own machine joins (trust own); watch init makes watch-host: restricted, its own quota, no credential but the host's" own_joins
 step DM26 "D6: the host asks romero (watch invite): one consent opens nothing; a pod of watch-host, on hostpc, gets no answer" host_watch_one_side
-step DM27 "D6: romero accepts watch-host; the tick opens it; the host's spectator runs on hostpc, not the control plane, and the server names it" host_watch_open
+step DM27 "D6: romero accepts watch-host; watch start runs the host's spectator on hostpc, not the control plane; the server names it; the host's views read its frames" host_watch_open
 step DM28 "D6: the watcher guard refuses a watch-host pod that names the control plane, tolerates its taint or is shareable; a plain one gets the affinity" watcher_guard
-step DM29 "D6: watch leave closes the host's party at once; watch down removes watch-host; romero's second robot ended cleanly" host_watch_closes
+step DM29 "D6: watch leave closes the host's party at once; watch stop removes the spectator and its secret; watch down removes watch-host; romero's second robot ended cleanly" host_watch_closes
 
 [ -z "$SC" ] || [ "$FAILS" -ne 0 ] || { cp "$OUTD/match.gif" "$SC/match.gif"; for s in player host; do   # only a run that passed becomes a recording (the GIF first: down removes the state)
   python3 "$SCP" redact "$SC/$s.raw" "$SC/$s.tsv" --strip "$STATE/" --strip "$POC/" --strip "${POC%/*}/" || FAILS=$((FAILS+1)); done; }
