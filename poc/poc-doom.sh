@@ -313,6 +313,22 @@ watcher_guard() { # each case is refused by poc/watcher-policy.yaml itself: Kyve
   # positive control: the plain pod is admitted, and what admission made of it keeps it off every control plane
   o=$(guard_try plain 't') || { echo "$o"; return 1; }
   echo "$o" | python3 -c 'import json,sys; p=json.load(sys.stdin); e=p["spec"]["affinity"]["nodeAffinity"]["requiredDuringSchedulingIgnoredDuringExecution"]["nodeSelectorTerms"][0]["matchExpressions"]; print("admitted, affinity:", e); sys.exit(0 if {"key":"node-role.kubernetes.io/control-plane","operator":"DoesNotExist"} in e else 1)'; }
+watch_cap() { # WB05: the host's spectator counts against watch-host's quota (the cap on the host's views); at the cap one more is refused
+  # by the API server. Also the measure the cap is sized from: the spectator's real CPU over 20 s, from its own cgroup (cpu.stat).
+  local u1 u2 q rq used o
+  u1=$(HK exec doom-watch-romero -- sh -c 'grep usage_usec /sys/fs/cgroup/cpu.stat' | awk '{print $2}') && sleep 20 &&
+  u2=$(HK exec doom-watch-romero -- sh -c 'grep usage_usec /sys/fs/cgroup/cpu.stat' | awk '{print $2}') || return 1
+  echo "spectator CPU (following romero's robot): $(( (u2 - u1) / 20000 ))m over 20 s; its limit 300m, its request 150m"
+  rq=$(HK get resourcequota -o jsonpath='{.items[0].metadata.name}') && q=$(HK get resourcequota "$rq" -o json) || return 1
+  echo "$q" | python3 -c 'import json,sys; s=json.load(sys.stdin)["status"]; print("watch-host quota: hard", s["hard"], "used", s["used"])'
+  used=$(echo "$q" | python3 -c 'import json,sys; u=json.load(sys.stdin)["status"]["used"]; print(u.get("pods","0"))')
+  echo "$q" | python3 -c 'import json,sys; u=json.load(sys.stdin)["status"]["used"]; c=u.get("limits.cpu","0"); m=int(c[:-1]) if c.endswith("m") else int(float(c)*1000); sys.exit(0 if m >= 300 else 1)' || { echo "the spectator is not counted"; return 1; }
+  say host "the host's views have a cap: watch-host's quota. Lowered to what runs now, one more spectator is refused by the API server"
+  HK patch resourcequota "$rq" --type merge -p "{\"spec\":{\"hard\":{\"pods\":\"$used\"}}}" >/dev/null || return 1
+  sleep 3   # the quota controller records the new hard limit
+  o=$(WATCH_TOKEN=$(printf '%064d' 0) "$POC/doom/pod.sh" watcher "$DOOM_IMG" romero host romero | sed 's/doom-watch-romero/doom-watch-extra/g' | HK apply --dry-run=server -f - 2>&1)
+  HK patch resourcequota "$rq" --type merge -p "$(echo "$q" | python3 -c 'import json,sys; print(json.dumps({"spec":{"hard":{"pods":json.load(sys.stdin)["spec"]["hard"]["pods"]}}}))')" >/dev/null || return 1
+  echo "one more spectator at the cap: $o"; echo "$o" | grep -q "exceeded quota"; }
 host_watch_closes() { # romero's second robot ended; the host leaves (the party closes), then removes its watcher
   wait "$BOT2" && grep -q 'left the game' "$STATE/romero2.out" || { cat "$STATE/romero2.out"; return 1; }
   out_has "watcher: left romero" show host "mesh host watch leave romero" "$MESH" host watch leave romero &&
@@ -350,7 +366,8 @@ step DM25 "D6: the host's own machine joins (trust own); watch init makes watch-
 step DM26 "D6: the host asks romero (watch invite): one consent opens nothing; a pod of watch-host, on hostpc, gets no answer" host_watch_one_side
 step DM27 "D6: romero accepts watch-host; watch start runs the host's spectator on hostpc, not the control plane; the server names it; the host's views read its frames" host_watch_open
 step DM28 "D6: the watcher guard refuses a watch-host pod that names the control plane, tolerates its taint or is shareable; a plain one gets the affinity" watcher_guard
-step DM29 "D6: watch leave closes the host's party at once; watch stop removes the spectator and its secret; watch down removes watch-host; romero's second robot ended cleanly" host_watch_closes
+step DM29 "WB05: the host's spectator counts against watch-host's quota and, at the cap, one more is refused; its real CPU is measured" watch_cap
+step DM30 "D6: watch leave closes the host's party at once; watch stop removes the spectator and its secret; watch down removes watch-host; romero's second robot ended cleanly" host_watch_closes
 
 [ -z "$SC" ] || [ "$FAILS" -ne 0 ] || { cp "$OUTD/match.gif" "$SC/match.gif"; for s in player host; do   # only a run that passed becomes a recording (the GIF first: down removes the state)
   python3 "$SCP" redact "$SC/$s.raw" "$SC/$s.tsv" --strip "$STATE/" --strip "$POC/" --strip "${POC%/*}/" || FAILS=$((FAILS+1)); done; }
