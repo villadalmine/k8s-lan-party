@@ -400,3 +400,8 @@ tests pass 12/12; final cluster regression and browser verification remain pendi
   `poc-vm` 36 PASS, `poc-golden` 31 PASS (1 DEP), `poc-down` teardown done on Docker and Incus. With the full run on `dddf9d0` and `poc-doom` on
   `71aba03`, every suite of the table has passed on this branch, though not all on one commit. The commits after `bcb2530` touch cluster paths only
   for `poc-doom` (DM28-DM29), the reserved names (`admission.py`, `mesh`, `participants/policy.yaml`) and the player console's watch-start check.
+- **DM28-DM29, after the review of #112:** on `ce773b6` DM29 PASS (leave closes the host's party at once, down removes `watch-host`, romero's
+  second robot ended cleanly) and DM28 FAIL: its probe pod had a CPU request above its limit, refused by the API before any admission (the
+  reviewer's finding). On `ca92e0a` **`poc-doom` RESULT PASS, 29/29** (project `emesh-doom101f`, `ALLDONE:0`): every DM28 refusal is the
+  `ValidatingAdmissionPolicy 'edge-mesh-watcher-guard'` itself (nodeName cp; the control plane's toleration; a toleration of every taint;
+  shareable), and the plain pod is admitted with trust In [own] AND control-plane DoesNotExist.
