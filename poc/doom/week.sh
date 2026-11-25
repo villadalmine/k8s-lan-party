@@ -5,7 +5,8 @@
 # binds the loopback only; reach it through an SSH tunnel. Nothing public changes (watching from the public page is #113).
 #   poc/doom/week.sh up        build it (about 40 minutes), start the robots and the console, print the link
 #   poc/doom/week.sh status    machines, the host's spectators, robots and console
-#   poc/doom/week.sh url       a new console link (the old one dies)
+#   poc/doom/week.sh url       a new console link (the old one dies); --to-file writes it to .week/week/console-url (0600) and prints only
+#                              that path: for a bot or a tool, so the token never reaches its output
 #   poc/doom/week.sh pause     stop the robots and freeze every machine (RAM kept, no CPU); the console stays and says it cannot read
 #   poc/doom/week.sh resume    unfreeze, wait for the nodes, start the robots again
 #   poc/doom/week.sh down      remove everything it made
@@ -54,6 +55,10 @@ case "${1:-}" in
     start_bg console "$POC/mesh" host console --web "$WEB"
     sleep 3; "$0" url ;;
   url)
+    if [ "${2:-}" = --to-file ]; then
+      mkdir -p "$RUN"; chmod 700 "$RUN"; (umask 077; "$POC/mesh" host console url --web "$WEB" >"$RUN/console-url") || exit 1
+      echo "token rotated; the link is in $RUN/console-url"; exit 0
+    fi
     "$POC/mesh" host console url --web "$WEB" | sed 's/^/  /'
     echo "  from your machine: ssh -L ${WEB##*:}:$WEB <this host>, then open the link with localhost:${WEB##*:}; the Watch tab shows the game" ;;
   status)
@@ -75,5 +80,5 @@ case "${1:-}" in
     "$POC/vm/down.sh"
     [ -n "$(incus list -c n -f csv 2>/dev/null)" ] || incus project delete "$INCUS_PROJECT" >/dev/null 2>&1
     echo "week match removed" ;;
-  *) sed -n '2,13p' "$0"; exit 2 ;;
+  *) sed -n '2,15p' "$0"; exit 2 ;;
 esac

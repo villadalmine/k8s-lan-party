@@ -405,3 +405,7 @@ tests pass 12/12; final cluster regression and browser verification remain pendi
   reviewer's finding). On `ca92e0a` **`poc-doom` RESULT PASS, 29/29** (project `emesh-doom101f`, `ALLDONE:0`): every DM28 refusal is the
   `ValidatingAdmissionPolicy 'edge-mesh-watcher-guard'` itself (nodeName cp; the control plane's toleration; a toleration of every taint;
   shareable), and the plain pod is admitted with trust In [own] AND control-plane DoesNotExist.
+- **The host's views (`20b878b`):** `poc-doom` **RESULT PASS, 29/29** and `poc-console` **RESULT PASS, 19/19** (project `emesh-hv101`,
+  `ALLDONE:0`). DM27 now runs the host's spectator with `mesh host watch start romero` and reads it the way the host console does:
+  `watch status --json --read-only` names it on `hostpc` following romero, and two `watch frame romero` calls return changing JPEGs through the
+  API server to the host's own pod (no hostPort). The registry's new watch verbs leave the console suite unchanged.
