@@ -51,7 +51,9 @@ PL=emesh-petersen; PLAYER_HOME=/home/player; LIB=/usr/local/lib/edge-mesh/poc
 player_console() { # petersen's own console, as a non-root user of her machine with her namespace's kubeconfig only (the way edge-mesh join
   # installs it), started by systemd there; the host reaches its loopback only through the Incus proxy, which is on the host's loopback too
   incus exec "$PL" -- sh -c "id -u player >/dev/null 2>&1 || useradd -m -s /bin/sh player; mkdir -p $LIB/doom" || return 1
-  tar cf - --exclude=__pycache__ -C "$POC" console page doom/pod.sh | incus exec "$PL" -- tar xf - -C "$LIB" || return 1
+  # the files docs/JOIN.md installs on a player's machine (tests/test_player_console_files.py keeps that list complete)
+  tar cf - --exclude=__pycache__ -C "$POC" console page/page.py page/seal.py page/news.py admission.py pool.py meshlock.py participant.py \
+    party.py watcher.py doom/pod.sh | incus exec "$PL" -- tar xf - -C "$LIB" || return 1
   incus exec "$PL" -- python3 "$LIB/console/player.py" install-kubeconfig --source /etc/edge-mesh/kubeconfig --user player >/dev/null || return 1
   incus exec "$PL" -- sh -c "systemctl stop edge-mesh-console 2>/dev/null; systemctl reset-failed edge-mesh-console 2>/dev/null
     systemd-run -q --unit edge-mesh-console --uid player -p Environment=HOME=$PLAYER_HOME -p WorkingDirectory=$PLAYER_HOME \

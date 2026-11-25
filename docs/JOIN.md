@@ -49,10 +49,11 @@ mkdir -p /opt/nebula && curl -fsSL "https://github.com/slackhq/nebula/releases/d
 curl -fsSLo /usr/local/bin/k3s "https://github.com/k3s-io/k3s/releases/download/v1.37.1%2Bk3s1/$K3S_BIN" && chmod +x /usr/local/bin/k3s
 git clone -q https://github.com/villadalmine/k8s-lan-party.git                      # only for the join script, poc/edge-mesh
 install -m 755 k8s-lan-party/poc/edge-mesh /usr/local/bin/edge-mesh
-install -d -m 755 /usr/local/lib/edge-mesh/poc/console /usr/local/lib/edge-mesh/poc/page
+install -d -m 755 /usr/local/lib/edge-mesh/poc/console /usr/local/lib/edge-mesh/poc/page /usr/local/lib/edge-mesh/poc/doom
 cp -a k8s-lan-party/poc/console/. /usr/local/lib/edge-mesh/poc/console/ # includes the player console and its static page
 install -m 644 k8s-lan-party/poc/page/page.py k8s-lan-party/poc/page/seal.py k8s-lan-party/poc/page/news.py /usr/local/lib/edge-mesh/poc/page/
-install -m 644 k8s-lan-party/poc/admission.py k8s-lan-party/poc/pool.py /usr/local/lib/edge-mesh/poc/
+(cd k8s-lan-party/poc && install -m 644 admission.py pool.py meshlock.py participant.py party.py watcher.py /usr/local/lib/edge-mesh/poc/)
+install -m 755 k8s-lan-party/poc/doom/pod.sh /usr/local/lib/edge-mesh/poc/doom/      # the console's Watch and Play render their pods with it
 /opt/nebula/nebula -version && k3s --version | head -1                               # 1.11.2 and v1.37.1+k3s1
 exit                                                                                 # return to the player account before joining
 ```
