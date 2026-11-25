@@ -68,10 +68,6 @@ class Nodes(unittest.TestCase):
         self.assertEqual(text.count('{"key": dyn("node-role.kubernetes.io/control-plane"), "operator": dyn("DoesNotExist")}'), 2)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 FAKE_KC = r'''#!/usr/bin/env python3
 # a kubectl that knows two things: `get` (from FAKE_GET, a JSON file per resource) and `exec -i ... -- python3 -c CODE PORT`: it runs CODE
 # here against a real HTTP server on a free port that checks the bearer secret like watch_stream.py and answers one JPEG
@@ -163,3 +159,27 @@ class HostViews(unittest.TestCase):
         self.secret.write_text("not a secret")
         with self.assertRaises(RuntimeError):
             watcher.Tap(str(self.kc), "doom-watch-ana", self.secret).fetch()
+
+    def test_a_wrong_secret_is_no_frame_and_keeps_the_channel(self):
+        self.secret.write_text("b" * 64)
+        f = watcher.Tap(str(self.kc), "doom-watch-ana", self.secret)
+        self.addCleanup(f.close)
+        with self.assertRaises(watcher.NoFrame):
+            f.fetch()
+        self.assertIsNotNone(f.proc)   # the console keeps this channel: no new exec per request while the spectator starts
+
+    def test_a_stalled_channel_is_bounded_by_the_timeout(self):
+        import time
+        from unittest import mock
+        self.kc.write_text("#!/bin/sh\nsleep 30\n")   # a script whose child hangs, like kc's exec when the machine is frozen
+        f = watcher.Tap(str(self.kc), "doom-watch-ana", self.secret)
+        self.addCleanup(f.close)
+        t = time.monotonic()
+        with mock.patch.object(watcher, "TIMEOUT", 1), self.assertRaises(RuntimeError):
+            f.fetch()
+        self.assertLess(time.monotonic() - t, 8)   # two attempts of 1 s and their group kills, never the child's 30 s
+        self.assertIsNone(f.proc)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -3,7 +3,7 @@
 # (romero's server, the host's own machine hostpc, the host's spectator of romero's game through the party romero accepted), then two robots
 # that play again and again (romero's and petersen's, whose party stays open) and the host console with its Watch view. Private: the console
 # binds the loopback only; reach it through an SSH tunnel. Nothing public changes (watching from the public page is #113).
-#   poc/doom/week.sh up        build it (about 40 minutes), start the robots and the console, print the link
+#   poc/doom/week.sh up        build it (about 40 minutes), start the robots and the console, write the link to .week/week/console-url
 #   poc/doom/week.sh status    machines, the host's spectators, robots and console
 #   poc/doom/week.sh url       a new console link (the old one dies); --to-file writes it to .week/week/console-url (0600) and prints only
 #                              that path: for a bot or a tool, so the token never reaches its output
@@ -28,11 +28,15 @@ robot() { # robot <player> <pod> <server> <pattern>: plays ROBOT_SECONDS, again 
     incus exec "emesh-$1" -- edge-mesh kubectl exec "$2" -- env PATTERN="$4" CONNECT_WAIT=40 client.sh "$3" 10666 "$ROBOT_SECONDS" "$1" >>"$RUN/$1.log" 2>&1 || sleep 30
     sleep 5
   done; }
-alive() { [ -s "$RUN/$1.pid" ] && kill -0 "$(cat "$RUN/$1.pid")" 2>/dev/null; }
+started() { awk '{print $22}' "/proc/$1/stat" 2>/dev/null; }   # the process's start time: a pid reused after a reboot has another
+alive() { # alive <name>: the process it started is still that process (a pid file left by a reboot names someone else's pid)
+  [ -s "$RUN/$1.pid" ] || return 1
+  local pid when; read -r pid when <"$RUN/$1.pid"
+  [ -n "$pid" ] && [ -n "$when" ] && [ "$(started "$pid")" = "$when" ]; }
 start_bg() { # start_bg <name> <command...>: once, detached, its pid kept
   alive "$1" && return 0
-  nohup "${@:2}" >>"$RUN/$1.out" 2>&1 </dev/null & echo $! >"$RUN/$1.pid"; }
-stop_bg() { if alive "$1"; then pkill -P "$(cat "$RUN/$1.pid")" 2>/dev/null; kill "$(cat "$RUN/$1.pid")" 2>/dev/null; fi; rm -f "$RUN/$1.pid"; }
+  nohup "${@:2}" >>"$RUN/$1.out" 2>&1 </dev/null & echo "$! $(started $!)" >"$RUN/$1.pid"; }
+stop_bg() { local pid; if alive "$1"; then read -r pid _ <"$RUN/$1.pid"; pkill -P "$pid" 2>/dev/null; kill "$pid" 2>/dev/null; fi; rm -f "$RUN/$1.pid"; }
 robots_on() {
   export -f robot; export RUN ROBOT_SECONDS
   start_bg robot-romero bash -c 'robot romero doom-bot doom b'
@@ -53,7 +57,8 @@ case "${1:-}" in
     mkdir -p "$RUN"; chmod 700 "$RUN"
     robots_on
     start_bg console "$POC/mesh" host console --web "$WEB"
-    sleep 3; "$0" url ;;
+    sleep 3; "$0" url --to-file   # the link holds the console's token: into a file of mode 0600, never this command's output
+    echo "  from your machine: ssh -L ${WEB##*:}:$WEB <this host>, then open the link in $RUN/console-url with localhost:${WEB##*:}" ;;
   url)
     if [ "${2:-}" = --to-file ]; then
       mkdir -p "$RUN"; chmod 700 "$RUN"; (umask 077; "$POC/mesh" host console url --web "$WEB" >"$RUN/console-url") || exit 1

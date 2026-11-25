@@ -295,7 +295,34 @@ print("host frames:", len(a), len(b), "bytes; changed:", a != b)
 sys.exit(0 if all(x[:2] == b"\xff\xd8" and x[-2:] == b"\xff\xd9" and len(x) > 1000 for x in (a, b)) and a != b else 1)
 PY
   say host "the host's frames come through the API server to its own pod: nothing new listens, the mesh carries no frame for the host"
-  [ -z "$(HK get pod doom-watch-romero -o jsonpath='{.spec.containers[*].ports[*].hostPort}')" ]; }
+  [ -z "$(HK get pod doom-watch-romero -o jsonpath='{.spec.containers[*].ports[*].hostPort}')" ] && console_frames; }
+console_frames() { # the same frames as the Watch view gets them: the console daemon's GET /api/v1/watch/romero/frame with the link's token,
+  # through its persistent channel (watcher.Tap), the daemon's own environment and its rate limit; then the daemon stops (nothing later needs it)
+  local web="127.0.0.1:${DOOM_WEB_PORT:-18093}" link tok pid rc=0
+  "$MESH" host console --web "$web" >>"$LOG" 2>&1 & pid=$!
+  wait_for 30 python3 -c "import socket; socket.create_connection(('${web%:*}', ${web##*:}), 2)" && link=$("$MESH" host console url --web "$web") || { kill "$pid"; wait "$pid" 2>/dev/null; return 1; }
+  tok="${link##*#t=}"
+  local get; get=$(cat <<'PY'
+import sys, time, urllib.request
+t = sys.stdin.readline().strip()
+got = []
+for _ in range(20):   # the first answers may be 502 while the channel opens
+    try:
+        r = urllib.request.urlopen(urllib.request.Request(sys.argv[1], headers={"Authorization": "Bearer " + t}), timeout=30)
+        b = r.read()
+        if r.headers.get("Content-Type") == "image/jpeg" and b[:2] == b"\xff\xd8" and b[-2:] == b"\xff\xd9":
+            got.append(b)
+    except Exception:
+        pass
+    if len(got) >= 2 and got[-1] != got[0]:
+        break
+    time.sleep(1)
+print("console daemon frames:", len(got), "JPEGs; changed:", len(got) >= 2 and got[-1] != got[0])
+sys.exit(0 if len(got) >= 2 and got[-1] != got[0] else 1)
+PY
+)
+  printf '%s\n' "$tok" | python3 -c "$get" "http://$web/api/v1/watch/romero/frame" || rc=1
+  kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null; return $rc; }
 guard_try() { # guard_try <what> <python expression on the pod text t>: a server-side dry run in watch-host (every admission runs, nothing is made)
   # small and valid (request <= limit, else the API refuses the object before any admission): the client (400m, 384Mi) and the spectator
   # (300m, 256Mi) already count against watch-host's 1000m and 1024Mi; a refusal must be the guard's, not the quota's or the schema's
@@ -374,7 +401,7 @@ watch_cap() { # WB05: the host's spectator counts against watch-host's quota (th
   local u1 u2 q rq used o
   u1=$(HK exec doom-watch-romero -- sh -c 'grep usage_usec /sys/fs/cgroup/cpu.stat' | awk '{print $2}') && sleep 20 &&
   u2=$(HK exec doom-watch-romero -- sh -c 'grep usage_usec /sys/fs/cgroup/cpu.stat' | awk '{print $2}') || return 1
-  echo "spectator CPU (following romero's robot): $(( (u2 - u1) / 20000 ))m over 20 s; its limit 300m, its request 150m"
+  echo "spectator CPU (following romero's robot): $(( (u2 - u1) / 20000 ))m over 20 s; its limit $(HK get pod doom-watch-romero -o jsonpath='{.spec.containers[0].resources.limits.cpu}'), its request $(HK get pod doom-watch-romero -o jsonpath='{.spec.containers[0].resources.requests.cpu}')"
   rq=$(HK get resourcequota -o jsonpath='{.items[0].metadata.name}') && q=$(HK get resourcequota "$rq" -o json) || return 1
   echo "$q" | python3 -c 'import json,sys; s=json.load(sys.stdin)["status"]; print("watch-host quota: hard", s["hard"], "used", s["used"])'
   used=$(echo "$q" | python3 -c 'import json,sys; u=json.load(sys.stdin)["status"]["used"]; print(u.get("pods","0"))')
@@ -425,7 +452,7 @@ step DM23 "nothing non-free is in the image: FreeDM only, no doom.wad or doom2.w
 step DM24 "D6: with no own node but the control plane, mesh host watch init refuses and makes nothing" watch_refused
 step DM25 "D6: the host's own machine joins (trust own); watch init makes watch-host: restricted, its own quota, no credential but the host's" own_joins
 step DM26 "D6: the host asks romero (watch invite): one consent opens nothing; a pod of watch-host, on hostpc, gets no answer" host_watch_one_side
-step DM27 "D6: romero accepts watch-host; watch start runs the host's spectator on hostpc, not the control plane; the server names it; the host's views read its frames" host_watch_open
+step DM27 "D6: romero accepts watch-host; watch start runs the host's spectator on hostpc, not the control plane; the server names it; the host's views (the CLI and the console daemon) read its frames" host_watch_open
 step DM28 "D6: the watcher guard refuses a watch-host pod that names the control plane, tolerates its taint or is shareable; a plain one gets the affinity" watcher_guard
 step DM29 "WB05: the host's spectator counts against watch-host's quota and, at the cap, one more is refused; its real CPU is measured" watch_cap
 step DM30 "D6: watch leave closes the host's party at once; watch stop removes the spectator and its secret; watch down removes watch-host; romero's second robot ended cleanly" host_watch_closes
