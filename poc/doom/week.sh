@@ -5,8 +5,9 @@
 # binds the loopback only; reach it through an SSH tunnel. Nothing public changes (watching from the public page is #113).
 #   poc/doom/week.sh up        build it (about 40 minutes), start the robots and the console, write the link to .week/week/console-url
 #   poc/doom/week.sh play      petersen's player console on her machine (#102), so you play romero's match from your browser as petersen:
-#                              her console listens on her machine's loopback, and an Incus proxy puts it on this host's loopback (WEEK_PLAY,
-#                              127.0.0.1:18792); the link goes to .week/week/player-url (0600). `up` runs it too
+#                              her console listens on her machine's loopback (WEEK_PLAY, 127.0.0.1:18792), and a relay on her lab address
+#                              passes this host's connections only; the link goes to .week/week/player-url (0600), the tunnel to
+#                              .week/week/tunnel. `up` runs it too
 #   poc/doom/week.sh status    machines, the host's spectators, robots and console
 #   poc/doom/week.sh url       a new console link (the old one dies); --to-file writes it to .week/week/console-url (0600) and prints only
 #                              that path: for a bot or a tool, so the token never reaches its output
@@ -58,17 +59,42 @@ player_console() { # petersen's own console, as a non-root user of her machine w
   incus exec "$PL" -- sh -c "systemctl stop edge-mesh-console 2>/dev/null; systemctl reset-failed edge-mesh-console 2>/dev/null
     systemd-run -q --unit edge-mesh-console --uid player -p Environment=HOME=$PLAYER_HOME -p WorkingDirectory=$PLAYER_HOME \
       python3 $LIB/console/player.py serve --web $PLAYWEB" || return 1
-  incus config device show "$PL" | grep -q '^playweb:' ||
-    incus config device add "$PL" playweb proxy listen="tcp:$PLAYWEB" connect="tcp:$PLAYWEB" bind=host >/dev/null || return 1
+  # Incus proxies only NAT into a VM (to its own address, not its loopback), so a small relay on her machine's lab address passes this host's
+  # connections, and no one else's (only the bridge's gateway, this host), to her console on her loopback. Her console stays loopback-only.
+  local gw ip; gw="$UNDERLAY_NET.1"; ip=$(vm_ip)
+  incus exec "$PL" -- sh -c "systemctl stop edge-mesh-relay 2>/dev/null; systemctl reset-failed edge-mesh-relay 2>/dev/null
+    systemd-run -q --unit edge-mesh-relay --uid player python3 -c '$RELAY' $ip ${PLAYWEB##*:} $gw ${PLAYWEB%:*} ${PLAYWEB##*:}" || return 1
   for _ in $(seq 20); do incus exec "$PL" -- python3 -c "import socket; socket.create_connection(('${PLAYWEB%:*}', ${PLAYWEB##*:}), 2)" 2>/dev/null && break; sleep 1; done
   player_url; }
+vm_ip() { incus list "$PL" -c 4 -f csv | tr ' ' '\n' | grep -m1 "^${UNDERLAY_NET//./\\.}\."; }
+# relay <listen ip> <port> <the only peer allowed> <to ip> <to port>: one thread pair per connection
+RELAY='import socket,sys,threading
+lip,lp,peer,tip,tp=sys.argv[1],int(sys.argv[2]),sys.argv[3],sys.argv[4],int(sys.argv[5])
+def pipe(a,b):
+    try:
+        while True:
+            d=a.recv(65536)
+            if not d: break
+            b.sendall(d)
+    except OSError: pass
+    for x in (a,b):
+        try: x.shutdown(socket.SHUT_RDWR)
+        except OSError: pass
+s=socket.socket(); s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1); s.bind((lip,lp)); s.listen(64)
+while True:
+    c,addr=s.accept()
+    if addr[0]!=peer: c.close(); continue
+    try: u=socket.create_connection((tip,tp),5)
+    except OSError: c.close(); continue
+    threading.Thread(target=pipe,args=(c,u),daemon=True).start(); threading.Thread(target=pipe,args=(u,c),daemon=True).start()'
 player_url() {
   local uid img; uid=$(incus exec "$PL" -- id -u player) || return 1
   img=$(incus exec "$PL" -- sh -c "k3s crictl images 2>/dev/null | awk '/emesh-doom/ {print \$1\":\"\$2; exit}'")
   mkdir -p "$RUN"; chmod 700 "$RUN"
   (umask 077; incus exec "$PL" --user "$uid" --env HOME="$PLAYER_HOME" -- python3 "$LIB/console/player.py" url --web "$PLAYWEB" >"$RUN/player-url") || return 1
   echo "$img" >"$RUN/doom-image"
-  echo "petersen's console: the link is in $RUN/player-url; in Games, type the image $img and press Play on romero's game"; }
+  echo "ssh -N -L ${WEB##*:}:$WEB -L ${PLAYWEB##*:}:$(vm_ip):${PLAYWEB##*:} <this host>" >"$RUN/tunnel"
+  echo "petersen's console: the link is in $RUN/player-url, the tunnel in $RUN/tunnel; in Games, type the image $img and press Play on romero's game"; }
 
 case "${1:-}" in
   up)
@@ -85,7 +111,7 @@ case "${1:-}" in
     start_bg console "$POC/mesh" host console --web "$WEB"
     player_console || echo "petersen's console did not start: poc/doom/week.sh play"
     sleep 3; "$0" url --to-file   # the link holds the console's token: into a file of mode 0600, never this command's output
-    echo "  from your machine: ssh -L ${WEB##*:}:$WEB -L ${PLAYWEB##*:}:$PLAYWEB <this host>, then open the links in $RUN/console-url (watch) and $RUN/player-url (play)" ;;
+    echo "  from your machine: the tunnel in $RUN/tunnel, then open the links in $RUN/console-url (watch) and $RUN/player-url (play)" ;;
   play) mkdir -p "$RUN"; player_console ;;
   url)
     if [ "${2:-}" = --to-file ]; then
