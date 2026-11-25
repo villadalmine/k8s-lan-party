@@ -66,7 +66,7 @@ player_console() { # petersen's own console, as a non-root user of her machine w
     systemd-run -q --unit edge-mesh-relay --uid player python3 -c '$RELAY' $ip ${PLAYWEB##*:} $gw ${PLAYWEB%:*} ${PLAYWEB##*:}" || return 1
   for _ in $(seq 20); do incus exec "$PL" -- python3 -c "import socket; socket.create_connection(('${PLAYWEB%:*}', ${PLAYWEB##*:}), 2)" 2>/dev/null && break; sleep 1; done
   player_url; }
-vm_ip() { incus list "$PL" -c 4 -f csv | tr ' ' '\n' | grep -m1 "^${UNDERLAY_NET//./\\.}\."; }
+vm_ip() { incus list "$PL" -c 4 -f csv | tr -d '"' | tr ' ' '\n' | grep -m1 "^${UNDERLAY_NET//./\\.}\."; }
 # relay <listen ip> <port> <the only peer allowed> <to ip> <to port>: one thread pair per connection
 RELAY='import socket,sys,threading
 lip,lp,peer,tip,tp=sys.argv[1],int(sys.argv[2]),sys.argv[3],sys.argv[4],int(sys.argv[5])
