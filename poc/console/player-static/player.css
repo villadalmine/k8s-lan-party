@@ -14,3 +14,5 @@ th { color:var(--muted); } .scroll { overflow-x:auto; } label { display:block; }
 .game { border:1px solid var(--line); background:var(--card); border-radius:8px; padding:.75rem; margin:.75rem 0; }
 .game input { margin:.25rem 0 .5rem; }
 .game img { display:block; width:min(100%,640px); image-rendering:pixelated; margin-top:.75rem; border:1px solid var(--line); }
+.screen { margin-top:.75rem; outline:none; } .screen:focus img { border-color:var(--accent); }
+.screen img { display:block; width:min(100%,640px); image-rendering:pixelated; border:2px solid var(--line); background:#000; aspect-ratio:8/5; }

@@ -177,6 +177,20 @@ version and said so.
 **Decided (D4):** accept a vendored noVNC if the spike says A is not playable, under the public page's rule (pinned version, hash
 checked, no network at run time).
 
+**As built (#102): A, our own.** `poc/doom/play-client.sh` is the player's own game client: Odamex on the pod's virtual screen, joined as a
+player (the same `join` the robots type), then `watch_stream.py` with `PLAY_INPUT=1` serves its frames (10 a second) and `POST /input`. The
+input takes Doom's controls only, by the browser's key names (arrows, Control, space, Alt, Shift, 1-7, comma, period), as keydown and
+keyup, and sends them with `xdotool` to `DISPLAY=:99`, fixed in the code: no console key, no Enter, no letters, so a tab cannot type a
+command or a chat line (WB07); without the per-pod secret it is a 401 (WB08); at most 60 a second. The player's console (`edge-mesh
+console`) has **Play** and **Leave the game** per game (a game with an active party, or the player's own server): `play-start` renders
+`pod.sh player` (`doom-play-<owner>`, private, so admission pins it to the player's node; 400m, inside the player's quota) and the page
+shows the picture and sends the keys while the picture has the focus (a held key is sent once; leaving the picture releases every key).
+The daemon checks the keys too and reaches the pod only by its IP from the player's own node, as for watching. The host gets
+`mesh host game start <owner>` (one click on the web) and `game stop <owner>` (typed, like `kick`): the server pod and its UDP Service
+in the owner's namespace, on the owner's node. No mouse and no sound in this version. The spike's numbers are poc-doom DM32's: the round
+trip of one key and of one frame from the player's node, and the change a key makes in the picture against none; B (noVNC) stays
+unneeded unless those say A cannot be played.
+
 ## What player mode needs from a bundle that it does not have today
 
 - The kubeconfig is already in the bundle; `edge-mesh kubectl` already maps the API's refusals to messages (DESIGN.md 14.1). The daemon
@@ -207,11 +221,11 @@ poc-lighthouse and poc-weakness); the issue that builds each is in brackets.
 | 7 | someone is watched without knowing | the server announces spectators; the join text says games can be watched | WB02: the server log and a player's log name the spectator [#101]. **Proved:** DM12 (server and client logs name `watch-carmack`), DM19 (the server announced it), DM27 (`watch-host has connected`) |
 | 8 | a view shows more than the game (a screen, a desktop) | the frames come from the watcher's own spectator client, never from the watched machine | WB03: the watched player's node runs no new pod and no new listener [#101]. **Proved:** DM12 (the spectator is pinned to the watcher's own node), DM27 (the host's on `hostpc`, never the control plane); neither has a `hostPort` (DM13, DM27) |
 | 9 | the picture or the keys leave the machine | between the tab and the local daemon, the loopback; between a player's pod and that player's daemon, the pod's IP reached from the player's own node only (D7); the party carries only the game's UDP; players have no `pods/portforward` | WB04: the stream port answers from the pod's own node and from no other node and no pod of another namespace, no pod has a `hostPort`, Cilium's `allow-localhost` is `always` on every agent, and a player's `kubectl port-forward` is a 403 [#101, #102]. **Proved (#101):** DM13 (same-node Pod IP, no `hostPort`, the player's `can-i --subresource=portforward` is no), DM16 (not from petersen's node or pod), `allow-localhost` checked on every Cilium agent at DM12 |
-| 10 | the page pulls code from the network | C06 unchanged; a vendored viewer is pinned and hashed | C06 extended to the new files [#102] |
+| 10 | the page pulls code from the network | C06 unchanged; a vendored viewer is pinned and hashed | C06 extended to the new files [#102]. **As built:** no new third-party file (A, not noVNC); `player.js` writes text with `textContent` and frames from `blob:` URLs only |
 | 11 | many views exhaust the server or the watcher | the watcher's namespace quota (`poc/pool.yaml`) caps the spectator pods; spectators count against the server's client limit | WB05 [#101]. **Proved:** DM29 (the host's spectator counts against `watch-host`'s quota; at the cap one more is refused by the API server); the watcher guard (DM28) keeps every such pod off the control plane |
 | 12 | a new public surface | none is added: the only change near the page server is the join text of D3 (`poc/page/page.py`) | the privacy gate of the public page, unchanged |
-| 13 | the game image comes from somewhere new | built on the player's machine by `poc/doom/build.sh`; no registry | WB06: the player's node pulls nothing for the game pod (`imagePullPolicy: Never` kept), and the build checks every fetched source against the hashes of `doom.env` [#102] |
-| 14 | the page's input reaches the player's real screen | the daemon injects only into the pod's virtual display (`DISPLAY=:99` fixed in the pod); it has no access to the player's own display | WB07: a key sent from the tab changes nothing outside the pod [#102] |
+| 13 | the game image comes from somewhere new | built on the player's machine by `poc/doom/build.sh`; no registry | WB06: the player's node pulls nothing for the game pod (`imagePullPolicy: Never` kept), and the build checks every fetched source against the hashes of `doom.env` [#102]. **Proved:** DM31 (the play pod is `imagePullPolicy: Never`), DM02 (the build: `Containerfile` checks Odamex's and FreeDM's sha256 from `doom.env`) |
+| 14 | the page's input reaches the player's real screen | the daemon injects only into the pod's virtual display (`DISPLAY=:99` fixed in the pod); it has no access to the player's own display | WB07: a key sent from the tab changes nothing outside the pod [#102]. **Proved:** `test_watch_stream.py` (only the game's keys, only `DISPLAY=:99`; the console key, Enter, letters and text are a 400, a spectator has no input at all), `test_console_player.py` (the daemon refuses them first), DM32 (the console key and Enter refused on the lab) |
 | 15 | a web page in the player's browser drives the player daemon (DNS rebinding, a cross-site POST) | the C03 check of v0.4.0 (Host and Origin must be the loopback address and port) in the player daemon too | PM05 [#100] |
 | 16 | another user or program on the player's node reads the frames or types into the game through the pod's IP | the pod's stream and input endpoints refuse a request without the per-pod secret the player daemon set at creation | WB08: a request without the secret, or with another pod's, is refused [#101, #102]. **Proved (#101):** DM13 (no secret and a wrong secret get no frame); `test_watcher.py` (the host's channel with another secret gets none) |
 

@@ -151,6 +151,16 @@ class RegistryTest(unittest.TestCase):
         will = mutate.plan("watch-invite", {"owner": "ana"}, None)
         self.assertIn("party accept watch-host", will[1])
 
+    def test_the_hosts_game_verbs(self):
+        """#102: the host starts a player's server with a click and stops it only by typing the owner's name."""
+        self.assertEqual(actions.argv("game-start", {"owner": "ana"}, "console"), ["host", "game", "start", "ana"])
+        self.assertEqual(actions.argv("game-stop", {"owner": "ana"}, "console"), ["host", "game", "stop", "ana"])
+        self.assertEqual((actions.REGISTRY["game-start"].confirm, actions.REGISTRY["game-stop"].confirm), ("click", "type:name"))
+        for bad in ("watch-host", "cp", "-x"):
+            with self.assertRaises(actions.Refused):
+                actions.argv("game-stop", {"owner": bad}, "console")
+        self.assertIn("everyone in that game is out", mutate.plan("game-stop", {"owner": "ana"}, None)[0])
+
     def test_c08_console_never_reaches_the_persistent_ca_or_a_key(self):
         for verb, args in (("invite", {"name": "ana"}), ("bundle", {"name": "ana"}), ("refresh", {"name": "cp"}),
                            ("approve", {"trust": "friends"}), ("approve", {"name": "ana", "trust": "friends"})):

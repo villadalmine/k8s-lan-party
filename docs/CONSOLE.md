@@ -157,6 +157,8 @@ simulation of a player's machine, not host actions.
 | `host watch leave <owner>` | mutates: that party closes | none: leaving is always safe | `watch-leave` | none | local, console |
 | `host watch start <owner> [--follow <player>]` | mutates: a spectator pod in watch-host, on an own machine; needs the open party | low: only what the owner accepted | `watch-start` | none | local, console |
 | `host watch stop <owner>` | mutates: removes that spectator | none | `watch-stop` | none | local, console |
+| `host game start <owner>` | mutates: a Doom server (pod and UDP Service) in the owner's namespace, on the owner's node (#102) | medium: a new workload on a player's machine | `game-start` | click | local, console |
+| `host game stop <owner>` | mutates: removes it; everyone in that game is out | high | `game-stop` | type the name | local, console |
 | `host watch init`, `host watch down` | create or remove the watcher's namespace (down closes its parties and removes every spectator) | | **never**: typed on the host (`GET /verbs` shows them disabled) | | |
 | `host watch [status]` | mutates (reconciles, like `party list`) | | `GET /watch` is its pure read | | |
 | `host invite <name>` | mutates, signs (persistent CA for `friends`), writes a private key | high | `invite` | none (local only) | local |

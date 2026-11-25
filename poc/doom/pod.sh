@@ -6,6 +6,8 @@
 #   poc/doom/pod.sh client "$IMAGE" | edge-mesh kubectl apply -f -     # doom-client: idle; `kubectl exec doom-client -- client.sh <host> 10666 40 <name>`
 #   WATCH_TOKEN=<64 hex> pod.sh watcher "$IMAGE" carmack carmack | edge-mesh kubectl apply -f -  # doom-watch-carmack, follows the target
 #   WATCH_TOKEN=<64 hex> pod.sh watcher "$IMAGE" romero host carmack | kubectl -n watch-host apply -f -  # romero's server, follows carmack
+#   WATCH_TOKEN=<64 hex> pod.sh player "$IMAGE" romero petersen | edge-mesh kubectl apply -f -  # doom-play-romero: petersen plays romero's game
+#     from her browser (#102): frames and keys on 17777, behind the token; the server owner's own game is `pod.sh player "$IMAGE" romero romero`
 #     (<server owner> <watcher> [<player to follow>, default the server owner]; the host's watcher is `host`: Odamex name watch-host, D6)
 #   poc/doom/pod.sh probe "$AGNHOST_IMAGE" | ...                       # doom-probe (only the suite): answers UDP on 10666 with its name, so
 #                                                                       # `client.sh --probe` tells an open party from a closed one without joining the game
@@ -20,14 +22,22 @@ case "${1:-}" in
     name="doom-watch-$target"; # every argument quoted: a bare 10666 is a YAML number (the API refuses a command that is not all strings), and a player may be called `no` or `true`
     cmd="/usr/local/bin/watch-client.sh, \"doom.play-$target.svc.cluster.local\", \"10666\", \"$follow\", \"$watcher\""
     port=17777; pull=Never; cpu=300m; mem=256Mi ;;
+  player)
+    target="${3:?server owner}"; player="${4:?player}"
+    [[ "$target" =~ ^[a-z][a-z0-9-]{1,19}$ && "$player" =~ ^[a-z][a-z0-9-]{1,19}$ ]] || { echo "invalid player name" >&2; exit 2; }
+    [[ "${WATCH_TOKEN:-}" =~ ^[a-f0-9]{64}$ ]] || { echo "WATCH_TOKEN must be 64 lowercase hex characters" >&2; exit 2; }
+    name="doom-play-$target"
+    if [ "$target" = "$player" ]; then svc=doom; else svc="doom.play-$target.svc.cluster.local"; fi
+    cmd="/usr/local/bin/play-client.sh, \"$svc\", \"10666\", \"$player\""
+    port=17777; pull=Never; cpu=400m; mem=384Mi ;;   # 400m: the player's quota (1000m) also holds the robot and the probe
   probe) name=doom-probe cmd="/agnhost, netexec, --udp-port=10666, --http-port=8080" port=10666 pull=IfNotPresent cpu=200m mem=128Mi ;;   # a public image, pulled as poc-party's
-  *) echo "usage: pod.sh server|client|watcher|probe <image> [target] [watcher] [follow]" >&2; exit 2 ;;
+  *) echo "usage: pod.sh server|client|watcher|player|probe <image> [target] [watcher|player] [follow]" >&2; exit 2 ;;
 esac
 img="${2:?image}"
 printf 'apiVersion: v1\nkind: Pod\nmetadata: {name: %s, labels: {app: %s}}\nspec:\n  automountServiceAccountToken: false\n' "$name" "$name"
 printf '  securityContext: {runAsNonRoot: true, runAsUser: 65534, seccompProfile: {type: RuntimeDefault}}\n  containers:\n'
 printf '  - name: c\n    image: %s\n    imagePullPolicy: %s\n    command: [%s]\n' "$img" "$pull" "$cmd"
 [ -z "$port" ] || { if [ "$port" = 17777 ]; then printf '    ports: [{containerPort: %s, protocol: TCP}]\n' "$port"; else printf '    ports: [{containerPort: %s, protocol: UDP}]\n' "$port"; fi; }
-[ "${1:-}" != watcher ] || printf '    env: [{name: WATCH_TOKEN, value: "%s"}]\n' "$WATCH_TOKEN"
+[ "${1:-}" != watcher ] && [ "${1:-}" != player ] || printf '    env: [{name: WATCH_TOKEN, value: "%s"}]\n' "$WATCH_TOKEN"
 printf '    resources: {requests: {cpu: 200m, memory: 128Mi}, limits: {cpu: %s, memory: %s, ephemeral-storage: 512Mi}}\n' "$cpu" "$mem"
 printf '    securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}}\n'

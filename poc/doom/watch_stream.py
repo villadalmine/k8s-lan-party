@@ -1,13 +1,18 @@
 #!/usr/bin/env python3
-"""Authenticated, low-rate JPEG stream for one local Odamex spectator pod.
+"""Authenticated, low-rate JPEG stream for one local Odamex spectator pod, and with PLAY_INPUT=1 the keys of a player's own game.
 
 The caller is the player's daemon on the same Kubernetes node. This endpoint
 is reached by Pod IP, never a Service, hostPort or Kubernetes port-forward.
+
+POST /input (PLAY_INPUT=1 only, issue #102): {"down": [...], "up": [...]} with browser key names from KEYS. The keys go to this pod's
+own virtual display (:99, fixed) with xdotool and nowhere else (WB07). No console key, no Enter, no text: a browser tab cannot type a
+command or a chat line into the game. Same per-pod secret as the frames (WB08).
 """
 from __future__ import annotations
 
 import hmac
 import http.server
+import json
 import os
 import re
 import subprocess
@@ -17,7 +22,13 @@ from urllib.parse import urlsplit
 
 TOKEN = os.environ.get("WATCH_TOKEN", "")
 PORT = int(os.environ.get("WATCH_PORT", "17777"))
-FPS = max(1, min(int(os.environ.get("WATCH_FPS", "3")), 5))
+PLAY = os.environ.get("PLAY_INPUT", "") == "1"
+FPS = max(1, min(int(os.environ.get("WATCH_FPS", "3")), 12 if PLAY else 5))
+# the browser's KeyboardEvent.key -> the X keysym; Doom's default controls only (Odamex 12.3.0): move, turn, fire, use, strafe, run, weapons
+KEYS = {"ArrowUp": "Up", "ArrowDown": "Down", "ArrowLeft": "Left", "ArrowRight": "Right", "Control": "Control_L", " ": "space",
+        "Alt": "Alt_L", "Shift": "Shift_L", ",": "comma", ".": "period", **{str(n): str(n) for n in range(1, 8)}}
+MAX_INPUT = 512
+INPUTS_PER_SECOND = 60
 TOKEN_RE = re.compile(r"[a-f0-9]{64}")
 MAX_FRAME = 2 * 1024 * 1024
 
@@ -83,6 +94,46 @@ def capture() -> None:
         time.sleep(1)
 
 
+class Keyboard:
+    """The pod's own virtual display only: DISPLAY is fixed here, never taken from the request. Counts requests per second."""
+
+    def __init__(self, runner=subprocess.run):
+        self.runner, self.lock, self.window = runner, threading.Lock(), []
+
+    def allow(self) -> bool:
+        now = time.monotonic()
+        with self.lock:
+            self.window = [t for t in self.window if now - t < 1] + [now]
+            return len(self.window) <= INPUTS_PER_SECOND
+
+    def press(self, down: list, up: list) -> None:
+        args = []
+        for k in up:
+            args += ["keyup", KEYS[k]]
+        for k in down:
+            args += ["keydown", KEYS[k]]
+        if args:
+            self.runner(["xdotool", *args], env={"DISPLAY": ":99", "PATH": os.environ.get("PATH", "/usr/bin:/bin")},
+                        timeout=2, check=False, capture_output=True)
+
+
+keyboard = Keyboard()
+
+
+def parse_input(raw: bytes) -> tuple[list, list] | None:
+    """The keys of one POST /input, or None when anything in it is not allowed."""
+    try:
+        body = json.loads(raw)
+    except ValueError:
+        return None
+    if not isinstance(body, dict) or set(body) - {"down", "up"}:
+        return None
+    lists = [body.get("down", []), body.get("up", [])]
+    if not all(isinstance(l, list) and len(l) <= 8 and all(isinstance(k, str) and k in KEYS for k in l) for l in lists):
+        return None
+    return lists[0], lists[1]
+
+
 class Handler(http.server.BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.0"
     server_version = ""
@@ -105,6 +156,28 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if length is not None:
             self.send_header("Content-Length", str(length))
         self.end_headers()
+
+    def do_POST(self) -> None:
+        path = urlsplit(self.path)
+        if not PLAY or path.path != "/input" or path.query or path.fragment:
+            self.send_headers(404, "text/plain; charset=utf-8", length=0)
+            return
+        if not self.authorized():
+            self.send_headers(401, "text/plain; charset=utf-8", length=0)
+            return
+        try:
+            n = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            n = -1
+        keys = parse_input(self.rfile.read(n)) if 0 < n <= MAX_INPUT else None
+        if keys is None:
+            self.send_headers(400, "text/plain; charset=utf-8", length=0)
+            return
+        if not keyboard.allow():
+            self.send_headers(429, "text/plain; charset=utf-8", length=0)
+            return
+        keyboard.press(*keys)
+        self.send_headers(204, "text/plain; charset=utf-8", length=0)
 
     def do_GET(self) -> None:
         path = urlsplit(self.path)

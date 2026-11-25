@@ -2471,6 +2471,8 @@
      "watch-leave",
      "watch-start",
      "watch-stop",
+     "game-start",
+     "game-stop",
      "invite",
      "refresh",
      "bundle"
@@ -3153,6 +3155,48 @@
    "arg_roles": {},
    "timeout_seconds": 120,
    "summary": "remove the host's spectator of that game"
+  },
+  {
+   "verb": "game-start",
+   "engine": "mesh host game start {owner}",
+   "params": {
+    "owner": {
+     "type": "string",
+     "pattern": "^(?!(?:lh|cp|n1|n2|host|watch-host)$)[a-z][a-z0-9-]{1,19}$"
+    }
+   },
+   "required": [
+    "owner"
+   ],
+   "confirm": "click",
+   "roles": [
+    "local",
+    "console"
+   ],
+   "arg_roles": {},
+   "timeout_seconds": 120,
+   "summary": "a Doom server in the owner's namespace, on the owner's node"
+  },
+  {
+   "verb": "game-stop",
+   "engine": "mesh host game stop {owner}",
+   "params": {
+    "owner": {
+     "type": "string",
+     "pattern": "^(?!(?:lh|cp|n1|n2|host|watch-host)$)[a-z][a-z0-9-]{1,19}$"
+    }
+   },
+   "required": [
+    "owner"
+   ],
+   "confirm": "type:name",
+   "roles": [
+    "local",
+    "console"
+   ],
+   "arg_roles": {},
+   "timeout_seconds": 120,
+   "summary": "stop the owner's game server: everyone in that game is out"
   },
   {
    "verb": "invite",

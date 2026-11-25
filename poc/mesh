@@ -42,6 +42,8 @@
 #   mesh host watch status --json --read-only   the host's parties and spectators, without reconciling (the host console)
 #   mesh host watch frame <owner>          one JPEG of that spectator on stdout, through the API server (D7: the host's own views only)
 #   mesh host watch down                   remove the watcher namespace and all in it; its parties close
+#   mesh host game start <owner>           a Doom server (pod doom-server, UDP Service doom on 10666) in <owner>'s namespace, on their node (#102)
+#   mesh host game stop <owner>            remove it: everyone in that game is out
 #   mesh party invite|accept <peer> [--ports P/UDP,...] --as <player>   (local simulation, like play) the player's own
 #   mesh party leave [<peer>] | list --as <player>                      `edge-mesh party ...`, run on that player's machine
 # The host console (docs/CONSOLE.md, issue #85): one local API in front of these verbs
@@ -213,6 +215,24 @@ case "$1 ${2:-}" in
     case "$sub" in list|reconcile|end) ;; *) usage ;; esac
     python3 "$POC/party.py" "$sub" "$@" --config "${POOL_CONFIG:-$POC/pool.yaml}" --bundles "$STATE/bundles" \
       --nebula-cert "$CACHE/nebula-cert" --kc "$POC/kc" ;;
+  "host game")
+    sub="${3:-}"; owner="${4:-}"
+    printf '%s' "$owner" | grep -Eqx '[a-z][a-z0-9-]{1,19}' && [ "$(printf '%s' "$owner" | wc -l)" -eq 0 ] && [ "$owner" != watch-host ] ||
+      { echo "usage: mesh host game start|stop <owner>"; exit 2; }
+    ns="play-$owner"
+    [ -n "$(k get namespace "$ns" --ignore-not-found -o name)" ] || { echo "no player $owner (namespace $ns)"; exit 3; }
+    case "$sub" in
+      start)
+        [ -z "$(k get pod doom-server -n "$ns" --ignore-not-found -o name)" ] || { echo "game: $owner's server runs already"; exit 0; }
+        img=$("$POC/doom/build.sh" --name) || exit 1
+        "$POC/doom/pod.sh" server "$img" | k apply -n "$ns" -f - >/dev/null &&
+          { [ -n "$(k get service doom -n "$ns" --ignore-not-found -o name)" ] || k expose pod doom-server -n "$ns" --name doom --port 10666 --protocol UDP >/dev/null; } || exit 1
+        echo "game: $owner's server starting (pod doom-server, Service doom 10666/UDP in $ns; the image must be on $owner's node)" ;;
+      stop)
+        k delete pod doom-server -n "$ns" --ignore-not-found --wait=false >/dev/null && k delete service doom -n "$ns" --ignore-not-found >/dev/null || exit 1
+        echo "game: $owner's server stopped" ;;
+      *) echo "usage: mesh host game start|stop <owner>"; exit 2 ;;
+    esac ;;
   "host watch")
     sub="${3:-status}"; owner="${4:-}"; w=watch-host; WD="$STATE/watch"
     case "$sub" in

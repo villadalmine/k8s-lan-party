@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parent.parent
 SPEC = ROOT / "poc" / "console" / "openapi.json"
 DOC = ROOT / "docs" / "CONSOLE.md"
 LOCAL_ONLY = {"invite", "bundle", "refresh"}          # a private key, the persistent CA, a running machine's config
-DANGEROUS = {"approve", "auto-on", "panic", "panic-clear", "reap-all", "reap-one", "kick", "revoke", "party-end", "watch-invite"}
+DANGEROUS = {"approve", "auto-on", "panic", "panic-clear", "reap-all", "reap-one", "kick", "revoke", "party-end", "watch-invite", "game-start", "game-stop"}
 
 
 def doc_rows() -> dict[str, list[tuple[str, str, str]]]:

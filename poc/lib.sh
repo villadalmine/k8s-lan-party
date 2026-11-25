@@ -134,6 +134,7 @@ verb_class() {
     "host panic") case "$rest" in *" --clear "*) echo "registry panic-clear" ;; *) echo "registry panic" ;; esac ;;
     "host party") case "${3:-list}" in reconcile) echo "registry party-reconcile" ;; end) echo "registry party-end" ;;
       *) case "$rest" in *" --read-only "*) echo "read -" ;; *) echo "mutate -" ;; esac ;; esac ;;
+    "host game") case "${3:-}" in start) echo "registry game-start" ;; stop) echo "registry game-stop" ;; *) echo "mutate -" ;; esac ;;
     "host watch") case "${3:-status}" in   # the host's watcher (D6): the web's verbs are the registry's; init and down stay on the host
       invite) echo "registry watch-invite" ;; leave) echo "registry watch-leave" ;; start) echo "registry watch-start" ;; stop) echo "registry watch-stop" ;;
       frame) echo "read -" ;; status) case "$rest" in *" --read-only "*) echo "read -" ;; *) echo "mutate -" ;; esac ;; *) echo "mutate -" ;; esac ;;

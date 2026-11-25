@@ -128,7 +128,7 @@ class PlayerTest(unittest.TestCase):
                                     "data": {"peer": "carol", "ports": ""}},
                                    {"metadata": {"name": "party-bad"}, "data": {"peer": "not valid"}}]}
         self.assertEqual(self.p.get("games", []), [{"peer": "bob", "ports": "10666/UDP", "status": "active: ports 10666/UDP",
-                                                     "watching": False}])
+                                                     "watching": False, "playing": False}])
         rows = self.p.get("parties", [])
         self.assertEqual([r["peer"] for r in rows], ["bob", "carol"])
         self.assertIn("-n", self.kc.calls[-1][0])
@@ -140,7 +140,7 @@ class PlayerTest(unittest.TestCase):
             {"items": [{"metadata": {"name": "doom-watch-bob"}, "status": {"phase": "Running"}}]},
         ]
         self.assertEqual(self.p.get("games", {}), [{"peer": "bob", "ports": "",
-                         "status": "inactive: party ended; stop the spectator", "watching": True}])
+                         "status": "inactive: party ended; stop the spectator", "watching": True, "playing": False}])
 
     def test_watch_host_is_the_hosts_watcher_not_a_game(self):
         # a party with watch-host is the host watching the owner; it serves no game, so no spectator is built for it (PR #112 review)
@@ -165,6 +165,45 @@ class PlayerTest(unittest.TestCase):
                 self.p.watch_frame("bob")
         self.assertEqual((e.exception.status, e.exception.code), (404, "watch-unavailable"))
         self.assertEqual(self.kc.calls, [])
+
+    def test_play_start_needs_a_game_and_renders_a_private_player_pod(self):
+        """#102: the tab plays only a game the player has an active party with, or their own server; one at a time."""
+        img = "localhost/emesh-doom:12.3.0-abcdef012345"
+        with patch.object(self.p, "get", return_value=[]):
+            with self.assertRaises(player.PlayerError) as e:
+                self.p.act("play-start", {"peer": "bob", "image": img})
+        self.assertEqual(e.exception.code, "not-a-game")
+        with self.assertRaises(player.PlayerError) as e:
+            self.p.act("play-start", {"peer": "alice", "image": img})   # own game, but no server
+        self.assertEqual(e.exception.code, "no-game")
+        with patch.object(self.p, "get", return_value=[{"peer": "bob", "status": "active: ports 10666/UDP"}]):
+            self.kc.calls.clear()
+            self.p.act("play-start", {"peer": "bob", "image": img})
+        argv, stdin = self.kc.calls[-1]
+        self.assertIn("apply", argv)
+        pod = stdin.decode()
+        self.assertIn("name: doom-play-bob", pod)
+        self.assertIn('"doom.play-bob.svc.cluster.local", "10666", "alice"', pod)
+        self.assertNotIn("hostPort", pod)
+        self.kc.reply = {"items": [{"metadata": {"name": "doom-play-bob"}}]}
+        with patch.object(self.p, "get", return_value=[{"peer": "bob", "status": "active: ports 10666/UDP"}]):
+            with self.assertRaises(player.PlayerError) as e:
+                self.p.act("play-start", {"peer": "bob", "image": img})
+        self.assertEqual(e.exception.code, "play-exists")
+
+    def test_keys_are_only_the_games_and_go_to_the_own_pod(self):
+        for bad in ({"down": ["`"]}, {"down": ["Enter"]}, {"down": ["a"]}, {"text": "kill"}, {"down": ["ArrowUp"] * 9}, {"down": "ArrowUp"}):
+            with self.assertRaises(player.PlayerError) as e:
+                self.p.keys("bob", bad)
+            self.assertEqual(e.exception.code, "bad-keys", bad)
+        self.assertEqual(self.kc.calls, [])   # refused before any cluster call
+        pod = {"metadata": {"name": "doom-play-bob"}, "spec": {"nodeName": "bob-node", "containers": [{"env": [
+            {"name": "WATCH_TOKEN", "value": "a" * 64}]}]}, "status": {"phase": "Running", "podIP": "10.42.1.5"}}
+        self.kc.reply = {"items": [pod]}
+        with patch.object(self.p, "get", return_value=[{"peer": "bob", "status": "active: ports 10666/UDP"}]):
+            with self.assertRaises(player.PlayerError) as e:   # on another node than this player's: never reached
+                self.p.keys("bob", {"down": ["ArrowUp"]})
+        self.assertEqual(e.exception.code, "play-unavailable")
 
     def test_pm04_party_mutations_are_validated_and_scoped(self):
         self.p.act("party-invite", {"peer": "bob", "ports": "10666/UDP"})

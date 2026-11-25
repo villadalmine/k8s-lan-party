@@ -216,10 +216,10 @@ class Console:
         if "confirm" not in body:
             will = mutate.plan(verb, args, self.reads)
             tok = self.plans.issue(verb, args, cred, mutate.plan_hash(will))
-            typed = {"type:name": args.get("name"), "type:all": "all"}.get(a.confirm)
+            typed = {"type:name": args.get("name", args.get("owner")), "type:all": "all"}.get(a.confirm)
             return 200, {"verb": verb, "args": args, "will": will, "confirm": tok, "expires_in": mutate.CONFIRM_SECONDS,
                          "type_to_confirm": typed}
-        typed = {"type:name": args.get("name"), "type:all": "all"}.get(a.confirm)
+        typed = {"type:name": args.get("name", args.get("owner")), "type:all": "all"}.get(a.confirm)
         if typed is not None and body.get("typed") != typed:   # before the token is spent: a typo does not cost a new plan
             raise Refusal(400, "typed", f"type {typed!r} to confirm")
         want = self.plans.redeem(body["confirm"], verb, args, cred)
