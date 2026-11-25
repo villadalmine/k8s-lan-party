@@ -366,11 +366,12 @@ play_up() { # #102: petersen plays romero's game from her own node, the way her 
     k exec -n play-romero doom-server -- grep 'petersen joined the game' /tmp/server.log; }
 play_keys() { # #102 (WB07, WB08, the spike's numbers): from her node her keys move her game; nothing else gets in
   local url="http://$PLAY_IP:17777" d="$OUTD/play"; mkdir -p "$d"
-  [ "$(play_post petersen "" "$url/input" '{"down":["ArrowLeft"]}')" = 401 ] || return 1                       # no secret
-  [ "$(play_post petersen "$PLAY_TOKEN" "$url/input" '{"down":["`"]}')" = 400 ] || return 1                     # the console key
-  [ "$(play_post petersen "$PLAY_TOKEN" "$url/input" '{"down":["Return"]}')" = 400 ] || return 1                # Enter (chat)
-  [ "$(play_post carmack "$PLAY_TOKEN" "$url/input" '{"down":["ArrowLeft"]}')" = 000 ] || return 1              # another player's node
-  wait_for 30 sh -c "[ \"\$(printf '%s\n' '$PLAY_TOKEN' | incus exec emesh-petersen -- python3 -c 'import sys,urllib.request; t=sys.stdin.readline().strip(); print(urllib.request.urlopen(urllib.request.Request(\"$url/frame\",headers={\"Authorization\":\"Bearer \"+t}),timeout=5).status)' 2>/dev/null)\" = 200 ]" || return 1
+  # the stream starts a few seconds after the server says she joined (the client types `join` first): wait for her first frame
+  wait_for 30 sh -c "[ \"\$(printf '%s\n' '$PLAY_TOKEN' | incus exec emesh-petersen -- python3 -c 'import sys,urllib.request; t=sys.stdin.readline().strip(); print(urllib.request.urlopen(urllib.request.Request(\"$url/frame\",headers={\"Authorization\":\"Bearer \"+t}),timeout=5).status)' 2>/dev/null)\" = 200 ]" || { echo "no frame from her pod in 30 s"; return 1; }
+  local c; c=$(play_post petersen "" "$url/input" '{"down":["ArrowLeft"]}'); echo "no secret: $c"; [ "$c" = 401 ] || return 1
+  c=$(play_post petersen "$PLAY_TOKEN" "$url/input" '{"down":["`"]}'); echo "the console key: $c"; [ "$c" = 400 ] || return 1
+  c=$(play_post petersen "$PLAY_TOKEN" "$url/input" '{"down":["Return"]}'); echo "Enter: $c"; [ "$c" = 400 ] || return 1
+  c=$(play_post carmack "$PLAY_TOKEN" "$url/input" '{"down":["ArrowLeft"]}'); echo "from carmack's node: $c (000: no answer)"; [ "$c" = 000 ] || return 1
   watch_frame petersen "$PLAY_TOKEN" "$url/frame" >"$d/c.jpg" && sleep 1.5 && watch_frame petersen "$PLAY_TOKEN" "$url/frame" >"$d/d.jpg" || return 1   # no keys
   watch_frame petersen "$PLAY_TOKEN" "$url/frame" >"$d/a.jpg" &&
   [ "$(play_post petersen "$PLAY_TOKEN" "$url/input" '{"down":["ArrowLeft"]}')" = 204 ] && sleep 1.5 &&
