@@ -306,9 +306,16 @@ class Player:
                 # a party with watch-host is the host watching this player's game: it serves no game to watch (PR #112 review)
                 active = [r for r in rows if r["status"].startswith("active:") and r["peer"] != "watch-host"]
                 active_peers = {r["peer"] for r in active}
-                active.extend({"peer": peer, "ports": "", "status": "inactive: party ended; stop the spectator", "watching": True,
-                               "playing": peer in players} for peer in sorted(watchers - active_peers))
-                if self._pod("doom-server") is not None:   # the player's own server: they may play it from the tab too
+                own_server = self._pod("doom-server") is not None
+                if own_server:
+                    active_peers.add(self.name)
+                # a spectator or a game client left behind (the party ended, the own server stopped) keeps its row, to be stopped:
+                # without it the page shows no Leave button and the pod keeps the quota (PR #114 review)
+                active.extend({"peer": peer, "ports": "", "status": "inactive: party ended; " + ("leave the game" if peer in players else "stop the spectator"),
+                               "watching": peer in watchers,
+                               "playing": peer in players, **({"own": True} if peer == self.name else {})}
+                              for peer in sorted((watchers | players) - active_peers))
+                if own_server:   # the player's own server: they may play it from the tab too
                     active.insert(0, {"peer": self.name, "ports": "10666/UDP", "status": "active: your own game", "watching": False,
                                       "playing": self.name in players, "own": True})
                 return active
@@ -348,9 +355,18 @@ class Player:
         key, now = (kind, peer), self.clock()
         hit = self._endpoints.get(key)
         if hit and now - hit[0] < ENDPOINT_TTL:
+            if isinstance(hit[1], PlayerError):
+                raise hit[1]
             return hit[1]
-        found = self._lookup(kind, peer)
+        try:
+            found = self._lookup(kind, peer)
+        except PlayerError as e:   # not ready yet is kept too: a tab asking 10 times a second must not cost 5 kubectl calls each time
+            if e.status != 404:
+                raise
+            found = e
         self._endpoints[key] = (now, found)
+        if isinstance(found, PlayerError):
+            raise found
         return found
 
     def _forget(self, kind: str, peer: str) -> None:
@@ -437,8 +453,9 @@ class Player:
             image = body.get("image", "")
             if not isinstance(peer, str) or not PEER.fullmatch(peer) or peer in (self.name, "watch-host"):
                 raise PlayerError(400, "bad-peer", "peer must be a game participant")
-            if not any(game["peer"] == peer for game in self.get("games", {})):
+            if not any(game["peer"] == peer and game["status"].startswith("active:") for game in self.get("games", {})):
                 raise PlayerError(403, "not-a-game", "watching needs an active party with that game")
+            self._forget("watch", peer)
             if not isinstance(image, str) or not DOOM_IMAGE.fullmatch(image):
                 raise PlayerError(400, "bad-image", "build or import the pinned local Doom image first")
             existing = self._watch_pods()
@@ -462,8 +479,9 @@ class Player:
             if peer == self.name:
                 if self._pod("doom-server") is None:
                     raise PlayerError(404, "no-game", "you run no game server")
-            elif not any(game["peer"] == peer for game in self.get("games", {})):
+            elif not any(game["peer"] == peer and game["status"].startswith("active:") for game in self.get("games", {})):
                 raise PlayerError(403, "not-a-game", "playing needs an active party with that game")
+            self._forget("play", peer)
             if not isinstance(image, str) or not DOOM_IMAGE.fullmatch(image):
                 raise PlayerError(400, "bad-image", "build or import the pinned local Doom image first")
             if self._play_pods():

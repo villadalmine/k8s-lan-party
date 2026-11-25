@@ -219,6 +219,51 @@ class PlayerTest(unittest.TestCase):
             self.p._endpoint("watch", "bob")   # a spectator is another pod
             self.assertEqual(look.call_count, 4)
 
+    def test_a_game_client_left_behind_keeps_a_row_and_nothing_starts_on_an_ended_party(self):
+        """PR #114 review: a play pod whose party ended stays on the page (to leave it); play-start and watch-start need an active party."""
+        with patch.object(self.p, "_watch_pods", return_value=[]), \
+                patch.object(self.p, "_play_pods", return_value=[{"metadata": {"name": "doom-play-bob"}}]), \
+                patch.object(self.p, "_pod", return_value=None):
+            self.kc.reply = {"items": [{"metadata": {"name": "party-bob", "annotations": {"edge-mesh/party-status": "inactive: closed"}},
+                                        "data": {"peer": "bob", "ports": ""}}]}
+            rows = self.p.get("games", [])
+        self.assertEqual(rows, [{"peer": "bob", "ports": "", "status": "inactive: party ended; leave the game", "watching": False,
+                                 "playing": True}])
+        img = "localhost/emesh-doom:12.3.0-abcdef012345"
+        with patch.object(self.p, "get", return_value=rows):
+            for verb in ("play-start", "watch-start"):
+                with self.assertRaises(player.PlayerError) as e:
+                    self.p.act(verb, {"peer": "bob", "image": img})
+                self.assertEqual(e.exception.code, "not-a-game", verb)
+
+    def test_a_pod_not_ready_is_remembered_too(self):
+        """A tab asks 10 times a second: a 'not ready' answer is kept ENDPOINT_TTL seconds, not 5 kubectl calls each time."""
+        with patch.object(self.p, "_lookup", side_effect=player.PlayerError(404, "play-unavailable", "not ready")) as look:
+            for _ in range(5):
+                with self.assertRaises(player.PlayerError):
+                    self.p._endpoint("play", "bob")
+            self.assertEqual(look.call_count, 1)
+            self.now[0] += player.ENDPOINT_TTL
+            with self.assertRaises(player.PlayerError):
+                self.p._endpoint("play", "bob")
+            self.assertEqual(look.call_count, 2)
+
+    def test_the_three_key_lists_are_one(self):
+        """The page, the player's daemon and the pod each check the keys: the three lists must say the same (PR #114 review)."""
+        import ast, re as _re
+        pod = Path(__file__).resolve().parent / "doom" / "watch_stream.py"
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("watch_stream_keys", pod)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        keys = mod.KEYS
+        js = (Path(__file__).resolve().parent / "console" / "player-static" / "player.js").read_text()
+        page = set(ast.literal_eval("[" + _re.search(r"const PLAY_KEYS = new Set\(\[(.*?)\]\)", js).group(1) + "]"))
+        self.assertEqual(set(keys), player.PLAY_KEYS)
+        self.assertEqual(page, player.PLAY_KEYS)
+        for never in ("`", "Enter", "Escape", "Tab", "a", "t", "y"):
+            self.assertNotIn(never, player.PLAY_KEYS)
+
     def test_pm04_party_mutations_are_validated_and_scoped(self):
         self.p.act("party-invite", {"peer": "bob", "ports": "10666/UDP"})
         argv, stdin = self.kc.calls[-1]

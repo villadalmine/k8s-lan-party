@@ -364,10 +364,11 @@ play_up() { # #102: petersen plays romero's game from her own node, the way her 
     [ "$(K petersen get pod doom-play-romero -o jsonpath='{.spec.containers[0].imagePullPolicy}')" = Never ] && wait_for 90 play_joins || return 1
   show host "kubectl exec -n play-romero doom-server -- grep 'petersen joined the game' /tmp/server.log" \
     k exec -n play-romero doom-server -- grep 'petersen joined the game' /tmp/server.log; }
+play_frame_ok() { watch_frame petersen "$PLAY_TOKEN" "$1/frame" >/dev/null; }   # a function: the secret reaches no command line
 play_keys() { # #102 (WB07, WB08, the spike's numbers): from her node her keys move her game; nothing else gets in
   local url="http://$PLAY_IP:17777" d="$OUTD/play"; mkdir -p "$d"
   # the stream starts a few seconds after the server says she joined (the client types `join` first): wait for her first frame
-  wait_for 30 sh -c "[ \"\$(printf '%s\n' '$PLAY_TOKEN' | incus exec emesh-petersen -- python3 -c 'import sys,urllib.request; t=sys.stdin.readline().strip(); print(urllib.request.urlopen(urllib.request.Request(\"$url/frame\",headers={\"Authorization\":\"Bearer \"+t}),timeout=5).status)' 2>/dev/null)\" = 200 ]" || { echo "no frame from her pod in 30 s"; return 1; }
+  wait_for 30 play_frame_ok "$url" || { echo "no frame from her pod in 30 s"; return 1; }
   local c; c=$(play_post petersen "" "$url/input" '{"down":["ArrowLeft"]}'); echo "no secret: $c"; [ "$c" = 401 ] || return 1
   c=$(play_post petersen "$PLAY_TOKEN" "$url/input" '{"down":["`"]}'); echo "the console key: $c"; [ "$c" = 400 ] || return 1
   c=$(play_post petersen "$PLAY_TOKEN" "$url/input" '{"down":["Return"]}'); echo "Enter: $c"; [ "$c" = 400 ] || return 1

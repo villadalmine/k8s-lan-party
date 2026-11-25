@@ -402,6 +402,22 @@ of the player's namespace API; it does not read cluster-wide Node objects. The l
 the API server validates the token and decides access. Party invite, accept and leave write only the player's own consent ConfigMaps for
 the host's existing reconciliation loop. Data sent to the page is redacted for credentials and node key paths.
 
+**Watching and playing (#101, #102).** Each game card has **Watch** / **Stop watching** (`watch-start`, `watch-stop`: a spectator pod,
+`doom-watch-<owner>`) and **Play** / **Leave the game** (`play-start`, `play-stop`: the player's own game client, `doom-play-<owner>`).
+Both are pods in the player's namespace, private, so admission pins them to the player's own node; both take the local Doom image (built
+with `poc/doom/build.sh` and imported into k3s on that node) and need an active party with the game's owner, or the player's own server for
+Play. They count against the player's quota (a spectator 300m CPU and 256Mi, a game client 400m and 384Mi, out of 1000m). A pod left behind
+when a party ends keeps its card, marked inactive, until it is stopped. The routes, all behind the console's token:
+
+| route | what |
+| :--- | :--- |
+| `GET /api/v1/watch/{owner}/frame` | the spectator's latest JPEG |
+| `GET /api/v1/play/{owner}/frame` | the game client's latest JPEG (the page asks 10 times a second, less while it is not ready) |
+| `POST /api/v1/play/{owner}/input` | `{"down": [...], "up": [...]}`, at most 8 each, only the game's keys: arrows, Control, space, Alt, Shift, 1-7, comma, period |
+
+The console reaches each pod only by its Pod IP from the player's own node, with that pod's own secret (D7), and keeps the address and
+secret 3 seconds. The pod checks the secret and the keys again and sends them to its own virtual display only (`docs/CONSOLE-MODES.md`).
+
 `make poc-player` exercises loopback binding, namespace limits, token display, party consent validation, host-action rejection, and safe
 credential installation. It uses the test fake Kubernetes CLI and requires no cluster.
 

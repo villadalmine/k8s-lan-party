@@ -50,7 +50,8 @@ robots_off() { stop_bg robot-romero; stop_bg robot-petersen; }
 machines() { incus list emesh- -c n -f csv; }
 PL=emesh-petersen; PLAYER_HOME=/home/player; LIB=/usr/local/lib/edge-mesh/poc
 player_console() { # petersen's own console, as a non-root user of her machine with her namespace's kubeconfig only (the way edge-mesh join
-  # installs it), started by systemd there; the host reaches its loopback only through the Incus proxy, which is on the host's loopback too
+  # installs it), started by systemd there; this host reaches its loopback only through the relay below (on her lab address, this host's
+  # connections only)
   incus exec "$PL" -- sh -c "id -u player >/dev/null 2>&1 || useradd -m -s /bin/sh player; mkdir -p $LIB/doom" || return 1
   # the files docs/JOIN.md installs on a player's machine (tests/test_player_console_files.py keeps that list complete)
   tar cf - --exclude=__pycache__ -C "$POC" console page/page.py page/seal.py page/news.py admission.py pool.py meshlock.py participant.py \

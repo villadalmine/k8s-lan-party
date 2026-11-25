@@ -130,7 +130,8 @@ function playing(peer, card) {   // the game in the tab: frames from your own po
   const screen = el("div", null, "screen"); screen.tabIndex = 0;
   screen.setAttribute("aria-label", `Your game in ${peer}'s match: click, then arrows move, Control fires, space opens`);
   const img = el("img"); img.alt = `Your game in ${peer}'s match`;
-  screen.append(img, el("p", "Click the picture, then: arrows move and turn, Control fires, space opens doors, Alt strafes, Shift runs, 1-7 weapons.", "muted"));
+  const state = el("p", "starting your game client…", "muted");
+  screen.append(img, state, el("p", "Click the picture, then: arrows move and turn, Control fires, space opens doors, Alt strafes, Shift runs, 1-7 weapons.", "muted"));
   card.appendChild(screen);
   const held = new Set();
   const key = (down) => (e) => {
@@ -145,9 +146,10 @@ function playing(peer, card) {   // the game in the tab: frames from your own po
   screen.addEventListener("blur", () => { if (held.size) sendKeys(peer, [], [...held]); held.clear(); });   // never a key stuck down
   if (playPeer === peer && playTimer) return;
   stopPlaying(); playPeer = peer;
+  let wait = 100;   // 10 frames a second while it plays; while the client is not ready, ask less and less often (at most every 5 s)
   const frame = async () => {
     if (view !== "games" || playPeer !== peer) return;
-    const shown = document.querySelector(".screen img");
+    const shown = document.querySelector(".screen img"), said = document.querySelector(".screen p");
     try {
       const r = await fetch(`/api/v1/play/${encodeURIComponent(peer)}/frame`, { cache: "no-store", credentials: "omit",
         headers: { Authorization: "Bearer " + token() } });
@@ -155,10 +157,16 @@ function playing(peer, card) {   // the game in the tab: frames from your own po
       if (r.ok && shown) {
         const next = URL.createObjectURL(await r.blob());
         if (playUrl) URL.revokeObjectURL(playUrl);
-        playUrl = next; shown.src = next;
+        playUrl = next; shown.src = next; wait = 100;
+        if (said) said.textContent = "";
+      } else {
+        let why = "your game client is starting (or its image is not on this machine yet)";
+        try { const d = await r.json(); if (d && d.message) why = d.message; } catch (_) { /* keep the default */ }
+        if (said) said.textContent = why + " - Leave the game to stop it";
+        wait = Math.min(5000, wait * 2);
       }
-    } catch (_) { /* retry on the next frame */ }
-    playTimer = setTimeout(frame, 100);
+    } catch (_) { wait = Math.min(5000, wait * 2); }
+    playTimer = setTimeout(frame, wait);
   };
   frame();
 }

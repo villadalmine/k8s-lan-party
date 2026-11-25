@@ -236,6 +236,11 @@ sudo edge-mesh kubectl exec doom-server -- grep -E 'connected|joined|disconnecte
 Before the party (or after `edge-mesh party leave`) the robot prints `no server answered` and the log has no line for it: that is the party working,
 not a failure. It is a deathmatch: romero's own robot (`poc/doom/pod.sh client "$IMAGE" doom-bot`, in his namespace) plays too. The whole run is `poc/poc-doom.sh` (DM01-DM33, with the spectators of carmack and of the host, and petersen playing from her browser's path); `make poc-doom` does it on Incus VMs.
 
+**Playing from your browser (#102).** `edge-mesh console` (on your machine, as yourself) shows each game you have an active party with:
+type the image tag `poc/doom/build.sh` printed, press **Play**, click the picture and play (arrows, Control fires, space opens, 1-7 weapons;
+no mouse, no sound). Play runs your own game client as a pod on your machine, inside your quota (400m CPU and 384Mi of your 1000m):
+**Leave the game** stops it. Your keys go only to that pod's own screen, never through the host.
+
 ## Leaving
 
 Ask the host to `kick` you (your token stops working, they blocklist your certificate, remove the node and delete `play-<name>` with
