@@ -205,6 +205,20 @@ class PlayerTest(unittest.TestCase):
                 self.p.keys("bob", {"down": ["ArrowUp"]})
         self.assertEqual(e.exception.code, "play-unavailable")
 
+    def test_the_pod_endpoint_is_reused_for_a_few_seconds_only(self):
+        """A frame or a key does not ask the API each time (a tab would get one frame a second); after ENDPOINT_TTL, or play-stop, it asks again."""
+        with patch.object(self.p, "_lookup", return_value=("10.42.1.5", "a" * 64)) as look:
+            self.p._endpoint("play", "bob"); self.p._endpoint("play", "bob")
+            self.assertEqual(look.call_count, 1)
+            self.now[0] += player.ENDPOINT_TTL
+            self.p._endpoint("play", "bob")
+            self.assertEqual(look.call_count, 2)
+            self.p.act("play-stop", {"peer": "bob"})
+            self.p._endpoint("play", "bob")
+            self.assertEqual(look.call_count, 3)
+            self.p._endpoint("watch", "bob")   # a spectator is another pod
+            self.assertEqual(look.call_count, 4)
+
     def test_pm04_party_mutations_are_validated_and_scoped(self):
         self.p.act("party-invite", {"peer": "bob", "ports": "10666/UDP"})
         argv, stdin = self.kc.calls[-1]

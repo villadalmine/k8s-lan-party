@@ -185,7 +185,7 @@ command or a chat line (WB07); without the per-pod secret it is a 401 (WB08); at
 console`) has **Play** and **Leave the game** per game (a game with an active party, or the player's own server): `play-start` renders
 `pod.sh player` (`doom-play-<owner>`, private, so admission pins it to the player's node; 400m, inside the player's quota) and the page
 shows the picture and sends the keys while the picture has the focus (a held key is sent once; leaving the picture releases every key).
-The daemon checks the keys too and reaches the pod only by its IP from the player's own node, as for watching. The host gets
+The daemon checks the keys too and reaches the pod only by its IP from the player's own node, as for watching. It keeps the pod's address and secret for 3 seconds (asking the API on every frame gave about one frame a second), so a closed party or a removed pod is noticed within those seconds; the pod's secret still guards every request. The host gets
 `mesh host game start <owner>` (one click on the web) and `game stop <owner>` (typed, like `kick`): the server pod and its UDP Service
 in the owner's namespace, on the owner's node. No mouse and no sound in this version. The spike's numbers are poc-doom DM32's: the round
 trip of one key and of one frame from the player's node, and the change a key makes in the picture against none; B (noVNC) stays

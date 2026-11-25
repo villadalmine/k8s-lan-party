@@ -35,6 +35,7 @@ import actions  # noqa: E402
 import server  # noqa: E402
 
 NAME = re.compile(r"[a-z][a-z0-9-]{1,19}")
+ENDPOINT_TTL = 3   # seconds a spectator's or game client's (pod IP, secret) is reused before the API is asked again
 PEER = re.compile(r"[a-z][a-z0-9-]{1,19}")
 PORT_LIST = re.compile(r"[0-9]{1,5}/(?:TCP|UDP)(?:,[0-9]{1,5}/(?:TCP|UDP))*")
 NEBULA_PATH = re.compile(r"(?<![\w.-])/etc/nebula(?:/[^\s\"'<>]*)?")
@@ -234,6 +235,7 @@ class Player:
             raise PlayerError(2, "kubectl", "install kubectl or k3s before starting the player console")
         self.clock = clock
         self.runner = runner
+        self._endpoints: dict = {}
         self.namespace, self.name = namespace_from_kubeconfig(kubeconfig)
         claims = token_claims(kubeconfig)
         self.expires_at = claims["exp"]
@@ -340,6 +342,21 @@ class Player:
                 if re.fullmatch(r"doom-watch-[a-z][a-z0-9-]{1,19}", pod.get("metadata", {}).get("name", ""))]
 
     def _endpoint(self, kind: str, peer: str):
+        """_lookup, kept ENDPOINT_TTL seconds: a frame or a key is not worth several kubectl calls (on a lab each frame took ~0.8 s, so a
+        tab got about one frame a second); a party that closes or a pod that goes is noticed within those seconds, and the pod's own secret
+        still guards every request. Dropped at once when the pod does not answer, and by watch-stop and play-stop."""
+        key, now = (kind, peer), self.clock()
+        hit = self._endpoints.get(key)
+        if hit and now - hit[0] < ENDPOINT_TTL:
+            return hit[1]
+        found = self._lookup(kind, peer)
+        self._endpoints[key] = (now, found)
+        return found
+
+    def _forget(self, kind: str, peer: str) -> None:
+        self._endpoints.pop((kind, peer), None)
+
+    def _lookup(self, kind: str, peer: str):
         """(pod IP, secret) of this player's own spectator (kind watch) or game client (kind play) of peer's game, only when it runs on
         this player's own node with a private address (D7); else 404. Watching needs an active party; playing one's own game does not."""
         if not PEER.fullmatch(peer) or peer == "watch-host" or (kind == "watch" and peer == self.name):
@@ -379,6 +396,7 @@ class Player:
                 raise PlayerError(502, kind + "-frame", "the pod returned an invalid frame")
             return data
         except (TimeoutError, OSError, http.client.HTTPException):
+            self._forget(kind, peer)
             raise PlayerError(503, kind + "-frame", "the frame is not available yet") from None
         finally:
             conn.close()
@@ -463,11 +481,13 @@ class Player:
         if verb == "play-stop":
             if not isinstance(peer, str) or not PEER.fullmatch(peer):
                 raise PlayerError(400, "bad-peer", "peer must be a game's owner")
+            self._forget("play", peer)
             self._run(["delete", "pod", "doom-play-" + peer, "-n", self.namespace, "--ignore-not-found", "--wait=false"])
             return {"message": f"left {peer}'s game"}
         if verb == "watch-stop":
             if not isinstance(peer, str) or not PEER.fullmatch(peer) or peer == self.name:
                 raise PlayerError(400, "bad-peer", "peer must be a game participant")
+            self._forget("watch", peer)
             self._run(["delete", "pod", "doom-watch-" + peer, "-n", self.namespace,
                        "--ignore-not-found", "--wait=false"])
             return {"message": f"spectator stopped for {peer}"}
