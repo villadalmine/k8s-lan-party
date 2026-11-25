@@ -287,7 +287,9 @@ host_views() { # the host console's reads: GET /watch (status --json --read-only
   echo "$st" | python3 -c 'import json,sys; d=json.load(sys.stdin); s=d["spectators"]; o=sys.argv[1]
 ok = d["watcher"] and any(p["owner"]=="romero" and p["status"].startswith("active") for p in d["parties"]) and [(x["owner"], x["node"], x["following"], x["ready"]) for x in s]==[("romero", o, "romero", True)]
 sys.exit(0 if ok else 1)' "$OWN" || return 1
-  "$MESH" host watch frame romero >"$STATE/host1.jpg" && sleep 2 && "$MESH" host watch frame romero >"$STATE/host2.jpg" || return 1
+  # a spectator just Ready may have no picture for some seconds (Odamex still connecting): wait for the first, then read the second
+  wait_for 60 sh -c "\"$MESH\" host watch frame romero >\"$STATE/host1.jpg\" 2>/dev/null" && sleep 2 &&
+    "$MESH" host watch frame romero >"$STATE/host2.jpg" || return 1
   python3 - "$STATE/host1.jpg" "$STATE/host2.jpg" <<'PY' || return 1
 import sys
 a, b = (open(f, "rb").read() for f in sys.argv[1:3])
