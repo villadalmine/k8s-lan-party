@@ -151,7 +151,7 @@ never on a command line; nothing new listens anywhere.
 
 D3 is in the public page's join text (`poc/page/page.py`) and in JOIN.md. Proved by `poc-doom` DM24 to DM30 (refusal without an own node; the
 namespace; one consent opens nothing; after the owner accepts, `watch start` runs the host's spectator on the host's own machine, the server
-names it and `watch status`/`watch frame`, the console's two reads, see it and return changing JPEGs; the watcher guard's refusals, by a
+names it and `watch status`/`watch frame` see it and return changing JPEGs, and so does the console daemon itself (`GET /api/v1/watch/romero/frame` with the link's token, through its persistent channel, as the Watch view asks); the watcher guard's refusals, by a
 server-side dry run; the cap, WB05: the spectator counts against `watch-host`'s quota and at the cap one more is refused by the API server; `leave`, `stop` and `down` close it). `host` is reserved too: a player's spectator is announced as `watch-<player>`.
 
 ## Playing in the browser

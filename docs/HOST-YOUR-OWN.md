@@ -416,7 +416,7 @@ machine a key of its own, authorized on the server, rather than relying on an ag
 service and deletes its keys and config.
 
 `PERSIST=1` is for a game people keep joining: nebula and k3s of the control plane become systemd services, the VM starts with the host (`boot.autostart`), and the
-control plane certificate lasts 180 days instead of one (`CP_CERT_DURATION` changes it). **Renewing that certificate before it ends is not automated yet.**
+control plane's and the local lighthouse's certificates last 180 days instead of one (`CP_CERT_DURATION` and `LH_CERT_DURATION` change them; an external lighthouse keeps the duration `lighthouse-vps.sh` gave it). **Renewing that certificate before it ends is not automated yet.**
 **A second game next to the PoC tests.** Every PoC suite starts with `down.sh`, which deletes every `emesh-*` machine of its Incus project **and its state
 directory** (the CA keys, the bundles, the blocklist, `lighthouse.env`). So a game people keep joining gets its own Incus project, its own subnet **and its own
 state directory** (`EMESH_STATE`, default `poc/.state`; `tests/test_poc_state_dir.py` checks that two of them do not touch each other):

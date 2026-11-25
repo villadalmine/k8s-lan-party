@@ -32,7 +32,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
+import signal
 import struct
 import subprocess
 import sys
@@ -135,6 +137,10 @@ TAP = (
 ).replace("MAXF", str(MAX_FRAME + 1))
 
 
+class NoFrame(RuntimeError):
+    """The channel answered, but with no picture yet (the spectator is starting, or refused the secret): keep the channel."""
+
+
 class Tap:
     """The host's view of one of its spectators (D7's host path): one `kubectl exec -i` into the host's own spectator pod, kept open and
     started again when it ends. The frames cross the API server and the kubelet of the host's own machine, never the mesh; no port is
@@ -151,7 +157,8 @@ class Tap:
     def _start(self, token: str) -> None:
         self.close()
         self.proc = subprocess.Popen([self.kc, "exec", "-i", "-n", WATCHER, self.pod, "--", "python3", "-c", TAP, "17777"],
-                                     stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+                                     stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                     start_new_session=True)   # kc is a script: close() ends its whole group
         self.proc.stdin.write(token.encode() + b"\n")
         self.proc.stdin.flush()
 
@@ -198,22 +205,29 @@ class Tap:
                         raise RuntimeError("the spectator did not answer") from None
                     continue
                 if not (body.startswith(b"\xff\xd8") and body.endswith(b"\xff\xd9")):
-                    raise RuntimeError("no frame (the spectator is starting, or refused the secret)")
+                    raise NoFrame("no frame (the spectator is starting, or refused the secret)")
                 return body
         raise RuntimeError("the spectator did not answer")
 
     def close(self) -> None:
+        # the process group first: a reader that timed out still holds stdout's lock until the pipe ends, so closing the pipes first
+        # would wait for the child to exit on its own (and TIMEOUT would bound nothing)
         if self.proc is not None:
+            for sig in (signal.SIGTERM, signal.SIGKILL):
+                try:
+                    os.killpg(self.proc.pid, sig)
+                except (ProcessLookupError, PermissionError):
+                    break
+                try:
+                    self.proc.wait(timeout=5)
+                    break
+                except subprocess.TimeoutExpired:
+                    continue
             for f in (self.proc.stdin, self.proc.stdout):
                 try:
                     f.close()
-                except OSError:
+                except (OSError, ValueError):
                     pass
-            self.proc.terminate()
-            try:
-                self.proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                self.proc.kill()
         self.proc = None
 
 

@@ -193,9 +193,12 @@ class Console:
                 fw = self.taps[owner] = watcher.Tap(str(self.mesh.parent / "kc"), f"doom-watch-{owner}", tok)
         try:
             return fw.fetch()
+        except watcher.NoFrame:   # the channel works; the spectator has no picture yet: keep it (no new exec per request)
+            raise Refusal(502, "spectator", "the spectator did not send a frame (starting, stopped, or its party closed)") from None
         except (RuntimeError, OSError, ValueError):
             with self.tap_lock:
-                self.taps.pop(owner, None)
+                if self.taps.get(owner) is fw:   # never a newer channel another request opened
+                    self.taps.pop(owner)
             fw.close()
             raise Refusal(502, "spectator", "the spectator did not send a frame (starting, stopped, or its party closed)") from None
 
