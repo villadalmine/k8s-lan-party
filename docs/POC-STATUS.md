@@ -409,3 +409,8 @@ tests pass 12/12; final cluster regression and browser verification remain pendi
   `ALLDONE:0`). DM27 now runs the host's spectator with `mesh host watch start romero` and reads it the way the host console does:
   `watch status --json --read-only` names it on `hostpc` following romero, and two `watch frame romero` calls return changing JPEGs through the
   API server to the host's own pod (no hostPort). The registry's new watch verbs leave the console suite unchanged.
+- **WB05 and the closing steps (`040eb8a`):** `poc-doom` **RESULT PASS, 30/30** (project `emesh-hv102`). DM29 measured the host's
+  spectator following romero's robot: **298m of CPU over 20 s** against its limit of 300m (request 150m), so it runs at its limit; at the
+  cap the API server refused one more (`exceeded quota: pool, requested: pods=1, used: pods=2, limited: pods=2`). DM30: `watch leave`,
+  `watch stop` and `watch down` close it. **Decided (4.2):** the spectator keeps 300m: it feeds a view of 4 frames a second, and
+  `watch-host`'s quota (`limits.cpu: 1`) holds three of them at full use; a spectator held at its limit renders fewer frames, never more CPU.
