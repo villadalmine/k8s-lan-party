@@ -42,6 +42,12 @@
 #   mesh host watch status --json --read-only   the host's parties and spectators, without reconciling (the host console)
 #   mesh host watch frame <owner>          one JPEG of that spectator on stdout, through the API server (D7: the host's own views only)
 #   mesh host watch down                   remove the watcher namespace and all in it; its parties close
+#   mesh host house init|start|open|close|stop|status|frame|down   the house match (docs/LIVE-PAGE.md): the host's own Doom game, broadcast
+#                                          on the live page: `house` (like watch-host: own node, never the control plane), its server, two
+#                                          robots and its spectator; open = it offers a party to every player (each accepts or not); close
+#                                          withdraws the offers (and closes their parties); frame = one JPEG of its spectator
+#   mesh host live start --url <page> [--cacert F] | stop | status   the streamer (poc/page/streamer.py): the house's frames to the page,
+#                                          outbound only, with the stream token (page-server.sh stream-token makes it)
 #   mesh host game start <owner>           a Doom server (pod doom-server, UDP Service doom on 10666) in <owner>'s namespace, on their node (#102)
 #   mesh host game stop <owner>            remove it: everyone in that game is out
 #   mesh party invite|accept <peer> [--ports P/UDP,...] --as <player>   (local simulation, like play) the player's own
@@ -110,7 +116,7 @@ case "$1 ${2:-}" in
     name="${3:-}"; [ -n "$name" ] || usage; ttl=2h; trust=friends; shift 3
     # the name becomes a node name, a certificate name and a directory (the same rule as admission.py)
     printf '%s' "$name" | grep -Eqx '[a-z][a-z0-9-]{1,19}' && [ "$(printf '%s' "$name" | wc -l)" -eq 0 ] || { echo "invalid name '$name': 2 to 20 characters, a-z, 0-9 and '-', starting with a letter"; exit 2; }
-    case "$name" in watch-host|host) echo "invalid name '$name': reserved for the host's watcher (docs/CONSOLE-MODES.md, D6; a spectator is announced as watch-<name>)"; exit 2 ;; esac
+    case "$name" in watch-host|host|house) echo "invalid name '$name': reserved for the host (its watcher, D6 of docs/CONSOLE-MODES.md, and its house match, docs/LIVE-PAGE.md)"; exit 2 ;; esac
     pub=""
     while [ $# -gt 0 ]; do case "$1" in --ttl) ttl="$2"; shift 2 ;; --trust) trust="$2"; shift 2 ;; --pub) pub="$2"; shift 2 ;; *) usage ;; esac; done
     case "$trust" in friends|public) ;; *) echo "trust must be friends or public (own is for your own machines)"; exit 2 ;; esac
@@ -291,6 +297,76 @@ case "$1 ${2:-}" in
       down)
         k delete namespace "$w" --ignore-not-found --wait=true --timeout=120s >/dev/null || exit 4
         rm -rf "$WD"; party_sync; echo "watcher: removed" ;;
+      *) usage ;;
+    esac ;;
+  "host house")
+    sub="${3:-status}"; h=house; HD="$STATE/house"; pod=doom-watch-house
+    case "$sub" in
+      init)
+        nodes=$(k get nodes -o json | python3 "$POC/watcher.py" nodes) || exit 3
+        k apply -f - <"$POC/watcher-policy.yaml" >/dev/null || exit 1   # the same guard as watch-host: the house carries its label
+        python3 "$POC/watcher.py" manifests --house --config "${POOL_CONFIG:-$POC/pool.yaml}" | k apply -f - >/dev/null || exit 1
+        echo "house: namespace $h ready (closed: nobody is offered a party yet); its pods run on: $(echo $nodes)" ;;
+      start)
+        [ -n "$(k get namespace "$h" --ignore-not-found -o name)" ] || { echo "no house: run mesh host house init first"; exit 3; }
+        img=$("$POC/doom/build.sh" --name) || exit 1
+        if [ -z "$(k get pod doom-server -n "$h" --ignore-not-found -o name)" ]; then
+          "$POC/doom/pod.sh" server "$img" | k apply -n "$h" -f - >/dev/null || exit 1
+        fi
+        [ -n "$(k get service doom -n "$h" --ignore-not-found -o name)" ] || k expose pod doom-server -n "$h" --name doom --port 10666 --protocol UDP >/dev/null || exit 1
+        for b in a b; do
+          [ -n "$(k get pod "doom-bot-$b" -n "$h" --ignore-not-found -o name)" ] || "$POC/doom/pod.sh" bot "$img" "$b" | k apply -n "$h" -f - >/dev/null || exit 1
+        done
+        if [ -z "$(k get pod "$pod" -n "$h" --ignore-not-found -o name)" ]; then
+          mkdir -p "$HD"; chmod 700 "$HD"; tok=$(python3 -c 'import secrets; print(secrets.token_hex(32))')
+          (umask 077; printf '%s\n' "$tok" >"$HD/spectator.token")
+          WATCH_TOKEN="$tok" "$POC/doom/pod.sh" watcher "$img" "$h" host robot-a | k apply -n "$h" -f - >/dev/null || { rm -f "$HD/spectator.token"; exit 1; }
+        fi
+        echo "house: the match runs (server, robots robot-a and robot-b, the spectator $pod following robot-a; frames: mesh host house frame)" ;;
+      stop)
+        k delete pod doom-server doom-bot-a doom-bot-b "$pod" -n "$h" --ignore-not-found --wait=false >/dev/null &&
+          k delete service doom -n "$h" --ignore-not-found >/dev/null || exit 1
+        rm -f "$HD/spectator.token"; echo "house: the match stopped (the offers stay as they are: mesh host house close withdraws them)" ;;
+      open|close)
+        [ -n "$(k get namespace "$h" --ignore-not-found -o name)" ] || { echo "no house: run mesh host house init first"; exit 3; }
+        if [ "$sub" = open ]; then k label namespace "$h" edge-mesh/house-open=yes --overwrite >/dev/null || exit 1
+        else k label namespace "$h" edge-mesh/house-open- >/dev/null 2>&1 || true; fi
+        party_sync
+        if [ "$sub" = open ]; then echo "house: open - every player is offered a party with the house (broadcast on the live page); each accepts with: edge-mesh party accept house"
+        else echo "house: closed - the offers are withdrawn and the parties with the house closed"; fi ;;
+      status)
+        [ -n "$(k get namespace "$h" --ignore-not-found -o name)" ] || { echo "house: none (mesh host house init)"; exit 0; }
+        echo "house: $( [ "$(k get namespace "$h" -o jsonpath='{.metadata.labels.edge-mesh/house-open}')" = yes ] && echo open || echo closed)"
+        k get pods -n "$h" -o wide --no-headers 2>/dev/null | awk '{print "  " $1, $3, $7}'
+        python3 "$POC/party.py" list --config "${POOL_CONFIG:-$POC/pool.yaml}" --bundles "$STATE/bundles" \
+          --nebula-cert "$CACHE/nebula-cert" --kc "$POC/kc" | awk -v h="$h" 'NR == 1 || $1 == h || $2 == h' ;;
+      frame)
+        [ -s "$HD/spectator.token" ] || { echo "the house has no spectator (mesh host house start)" >&2; exit 3; }
+        python3 "$POC/watcher.py" frame --kc "$POC/kc" --namespace "$h" --pod "$pod" --token-file "$HD/spectator.token" ;;
+      down)
+        k delete namespace "$h" --ignore-not-found --wait=true --timeout=120s >/dev/null || exit 4
+        rm -rf "$HD"; party_sync; echo "house: removed" ;;
+      *) usage ;;
+    esac ;;
+  "host live")
+    sub="${3:-status}"; shift 3 2>/dev/null || shift $#; LD="$STATE/house"; pidf="$LD/streamer.pid"
+    alive_streamer() { [ -s "$pidf" ] && kill -0 "$(cat "$pidf")" 2>/dev/null && grep -q streamer.py "/proc/$(cat "$pidf")/cmdline" 2>/dev/null; }
+    case "$sub" in
+      start)
+        url=""; cacert=""
+        while [ $# -gt 0 ]; do case "$1" in --url) url="${2:-}"; shift 2 ;; --cacert) cacert="${2:-}"; shift 2 ;; *) usage ;; esac; done
+        [ -n "$url" ] || { echo "usage: mesh host live start --url https://<the public page> [--cacert FILE]"; exit 2; }
+        [ -s "$STATE/page/stream.token" ] || { echo "no stream token: poc/page/page-server.sh stream-token --ssh ... makes it (and sends its hash to the page)"; exit 3; }
+        alive_streamer && { echo "live: the streamer runs already"; exit 0; }
+        mkdir -p "$LD"; chmod 700 "$LD"
+        setsid nohup python3 "$POC/page/streamer.py" run --url "$url" --token-file "$STATE/page/stream.token" ${cacert:+--cacert "$cacert"} \
+          --mesh "$POC/mesh" --state "$STATE" >>"$LD/streamer.log" 2>&1 </dev/null &
+        echo $! >"$pidf"; echo "live: the streamer started (log $LD/streamer.log)" ;;
+      stop)
+        if alive_streamer; then kill "$(cat "$pidf")"; echo "live: the streamer stopped (the page shows offline)"; else echo "live: no streamer"; fi
+        rm -f "$pidf" ;;
+      status)
+        if alive_streamer; then echo "live: streaming"; tail -n 3 "$LD/streamer.log" 2>/dev/null | sed 's/^/  /'; else echo "live: not streaming"; fi ;;
       *) usage ;;
     esac ;;
   "party invite"|"party accept"|"party leave"|"party list")

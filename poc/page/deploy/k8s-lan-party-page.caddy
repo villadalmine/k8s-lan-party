@@ -3,7 +3,7 @@
 # by hand: copy it, change the address, `caddy validate`, `systemctl reload caddy`. Caddy gets the certificate (ACME) by itself;
 # the lab uses `tls internal` instead (a private CA: the page has no name in public DNS there).
 # Body size limits are per route and live here, so they hold on a Caddy that was already there: visitors send at most 16 KB; the puller's
-# report (sealed bundles) may be 512 KB. Caddy 2.11 has no per-site body timeout (request_body has only max_size): the slow-body defence is the
+# report (sealed bundles) may be 512 KB; the streamer's frames (the live page) 300 KB. Caddy 2.11 has no per-site body timeout (request_body has only max_size): the slow-body defence is the
 # app's own deadline for the whole request (page.yaml request_total_seconds), plus, in the GLOBAL options of your Caddyfile,
 #   servers { timeouts { read_header 10s  read_body 30s } }
 # which `page-server.sh install --with-caddy` writes for the Caddyfile it creates; add it by hand to a Caddy that was already there.
@@ -29,6 +29,14 @@ page.example.org {
 		# authenticated by the puller's token (the page keeps only its SHA-256); the report carries the sealed bundles
 		request_body {
 			max_size 512KB
+		}
+		import k8slp_page_proxy
+	}
+	@stream path /api/v1/live/frame /api/v1/live/offline
+	handle @stream {
+		# the live page (docs/LIVE-PAGE.md): the streamer's frames, authenticated by the stream token (the page keeps only its SHA-256)
+		request_body {
+			max_size 300KB
 		}
 		import k8slp_page_proxy
 	}

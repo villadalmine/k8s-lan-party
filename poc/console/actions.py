@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 # a player's name: admission.py's rule, minus its RESERVED names (the lighthouse, the control plane, the PoC's own nodes, the host's
 # watcher and its announced name): `kick cp` would drain and blocklist the control plane. refresh takes lh and cp on purpose, with its own
 # pattern, and is local only.
-NAME = {"type": "string", "pattern": "^(?!(?:lh|cp|n1|n2|host|watch-host)$)[a-z][a-z0-9-]{1,19}$"}
+NAME = {"type": "string", "pattern": "^(?!(?:lh|cp|n1|n2|host|watch-host|house)$)[a-z][a-z0-9-]{1,19}$"}
 LOCAL, BOTH = ("local",), ("local", "console")
 CONFIRMS = ("none", "click", "type:name", "type:all")
 

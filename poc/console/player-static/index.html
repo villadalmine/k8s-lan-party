@@ -31,6 +31,16 @@
       <button type="button" id="leaveall">Leave all parties</button>
     </div>
   </section>
+  <section id="house">
+    <h2>The house match</h2>
+    <p>The host may run a <strong>house match</strong>: its own Doom game, open to every player. <strong>It is broadcast on the public
+    page</strong> (<code>/live</code>): anyone can watch it, with you in it, while you play. Joining is your consent to that; leaving ends it.
+    Once the party is active, the game is in <em>Games I can join</em>: press <strong>Play</strong>.</p>
+    <div class="actions">
+      <button type="button" id="housejoin">Join the house match (broadcast)</button>
+      <button type="button" id="houseleave">Leave the house match</button>
+    </div>
+  </section>
   <section>
     <h2>Watching or playing a game</h2>
     <p class="muted">Build the pinned Doom image with <code>poc/doom/build.sh</code>, then import its tarball into k3s on this node with <code>sudo k3s ctr images import &lt;tarball&gt;</code>. Enter the printed local tag (localhost/emesh-doom:12.3.0- plus the 12-character build hash). The spectator runs in your namespace and uses an authenticated frame proxy. <strong>Play</strong> starts your own game client the same way, on your machine: the picture comes to this tab and your keys go back to it, never through the host.</p>

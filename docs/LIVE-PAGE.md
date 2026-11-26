@@ -83,10 +83,13 @@ server keeps holding no credential of the cluster: it keeps the SHA-256 of the s
 
 The live page's **Join and play** button leads to the public page's ask flow (`/#ask`), with a line that says what follows: ask, collect the
 bundle, `edge-mesh join`, open `edge-mesh console`, accept the house's party, press **Play**. On the host, `mesh host house open` makes the
-house **offer** a party to every admitted player: the host writes the house's consent (`party-<player>` in `house`), and the tick keeps doing
-it for each new admission; `mesh host house close` withdraws the offers. The player's console shows the house's card ("the house invites
-you; this match is broadcast") with **Accept**; once accepted, the party opens like any other and **Play** appears. The rule of every party
-holds: nothing opens without the player's own consent.
+house **offer** a party to every admitted player: the host writes the house's consent (`party-<player>` in `house`), and every reconcile (the
+tick runs one) keeps doing it for each new admission; `mesh host house close` withdraws the offers, which also closes the parties of whoever
+was in. A player cannot read the `house` namespace, so the console cannot show the offer itself: it shows a fixed **The house match**
+section that says the match is broadcast, with **Join the house match (broadcast)** (`party accept house`) and **Leave the house match**;
+the player's own consent then reads `waiting: the host has no house match yet`, `waiting for house to accept` (the house is closed) or
+`active`, and once active the game is in *Games I can join* with **Play**. The rule of every party holds: nothing opens without the
+player's own consent. `house` is a reserved name (admission, `mesh host invite`, the consoles), like `watch-host`.
 
 ## Threats and their tests
 
@@ -107,9 +110,11 @@ holds: nothing opens without the player's own consent.
 
 1. This RFC (#113).
 2. The page: the live endpoints, `/live`, its script and style, the limits; unit tests LV01-LV04, LV07.
-3. The streamer and `mesh host live init|start|stop|status|rotate-token`; the house (`mesh host house init|start|open|close|down`) and the
-   offer in the tick; unit tests LV06, LV09, LV10.
-4. The player console: the house's card with Accept and Play.
+3. The streamer and `mesh host live start|stop|status` (the stream token: `page-server.sh stream-token`, which makes it on the host and
+   sends only its SHA-256; to rotate it, delete the token file and run it again); the house (`mesh host house
+   init|start|stop|open|close|status|frame|down`: its server, two robots `robot-a` and `robot-b`, its spectator following `robot-a`; quota
+   `house_quota_*` of pool.yaml, by default 2000m, 1536 MiB, 6 pods) and the offer in every party reconcile; unit tests LV06, LV09, LV10.
+4. The player console: the house match section (Join, Leave) and the house's game card with Play.
 5. `make poc-live` on Incus: a page server, the host, the house with robots, the streamer; a visitor sees changing frames; panic makes it
    offline; a visitor joins, accepts the house and plays (LV05, LV08 on the lab).
 6. Deploy on the public server, What's new v0.7.0, the release.

@@ -35,9 +35,10 @@ def applied(data, act):
         key = "configmaps" if kind == "configmap" else "netpols"
         out[key]["items"] = [o for o in out[key]["items"] if (o["metadata"]["namespace"], o["metadata"]["name"]) != (nsname, name)]
     for obj in act["apply"]:
-        out["netpols"]["items"] = [o for o in out["netpols"]["items"]
-                                   if (o["metadata"]["namespace"], o["metadata"]["name"]) != (obj["metadata"]["namespace"], obj["metadata"]["name"])]
-        out["netpols"]["items"].append(obj)
+        key = "configmaps" if obj["kind"] == "ConfigMap" else "netpols"   # the house's offers are ConfigMaps (docs/LIVE-PAGE.md L8)
+        out[key]["items"] = [o for o in out[key]["items"]
+                             if (o["metadata"]["namespace"], o["metadata"]["name"]) != (obj["metadata"]["namespace"], obj["metadata"]["name"])]
+        out[key]["items"].append({**obj, "metadata": {**obj["metadata"], "annotations": {}}} if key == "configmaps" else obj)
     for nsname, change in act["label"]:
         n = next(o for o in out["namespaces"]["items"] if o["metadata"]["name"] == nsname)
         labels = dict(n["metadata"]["labels"])
@@ -248,6 +249,68 @@ class ReadOnlyList(unittest.TestCase):
     def test_flags_only_with_list(self):
         self.assertEqual(self.run_main("reconcile", "--read-only")[0], 2)
         self.assertEqual(self.run_main("end", "ana", "beto", "--json")[0], 2)
+
+
+def house(open_=True, uid="uid-house", phase="Active", label="host"):
+    """The house match's namespace (docs/LIVE-PAGE.md L1): named house, labelled edge-mesh/house=host (and the watcher guard's label)."""
+    labels = {"edge-mesh/house": label, "edge-mesh/watcher": "host", **({party.HOUSE_OPEN: "yes"} if open_ else {})}
+    return {"metadata": {"name": "house", "uid": uid, "labels": labels}, "status": {"phase": phase}}
+
+
+def hcm(peer, status=""):
+    c = cm("x", peer, "", status); c["metadata"]["namespace"] = "house"
+    return c
+
+
+def offers(act):
+    return sorted(o["data"]["peer"] for o in act["apply"] if o["kind"] == "ConfigMap")
+
+
+class House(unittest.TestCase):
+    """docs/LIVE-PAGE.md L8 (LV09): the open house offers a party to every player; only the player's own accept opens it."""
+
+    def test_an_open_house_offers_to_every_player_and_nothing_opens(self):
+        d, act = settle(world([ns("alice"), ns("bob"), house()], []))
+        self.assertEqual(offers(act), ["alice", "bob"])
+        self.assertFalse([o for o in act["apply"] if o["kind"] == "NetworkPolicy"])   # one consent opens nothing (LV09)
+        d, act = settle(d)
+        self.assertEqual(offers(act), [])                                                # offered once
+        self.assertEqual(act["status"], [["house", "alice", "waiting for alice to accept"], ["house", "bob", "waiting for bob to accept"]])
+        self.assertFalse([o for o in act["apply"] if o["kind"] == "NetworkPolicy"])
+
+    def test_the_player_accepting_opens_it(self):
+        d, _ = settle(world([ns("alice"), house()], []))
+        d["configmaps"]["items"].append(cm("alice", "house"))
+        d, act = settle(d)
+        np = next(o for o in act["apply"] if o["metadata"]["namespace"] == "play-alice")
+        self.assertEqual(np["metadata"]["name"], "party-house")
+        self.assertIn(["alice", "house", "active: ports 8080/TCP,10666/UDP"], act["status"])
+        _, again = settle(d)
+        self.assertTrue(empty(again), again)
+
+    def test_a_closed_house_offers_nothing_and_withdraws(self):
+        _, act = settle(world([ns("alice"), house(open_=False)], []))
+        self.assertEqual(offers(act), [])
+        d, _ = settle(world([ns("alice"), house()], [cm("alice", "house")]))
+        d, _ = settle(d)
+        d["namespaces"]["items"] = [ns("alice"), house(open_=False)]
+        _, act = settle(d)
+        self.assertIn(["configmap", "house", "party-alice"], act["delete"])
+        self.assertIn(["networkpolicy", "house", "party-alice"], act["delete"])
+
+    def test_no_offer_without_the_hosts_label_nor_to_an_ended_lease_nor_with_parties_off(self):
+        _, act = settle(world([ns("alice"), house(label="alice")], []))
+        self.assertEqual(offers(act), [])                                                # a namespace called house is not the house
+        _, act = settle(world([ns("alice"), house()], [], ends={"alice": NOW}))
+        self.assertEqual(offers(act), [])
+        _, act = settle(world([ns("alice"), house()], []), cfg={**CFG, "parties": 0})
+        self.assertEqual(offers(act), [])
+
+    def test_a_player_cannot_be_the_house(self):
+        fake = ns("house")                                                               # play-house, labelled participant=house
+        _, act = settle(world([ns("alice"), fake], [cm("alice", "house")]))
+        self.assertIn(["alice", "house", "waiting: the host has no house match yet (house)"], act["status"])
+        self.assertEqual(party.member("play-house"), "")
 
 
 if __name__ == "__main__":
