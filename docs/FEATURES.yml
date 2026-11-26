@@ -228,7 +228,7 @@ features:
     description: the host console's daemon (one local API, docs/CONSOLE.md) with the CLI and a web console as its clients - the same commands, output and exit codes, one engine lock and one audit line per action; the web console on the loopback only, behind a token; the tick, a lease's end and panic never depend on it
     layer: admission
     user_facing: true
-    releases: ["v0.4.0-poc"]
+    releases: ["v0.4.0-poc", "v0.6.0-poc"]
     learn:
       concept: "One control API in front of the tools: every client (a terminal, a web page, a bot) goes through the same checks, the same lock and the same audit log."
       analogy: "One reception desk for the whole building: whichever door you come in by, you sign the same book and get the same answers."
@@ -245,11 +245,12 @@ features:
     description: the player's local console on loopback; owns only the player's namespace kubeconfig, shows lease/countdown, local Nebula and namespace API connectivity, own events/parties/joinable games and allows only their party consents; watches a game and plays it in the tab (#101, #102) through the player's own pods on their own node, by Pod IP behind a per-pod secret, keys only into the pod's own display
     layer: tenancy
     user_facing: true
+    releases: ["v0.6.0-poc"]
     learn:
       concept: "Least privilege: a player's local UI uses only the namespace credential already issued to that player, and the API still enforces its RBAC boundary."
       analogy: "A key opens your room and the shared doors your friends agreed to; the host's office stays locked."
       real_world: "A namespace-scoped Kubernetes dashboard or developer portal that uses a user's own short-lived credential."
-      seen_in: "The player sees their lease countdown, own events and parties, and the API refuses a handwritten host action or a read outside their namespace."
+      seen_in: "v0.6.0-poc: petersen presses Play on romero's game; her own game client runs on her machine, her keys move it, and the console key, Enter and other nodes are refused (poc-doom DM31-DM32)."
     proven_by:
       - {suite: poc-player, steps: [PM01-PM07]}
       - {suite: poc-doom, steps: [DM12-DM13, DM16, DM31-DM32]}
@@ -277,7 +278,7 @@ features:
     description: LAN party mode (issue #75) - two players who both agreed reach each other's namespace on the party's ports only; a third does not; leave, off, end, kick and lease end close it; the host's watcher identity watch-host (D6, #101) is one more peer that the owner accepts, its pods on an own node that is never the control plane
     layer: tenancy
     user_facing: true
-    releases: ["v0.3.0-poc"]
+    releases: ["v0.3.0-poc", "v0.6.0-poc"]
     learn:
       concept: "Mutual consent: a declarative NetworkPolicy opens only after both sides say yes, which is zero trust between tenants."
       analogy: "Two friends at a LAN party agree to plug a cable between their machines; either one can pull it."
@@ -294,7 +295,7 @@ features:
     description: the Doom deathmatch and spectator views over parties (issue #75 part B and #101) - romero's Odamex server with FreeDM; three players play through two parties on 10666/UDP and carmack's named spectator follows by spy; its bearer-authenticated JPEG frames reach only carmack's own node by Pod IP, with no port-forward or hostPort; other namespaces cannot reach it; the image has nothing non-free
     layer: tenancy
     user_facing: true
-    releases: ["v0.3.0-poc", "v0.3.1-poc"]
+    releases: ["v0.3.0-poc", "v0.3.1-poc", "v0.6.0-poc"]
     learn:
       concept: "Pairwise, non-transitive access: a party between A and B, and another between A and C, opens nothing between B and C."
       analogy: "romero hosts the server; carmack and petersen each cable into his machine, never into each other's."
