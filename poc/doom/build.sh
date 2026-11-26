@@ -9,7 +9,7 @@ set -eu
 D="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; POC="$(dirname "$D")"
 . "$POC/stack.env"; . "$D/doom.env"
 CACHE="${EMESH_CACHE:-$POC/.cache}/doom"; mkdir -p "$CACHE"
-HASH=$(cat "$D/Containerfile" "$D/server.sh" "$D/client.sh" "$D/watch-client.sh" "$D/watch_stream.py" | { cat; echo "$DOOM_DEBIAN_IMAGE $DOOM_ODAMEX_VERSION $DOOM_ODAMEX_SHA256 $DOOM_FREEDM_VERSION $DOOM_FREEDM_SHA256"; } | sha256sum | cut -c1-12)
+HASH=$(cat "$D/Containerfile" "$D/server.sh" "$D/client.sh" "$D/watch-client.sh" "$D/play-client.sh" "$D/watch_stream.py" | { cat; echo "$DOOM_DEBIAN_IMAGE $DOOM_ODAMEX_VERSION $DOOM_ODAMEX_SHA256 $DOOM_FREEDM_VERSION $DOOM_FREEDM_SHA256"; } | sha256sum | cut -c1-12)
 IMAGE="localhost/emesh-doom:$DOOM_ODAMEX_VERSION-$HASH"; TAR="$CACHE/emesh-doom-$DOOM_ODAMEX_VERSION-$HASH.tar"
 [ "${1:-}" != --name ] || { echo "$IMAGE"; exit 0; }
 ARGS=(--build-arg "DEBIAN_IMAGE=$DOOM_DEBIAN_IMAGE" --build-arg "ODAMEX_VERSION=$DOOM_ODAMEX_VERSION" --build-arg "ODAMEX_SHA256=$DOOM_ODAMEX_SHA256"
@@ -25,7 +25,7 @@ if [ ! -s "$TAR" ]; then
     vm_up doombuild 6 8GiB "$UNDERLAY_NET.9" >&2
     trap 'incus delete -f "$B" >/dev/null 2>&1 || true' EXIT
     incus exec "$B" -- sh -c 'DEBIAN_FRONTEND=noninteractive apt-get install -y -qq podman >/dev/null && mkdir -p /root/doom' >&2
-    tar cf - -C "$D" Containerfile server.sh client.sh watch-client.sh watch_stream.py | incus exec "$B" -- tar xf - -C /root/doom
+    tar cf - -C "$D" Containerfile server.sh client.sh watch-client.sh play-client.sh watch_stream.py | incus exec "$B" -- tar xf - -C /root/doom
     incus exec "$B" -- podman build -q -t "$IMAGE" "${ARGS[@]}" -f /root/doom/Containerfile /root/doom >&2
     incus exec "$B" -- podman save -o /root/doom.tar "$IMAGE" >&2
     incus file pull "$B/root/doom.tar" "$TAR.part" >&2

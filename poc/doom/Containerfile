@@ -34,7 +34,7 @@ RUN apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq 
 COPY --from=build /opt/odamex /opt/odamex
 COPY --from=build /opt/wad /opt/wad
 COPY --from=build /opt/licenses /opt/licenses
-COPY server.sh client.sh watch-client.sh watch_stream.py /usr/local/bin/
-RUN chmod 755 /usr/local/bin/server.sh /usr/local/bin/client.sh /usr/local/bin/watch-client.sh /usr/local/bin/watch_stream.py
+COPY server.sh client.sh watch-client.sh play-client.sh watch_stream.py /usr/local/bin/
+RUN chmod 755 /usr/local/bin/server.sh /usr/local/bin/client.sh /usr/local/bin/watch-client.sh /usr/local/bin/play-client.sh /usr/local/bin/watch_stream.py
 ENV HOME=/tmp
 USER 65534:65534

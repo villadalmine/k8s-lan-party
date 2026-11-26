@@ -344,6 +344,62 @@ watcher_guard() { # each case is refused by poc/watcher-policy.yaml itself: Kyve
   # positive control: the plain pod is admitted, and what admission made of it keeps it off every control plane
   o=$(guard_try plain 't') || { echo "$o"; return 1; }
   echo "$o" | python3 -c 'import json,sys; p=json.load(sys.stdin); e=p["spec"]["affinity"]["nodeAffinity"]["requiredDuringSchedulingIgnoredDuringExecution"]["nodeSelectorTerms"][0]["matchExpressions"]; print("admitted, affinity:", e); sys.exit(0 if {"key":"node-role.kubernetes.io/control-plane","operator":"DoesNotExist"} in e else 1)'; }
+play_post() { # play_post <node> <token> <url> <json>: the HTTP status of one POST /input from that node (000: no answer); token on stdin
+  printf '%s\n' "$2" | incus exec "emesh-$1" -- python3 -c 'import sys,urllib.request,urllib.error; u,b=sys.argv[1],sys.argv[2].encode(); t=sys.stdin.readline().strip()
+q=urllib.request.Request(u,data=b,method="POST",headers={"Authorization":"Bearer "+t,"Content-Type":"application/json"})
+try: print(urllib.request.urlopen(q,timeout=5).status)
+except urllib.error.HTTPError as e: print(e.code)
+except Exception: print("000")' "$3" "$4"; }
+play_joins() { [ "$(server_log | grep -c 'petersen joined the game')" -gt "$PLAY_JOINED" ]; }
+play_up() { # #102: petersen plays romero's game from her own node, the way her console's Play button does it (pod.sh player, her kubeconfig)
+  say player "petersen plays from her browser: her own game client runs on her machine, and only the picture and her keys cross to her tab"
+  PLAY_JOINED=$(server_log | grep -c 'petersen joined the game')
+  PLAY_TOKEN=$(python3 -c 'import secrets; print(secrets.token_hex(32))') || return 1
+  K petersen delete pod doom-client --ignore-not-found --wait=true >/dev/null || return 1   # her robot is done: its quota goes to her own game
+  WATCH_TOKEN="$PLAY_TOKEN" "$POC/doom/pod.sh" player "$DOOM_IMG" romero petersen | K petersen apply -f - >/dev/null &&
+  K petersen wait --for=condition=Ready pod/doom-play-romero --timeout=240s || return 1
+  local node; node=$(K petersen get pod doom-play-romero -o jsonpath='{.spec.nodeName}'); PLAY_IP=$(K petersen get pod doom-play-romero -o jsonpath='{.status.podIP}')
+  echo "play pod on $node, pod IP $PLAY_IP, hostPort '$(K petersen get pod doom-play-romero -o jsonpath='{.spec.containers[*].ports[*].hostPort}')'"
+  [ "$node" = petersen ] && [ -z "$(K petersen get pod doom-play-romero -o jsonpath='{.spec.containers[*].ports[*].hostPort}')" ] &&
+    [ "$(K petersen get pod doom-play-romero -o jsonpath='{.spec.containers[0].imagePullPolicy}')" = Never ] && wait_for 90 play_joins || return 1
+  show host "kubectl exec -n play-romero doom-server -- grep 'petersen joined the game' /tmp/server.log" \
+    k exec -n play-romero doom-server -- grep 'petersen joined the game' /tmp/server.log; }
+play_frame_ok() { watch_frame petersen "$PLAY_TOKEN" "$1/frame" >/dev/null; }   # a function: the secret reaches no command line
+play_keys() { # #102 (WB07, WB08, the spike's numbers): from her node her keys move her game; nothing else gets in
+  local url="http://$PLAY_IP:17777" d="$OUTD/play"; mkdir -p "$d"
+  # the stream starts a few seconds after the server says she joined (the client types `join` first): wait for her first frame
+  wait_for 30 play_frame_ok "$url" || { echo "no frame from her pod in 30 s"; return 1; }
+  local c; c=$(play_post petersen "" "$url/input" '{"down":["ArrowLeft"]}'); echo "no secret: $c"; [ "$c" = 401 ] || return 1
+  c=$(play_post petersen "$PLAY_TOKEN" "$url/input" '{"down":["`"]}'); echo "the console key: $c"; [ "$c" = 400 ] || return 1
+  c=$(play_post petersen "$PLAY_TOKEN" "$url/input" '{"down":["Return"]}'); echo "Enter: $c"; [ "$c" = 400 ] || return 1
+  c=$(play_post carmack "$PLAY_TOKEN" "$url/input" '{"down":["ArrowLeft"]}'); echo "from carmack's node: $c (000: no answer)"; [ "$c" = 000 ] || return 1
+  watch_frame petersen "$PLAY_TOKEN" "$url/frame" >"$d/c.jpg" && sleep 1.5 && watch_frame petersen "$PLAY_TOKEN" "$url/frame" >"$d/d.jpg" || return 1   # no keys
+  watch_frame petersen "$PLAY_TOKEN" "$url/frame" >"$d/a.jpg" &&
+  [ "$(play_post petersen "$PLAY_TOKEN" "$url/input" '{"down":["ArrowLeft"]}')" = 204 ] && sleep 1.5 &&
+  [ "$(play_post petersen "$PLAY_TOKEN" "$url/input" '{"up":["ArrowLeft"]}')" = 204 ] && sleep 0.3 &&
+  watch_frame petersen "$PLAY_TOKEN" "$url/frame" >"$d/b.jpg" || return 1
+  diff_of() { cat "$1" "$2" | K petersen exec -i doom-play-romero -- ffmpeg -hide_banner -f image2pipe -c:v mjpeg -i - \
+    -vf "tblend=all_mode=difference,signalstats,metadata=print:key=lavfi.signalstats.YAVG" -f null - 2>&1 | sed -n 's/.*YAVG=\([0-9.]*\).*/\1/p' | tail -1; }
+  local idle moved; idle=$(diff_of "$d/c.jpg" "$d/d.jpg"); moved=$(diff_of "$d/a.jpg" "$d/b.jpg")
+  # the spike's numbers: the round trip of one key and of one frame, from her node to her pod (median of 10)
+  printf '%s\n' "$PLAY_TOKEN" | incus exec emesh-petersen -- python3 -c 'import sys,time,statistics,urllib.request; t=sys.stdin.readline().strip(); u=sys.argv[1]
+h={"Authorization":"Bearer "+t,"Content-Type":"application/json"}
+def ms(f):
+    s=time.monotonic(); f(); return (time.monotonic()-s)*1000
+k=[ms(lambda: urllib.request.urlopen(urllib.request.Request(u+"/input",data=b"{\"down\":[\"1\"],\"up\":[\"1\"]}",method="POST",headers=h),timeout=5).read()) for _ in range(10)]
+f=[ms(lambda: urllib.request.urlopen(urllib.request.Request(u+"/frame",headers=h),timeout=5).read()) for _ in range(10)]
+print("spike: key round trip %.1f ms, frame round trip %.1f ms (median of 10, from her node); frames at 10 per second" % (statistics.median(k), statistics.median(f)))' "$url"
+  echo "mean luma difference: without keys $idle, after 1.5 s of ArrowLeft $moved"
+  python3 -c 'import sys; i,m=float(sys.argv[1] or 0),float(sys.argv[2] or 0); sys.exit(0 if m >= 8 and m > 2*i else 1)' "$idle" "$moved"; }
+host_game() { # #102, host mode: game stop ends romero's server (typed confirmation on the web); game start brings it back, on his node
+  out_has "game: romero's server stopped" show host "mesh host game stop romero" "$MESH" host game stop romero &&
+  wait_for 60 sh -c "[ -z \"\$(\"$POC/kc\" get pod doom-server -n play-romero --ignore-not-found -o name)\" ]" &&
+  [ -z "$(k get service doom -n play-romero --ignore-not-found -o name)" ] || return 1
+  out_has "game: romero's server starting" show host "mesh host game start romero" "$MESH" host game start romero &&
+  K romero wait --for=condition=Ready pod/doom-server --timeout=240s && wait_for 60 srv_init &&
+  [ "$(k get pod doom-server -n play-romero -o jsonpath='{.spec.nodeName}')" = romero ] &&
+  out_has "runs already" "$MESH" host game start romero &&
+  K petersen delete pod doom-play-romero --ignore-not-found --wait=false >/dev/null; }
 watch_cap() { # WB05: the host's spectator counts against watch-host's quota (the cap on the host's views); at the cap one more is refused
   # by the API server. Also the measure the cap is sized from: the spectator's real CPU over 20 s, from its own cgroup (cpu.stat).
   local u1 u2 q rq used o
@@ -404,6 +460,9 @@ step DM27 "D6: romero accepts watch-host; watch start runs the host's spectator 
 step DM28 "D6: the watcher guard refuses a watch-host pod that names the control plane, tolerates its taint or is shareable; a plain one gets the affinity" watcher_guard
 step DM29 "WB05: the host's spectator counts against watch-host's quota and, at the cap, one more is refused; its real CPU is measured" watch_cap
 step DM30 "D6: watch leave closes the host's party at once; watch stop removes the spectator and its secret; watch down removes watch-host; romero's second robot ended cleanly" host_watch_closes
+step DM31 "#102: petersen plays romero's game from her browser's path: her own game client on her node, no hostPort; the server says she joined" play_up
+step DM32 "#102: from her node her keys move her game (frames change with keys, hardly without); no secret, the console key, Enter and another node are refused; latency measured" play_keys
+step DM33 "#102: the host stops romero's game server (game stop) and starts it again (game start) on his node; a second start changes nothing" host_game
 
 [ -z "$SC" ] || [ "$FAILS" -ne 0 ] || { cp "$OUTD/match.gif" "$SC/match.gif"; for s in player host; do   # only a run that passed becomes a recording (the GIF first: down removes the state)
   python3 "$SCP" redact "$SC/$s.raw" "$SC/$s.tsv" --strip "$STATE/" --strip "$POC/" --strip "${POC%/*}/" || FAILS=$((FAILS+1)); done; }

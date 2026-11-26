@@ -112,6 +112,10 @@ def plan(verb: str, args: dict, reads) -> list[str]:
         mine = [l for l in ls if l["name"] == name]
         what = {"reap-one": "end the lease of", "kick": "kick", "revoke": "revoke the certificate of"}[verb]
         return [f"{what} {name}", f"lease: {lease_line(mine)}"]
+    if verb == "game-start":
+        return [f"start a Doom server in play-{args['owner']}, on {args['owner']}'s node (pod doom-server, Service doom 10666/UDP)"]
+    if verb == "game-stop":
+        return [f"stop {args['owner']}'s game server: everyone in that game is out", "the parties stay; the game can start again"]
     if verb == "watch-invite":
         return [f"ask {args['owner']} to let the host watch: the host's half of a party (watch-host)",
                 f"nothing opens until {args['owner']} runs: edge-mesh party accept watch-host"]

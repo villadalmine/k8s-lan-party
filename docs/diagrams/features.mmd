@@ -10,10 +10,10 @@ flowchart LR
     s_poc_admission["poc-admission"]
     s_poc_admission_auto["poc-admission-auto"]
     s_poc_console["poc-console"]
+    s_poc_doom["poc-doom"]
     s_poc_player["poc-player"]
     s_poc_pool["poc-pool"]
     s_poc_party["poc-party"]
-    s_poc_doom["poc-doom"]
     s_poc_page["poc-page"]
     s_poc_lighthouse["poc-lighthouse"]
     s_poc_nat["poc-nat"]
@@ -252,6 +252,7 @@ flowchart LR
   f_admission_auto -.-> p_poc_pool_yaml
   f_admission_auto -.-> p_poc_mesh
   s_poc_console -->|"K01, K02, K10-K26"| f_host_console
+  s_poc_doom -->|"DM27, DM33"| f_host_console
   f_host_console --> c_admission
   f_host_console -.-> p_poc_mesh
   f_host_console -.-> p_poc_lib_sh
@@ -264,6 +265,7 @@ flowchart LR
   f_host_console -.-> p_poc_console_static__
   f_host_console -.-> p_poc_admission_py
   s_poc_player -->|"PM01-PM07"| f_player_console
+  s_poc_doom -->|"DM12-DM13, DM16, DM31-DM32"| f_player_console
   f_player_console --> c_Kubernetes_API
   f_player_console --> c_k3s
   f_player_console -.-> p_poc_edge_mesh

@@ -236,12 +236,13 @@ features:
       seen_in: "v0.4.0-poc: the host approves carol and then presses panic from the web console; each is a job of the console daemon with a plan, a confirmation and one audit line."
     proven_by:
       - {suite: poc-console, steps: [K01, K02, K10-K26]}
+      - {suite: poc-doom, steps: [DM27, DM33]}
     paths: [poc/mesh, poc/lib.sh, poc/meshlock.py, poc/console/actions.py, poc/console/client.py, poc/console/mutate.py, poc/console/server.py, poc/console/check-browser.cjs, poc/console/static/*, poc/admission.py]
     components: [admission]
     docs: [docs/CONSOLE.md, docs/HOST-YOUR-OWN.md]
 
   - id: player-console
-    description: the player's local console on loopback; owns only the player's namespace kubeconfig, shows lease/countdown, local Nebula and namespace API connectivity, own events/parties/joinable games and allows only their party consents
+    description: the player's local console on loopback; owns only the player's namespace kubeconfig, shows lease/countdown, local Nebula and namespace API connectivity, own events/parties/joinable games and allows only their party consents; watches a game and plays it in the tab (#101, #102) through the player's own pods on their own node, by Pod IP behind a per-pod secret, keys only into the pod's own display
     layer: tenancy
     user_facing: true
     learn:
@@ -251,6 +252,7 @@ features:
       seen_in: "The player sees their lease countdown, own events and parties, and the API refuses a handwritten host action or a read outside their namespace."
     proven_by:
       - {suite: poc-player, steps: [PM01-PM07]}
+      - {suite: poc-doom, steps: [DM12-DM13, DM16, DM31-DM32]}
     paths: [poc/edge-mesh, poc/console/player.py, poc/console/player-static/*, poc/test_console_player.py, poc/test_edge_mesh.py]
     components: [Kubernetes API, k3s]
     docs: [docs/CONSOLE.md, docs/CONSOLE-MODES.md, docs/JOIN.md]

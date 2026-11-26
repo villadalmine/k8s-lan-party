@@ -14,6 +14,48 @@ import yaml
 from doom import watch_stream
 
 
+class PlayInputTests(unittest.TestCase):
+    """#102: POST /input only with PLAY_INPUT, the secret and the game's keys; xdotool only on :99 (WB07, WB08)."""
+    TOKEN = "b" * 64
+
+    def setUp(self):
+        self.pressed = []
+        self.keyboard = watch_stream.Keyboard(runner=lambda argv, env, **kw: self.pressed.append((argv, env)))
+        self.server = watch_stream.http.server.ThreadingHTTPServer(("127.0.0.1", 0), watch_stream.Handler)
+        self.server.daemon_threads = True
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.addCleanup(lambda: (self.server.shutdown(), self.server.server_close()))
+        for item in (patch.object(watch_stream, "TOKEN", self.TOKEN), patch.object(watch_stream, "keyboard", self.keyboard),
+                     patch.object(watch_stream, "PLAY", True)):
+            item.start(); self.addCleanup(item.stop)
+
+    def post(self, body: bytes, token=None):
+        conn = http.client.HTTPConnection(*self.server.server_address, timeout=3)
+        conn.request("POST", "/input", body=body, headers={"Authorization": "Bearer " + (token or self.TOKEN)})
+        r = conn.getresponse(); r.read(); conn.close(); return r.status
+
+    def test_keys_go_to_the_pods_display_only(self):
+        self.assertEqual(self.post(b'{"down": ["ArrowUp", "Control"], "up": ["ArrowLeft"]}'), 204)
+        argv, env = self.pressed[0]
+        self.assertEqual(argv, ["xdotool", "keyup", "Left", "keydown", "Up", "keydown", "Control_L"])
+        self.assertEqual(env["DISPLAY"], ":99")
+
+    def test_no_console_no_enter_no_text_no_secret(self):
+        for body in (b'{"down": ["`"]}', b'{"down": ["Enter"]}', b'{"down": ["a"]}', b'{"type": "quit"}', b'not json', b'{"down": "x"}'):
+            self.assertEqual(self.post(body), 400, body)
+        self.assertEqual(self.post(b'{"down": ["ArrowUp"]}', token="c" * 64), 401)
+        self.assertEqual(self.pressed, [])
+
+    def test_a_spectator_has_no_input(self):
+        with patch.object(watch_stream, "PLAY", False):
+            self.assertEqual(self.post(b'{"down": ["ArrowUp"]}'), 404)
+        self.assertEqual(self.pressed, [])
+
+    def test_too_many_keys_a_second(self):
+        codes = [self.post(b'{"down": ["1"]}') for _ in range(watch_stream.INPUTS_PER_SECOND + 5)]
+        self.assertIn(429, codes)
+
+
 class WatchStreamTests(unittest.TestCase):
     TOKEN = "a" * 64
     JPEG = b"\xff\xd8test-frame\xff\xd9"
