@@ -59,10 +59,10 @@ sequenceDiagram
 ```
 
 The pieces, all in `poc/page/`, Python standard library only: `page.py` (the page), `puller.py` (your host's side), `seal.py` (key checks and the
-sealed envelope: X25519 + HKDF-SHA256 + AES-256-CTR + HMAC-SHA256, through `openssl`), `visit.py` (the visitor's side), `page-server.sh` (install it
+sealed envelope: X25519 + HKDF-SHA256 + AES-256-CTR + HMAC-SHA256, through `openssl`), `visit.py` (the visitor's side), `live.py` and `streamer.py` (the live page and your host's streamer: [LIVE-PAGE.md](LIVE-PAGE.md)), `page-server.sh` (install it
 on a server), `news.py` (What's new: checks the release files and builds that page), `whatsnew/` (one JSON per release and its `.cast` and `.gif`
 recordings; their filtered sources in `whatsnew/<version>/rec/` are never deployed, and `whatsnew/showcase.py` makes the recordings), `static/`
-(three scripts: the browser's proof of work, What's new and the vendored asciinema player; two stylesheets: the page's and the player's;
+(four scripts: the browser's proof of work, What's new, the live page and the vendored asciinema player; two stylesheets: the page's and the player's;
 `VENDOR.md` pins the player), `deploy/` (the systemd units and the Caddy site).
 
 ## Requirements
@@ -212,6 +212,10 @@ cookies, no CORS headers (a browser on another site cannot call it), no CAPTCHA:
 | `POST /api/v1/requests/claim` | the visitor | `claim_code` | 200 once: `state` = `ready`, `name`, `sealed` (`v`, `alg`, `epk`, `ct`, `mac`), `lease_end`, `join` | 409 `not-ready`; 410 `gone` (collected, ended, expired, closed); 404; 429 |
 | `GET /api/v1/puller/intake` | your puller (`Authorization: Bearer <token>`) | | 200 `intakes`: `id`, `name`, `ip`, `nebula_public_key`, `seal_public_key`, `received_at` (at most 20) | 401, 429, 503 `no-puller` |
 | `POST /api/v1/puller/report` | your puller | `closed`, `status` (`slots_total`, `slots_used`, `waiting`, `eligible`, `lease_seconds`, `next_ends`), `updates` (`id`, `state`, `position`, `of`, `eta`, `reason`, `lease_end`, `sealed`) | 200 `applied`, `ignored` | 400 `bad-report`, 401, 429 |
+| `GET /api/v1/live` | anyone | | 200 `live`, `since`, `players` (a count, no names), `viewers` (an estimate), `api` (the live page, [LIVE-PAGE.md](LIVE-PAGE.md)) | |
+| `GET /api/v1/live/frame` | anyone | | 200 the house match's last frame (`image/jpeg`, kept in memory only) | 404 `offline`; 429 `rate` (4 a second per origin), `busy` (120 a second in total) |
+| `POST /api/v1/live/frame` | your streamer (`Authorization: Bearer <stream token>`, not the puller's) | a JPEG (`Content-Type: image/jpeg`, at most 256 KiB and 640x400); `X-Live-Players`: a count | 204 | 400 `not-a-jpeg`, `too-big-picture`; 401; 411; 413; 415; 429; 503 `no-stream` |
+| `POST /api/v1/live/offline` | your streamer | | 204 | 401, 429, 503 |
 
 The states a visitor sees: `received` (the control plane has not read it yet), `waiting` / `deferred` (in the list; deferred = not eligible yet),
 `ready` (collect now), `claimed`, `refused` (with a `reason`), `ended` (the lease is over), `expired` (not taken or not collected in time),

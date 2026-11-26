@@ -1,0 +1,20 @@
+# The live page's streamer (docs/LIVE-PAGE.md L3), on the HOST that runs `mesh`, never on the public server. It reads the house match's
+# spectator through the API server and pushes its frames to the page, outbound only, with the stream token (page-server.sh stream-token).
+# Copy to /etc/systemd/system/, replace <your user>, <the clone> and the page's address; then enable --now. `mesh host live start` does the
+# same without systemd (the lab). Panic makes it tell the page offline; stopping it does too.
+[Unit]
+Description=k8s-lan-party: push the house match's frames to the public page's /live
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=<your user>
+WorkingDirectory=<the clone>/poc
+UMask=0077
+ExecStart=/usr/bin/python3 <the clone>/poc/page/streamer.py run --url https://page.example.org --token-file <the clone>/poc/.state/page/stream.token
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target

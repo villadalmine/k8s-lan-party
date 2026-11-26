@@ -307,6 +307,22 @@ features:
     components: [k3s, Cilium, NetworkPolicy, Odamex, FreeDM, ffmpeg, Python stdlib]
     docs: [docs/DESIGN.md, docs/JOIN.md, docs/PUBLIC-PAGE.md]
 
+  - id: live-page
+    description: the live page (#113, docs/LIVE-PAGE.md) - the house match, the host's own Doom game on its own machine with two robots and whoever accepts the house's party, is shown on /live of the public page; a streamer on the host pushes its spectator's frames outbound with its own token; the page keeps the last one in memory, limits viewers and has no visitor input; panic takes it offline; join and play goes through the ask flow and the player's own console
+    layer: admission
+    user_facing: true
+    releases: []
+    learn:
+      concept: "Broadcast only what everyone in it agreed to, and push it out from the inside: the public side never connects in and keeps nothing."
+      analogy: "A shop window that shows the house band playing: the band chose the window, and the street sees through the glass but cannot walk in."
+      real_world: "A public status page or live demo fed by an outbound push from a private network, never by a port opened to it."
+      seen_in: "v0.7.0-poc: petersen accepts the house's party and plays in the match the public page shows."
+    proven_by:
+      - {suite: poc-doom, steps: [DM34-DM37]}
+    paths: [poc/page/live.py, poc/page/streamer.py, poc/page/static/live.js]
+    components: [Odamex, FreeDM, ffmpeg, Caddy, Python stdlib]
+    docs: [docs/LIVE-PAGE.md, docs/PUBLIC-PAGE.md]
+
   - id: public-page
     description: the public page (phase B2) on a server that holds no credential; a visitor asks, waits, collects a sealed bundle, joins, is expelled; panic closes it; What's new tells each release with recordings of real runs (make showcase)
     layer: admission
