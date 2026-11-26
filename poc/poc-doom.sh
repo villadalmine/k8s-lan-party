@@ -10,7 +10,7 @@
 # Needs a Linux host with Incus. PASS/FAIL per step; identical across runs. CNI=cilium by default (the demo's CNI); CNI=flannel also runs.
 # D6 (#101, DM24 on): the host's watcher needs an `own` machine that is not the control plane: hostpc, issued by the host like n1 (never through
 # `mesh host invite`, which refuses own), joins after the match.
-# POOL_LEASE (default 2700 s) must cover DM03-DM27 (romero's lease must still run when the host watches). KEEP=1 leaves the VMs. SHOWCASE=<dir> also writes the player's and the host's screens there.
+# POOL_LEASE (default 4500 s) must cover DM03-DM37 (romero's lease while the host watches; petersen's while she plays the house match). KEEP=1 leaves the VMs. SHOWCASE=<dir> also writes the player's and the host's screens there.
 # UNTIL=DMxx stops after that step and keeps the VMs (poc/doom/week.sh: UNTIL=DM27 leaves a match and the host's spectator running).
 # OWN_CERT_DURATION (default 2h): the certificate of the host's own machine hostpc.
 set -u
@@ -21,7 +21,7 @@ export RUNTIME=incus MAX_VMS=6 CNI="${CNI:-cilium}" TAINT=no   # TAINT pinned as
 mkdir -p "$STATE"
 LOG="$CACHE/poc-doom.log"; : >"$LOG"
 MESH="$POC/mesh"
-LEASE="${POOL_LEASE:-2700}"
+LEASE="${POOL_LEASE:-4500}"
 PLAY="${DOOM_SECONDS:-40}"   # how long petersen plays; carmack plays long enough to still be in the game when she has joined
 LONG=$((PLAY * 3 + 30))
 export POOL_CONFIG="$STATE/pool-test.yaml"
@@ -424,6 +424,71 @@ host_watch_closes() { # romero's second robot ended; the host leaves (the party 
   [ -z "$(k get networkpolicies -n watch-host -l edge-mesh/party -o name)" ] && [ -z "$(k get networkpolicies -n play-romero party-watch-host --ignore-not-found -o name)" ] &&
   wait_for 60 host_closed && out_has "watcher: removed" "$MESH" host watch down &&
   [ -z "$(k get namespace watch-host --ignore-not-found -o name)" ] && out_has "watcher: none" "$MESH" host watch status; }
+# --- the live page (docs/LIVE-PAGE.md, #113): the house match on hostpc, a page server here, the streamer between them -------------------
+HouseK() { k -n house "$@"; }
+house_log() { HouseK exec doom-server -- cat /tmp/server.log; }
+house_joined() { [ "$(house_log | grep -c "$1 joined the game")" -gt 0 ]; }
+house_up() { # LV08: house is the host's like watch-host (own node, never the control plane, no credential); its match runs there
+  say host "the house match: the host's own Doom game on its own machine, two robots in it, and its spectator. This is what the live page shows"
+  out_has "house: namespace house ready" show host "mesh host house init" "$MESH" host house init &&
+  [ "$(k get namespace house -o jsonpath='{.metadata.labels.edge-mesh/house}')" = host ] &&
+  [ -z "$(k get roles,rolebindings -n house -o name)" ] && [ "$(k get serviceaccounts -n house -o name)" = serviceaccount/default ] || return 1
+  out_has "house: the match runs" show host "mesh host house start" "$MESH" host house start || return 1
+  local p; for p in doom-server doom-bot-a doom-bot-b doom-watch-house; do
+    HouseK wait --for=condition=Ready "pod/$p" --timeout=240s >/dev/null || { echo "$p is not Ready"; return 1; }
+    [ "$(HouseK get pod "$p" -o jsonpath='{.spec.nodeName}')" = "$OWN" ] || { echo "$p is not on $OWN"; return 1; }
+  done
+  wait_for 120 house_joined robot-a && wait_for 120 house_joined robot-b && wait_for 60 sh -c "\"$MESH\" host house frame >\"$OUTD/house1.jpg\" 2>/dev/null" &&
+  sleep 2 && "$MESH" host house frame >"$OUTD/house2.jpg" || return 1
+  echo "house frames: $(wc -c <"$OUTD/house1.jpg") and $(wc -c <"$OUTD/house2.jpg") bytes"
+  ! cmp -s "$OUTD/house1.jpg" "$OUTD/house2.jpg" && show host "mesh host house status" "$MESH" host house status; }
+LIVE_PORT=18094; LIVE="http://127.0.0.1:$LIVE_PORT"
+live_get() { python3 -c 'import sys,urllib.request,urllib.error
+try: r=urllib.request.urlopen(sys.argv[1],timeout=5); sys.stdout.buffer.write(r.read())
+except urllib.error.HTTPError as e: sys.exit(e.code % 256 or 1)
+except Exception: sys.exit(1)' "$LIVE$1"; }
+live_is() { live_get /api/v1/live | python3 -c 'import json,sys; sys.exit(0 if json.load(sys.stdin)["live"] is (sys.argv[1] == "on") else 1)' "$1"; }
+live_players() { live_get /api/v1/live | python3 -c 'import json,sys; sys.exit(0 if json.load(sys.stdin)["players"] == int(sys.argv[1]) else 1)' "$1"; }
+live_on() { # L3/L4: a page server here (as on the public server, without Caddy) and the streamer, outbound only, with its own token
+  local d="$STATE/livepage"; mkdir -p "$d" "$STATE/page"
+  (umask 077; python3 -c 'import secrets; print(secrets.token_urlsafe(32))' >"$STATE/page/stream.token")
+  python3 -c 'import sys; sys.stdout.write(open(sys.argv[1]).read().strip())' "$STATE/page/stream.token" | sha256sum | cut -d' ' -f1 |
+    python3 "$POC/page/page.py" set-stream-hash --state "$d" >/dev/null || return 1
+  python3 "$POC/page/page.py" serve --state "$d" --listen "127.0.0.1:$LIVE_PORT" >"$d/page.log" 2>&1 & LIVE_PID=$!
+  wait_for 20 live_get /api/v1/live >/dev/null || return 1
+  say host "the streamer pushes the house's frames to the public page; the page keeps the last one, in memory, and anyone can watch"
+  out_has "live: the streamer started" show host "mesh host live start --url https://<the public page>" "$MESH" host live start --url "$LIVE" &&
+  wait_for 60 live_is on && live_get /api/v1/live/frame >"$OUTD/live1.jpg" && sleep 2 && live_get /api/v1/live/frame >"$OUTD/live2.jpg" || return 1
+  echo "the page's frames: $(wc -c <"$OUTD/live1.jpg") and $(wc -c <"$OUTD/live2.jpg") bytes; /live: $(live_get /live | grep -c 'This match is broadcast') broadcast notice"
+  ! cmp -s "$OUTD/live1.jpg" "$OUTD/live2.jpg" && live_get /live | grep -q 'This match is broadcast' && live_players 0 &&
+  # LV05: the only spectator the streamer reads is the house's (its one kubectl exec goes into house/doom-watch-house)
+  pgrep -af 'exec -i -n house doom-watch-house' >/dev/null && ! pgrep -af 'exec -i -n (play-|watch-host)' >/dev/null &&
+  # LV03: no picture on the page's disk (a JPEG's JFIF or Exif header anywhere under its state directory)
+  python3 -c 'import pathlib,sys; sys.exit(any(b"JFIF" in f.read_bytes() or b"Exif" in f.read_bytes() for f in pathlib.Path(sys.argv[1]).rglob("*") if f.is_file()))' "$d"; }
+house_offer() { # L8 (LV09): open, the house offers a party to every player; nothing opens until one accepts; petersen accepts and plays it
+  say host "the host opens the house: every player is offered a party with it, and told it is broadcast"
+  out_has "house: open" show host "mesh host house open" "$MESH" host house open && tick >/dev/null &&
+  out_has "waiting for petersen to accept" "$MESH" host party list && [ -z "$(k get networkpolicies -n house -l edge-mesh/party -o name)" ] || return 1
+  say player "petersen chooses to play in the house match (broadcast): she accepts the house's party"
+  out_has "your consent is recorded" show player "sudo edge-mesh party accept house" P petersen party accept house && tick >/dev/null &&
+  out_has "active" sh -c "\"$MESH\" host party list | awk '\$1 == \"petersen\" && \$2 == \"house\"'" || return 1
+  PLAY_TOKEN=$(python3 -c 'import secrets; print(secrets.token_hex(32))') || return 1
+  K petersen delete pod doom-play-romero --ignore-not-found --wait=true >/dev/null
+  WATCH_TOKEN="$PLAY_TOKEN" "$POC/doom/pod.sh" player "$DOOM_IMG" house petersen | K petersen apply -f - >/dev/null &&
+  K petersen wait --for=condition=Ready pod/doom-play-house --timeout=240s && wait_for 120 house_joined petersen || return 1
+  [ "$(K petersen get pod doom-play-house -o jsonpath='{.spec.nodeName}')" = petersen ] && wait_for 40 live_players 1 &&
+  show host "kubectl exec -n house doom-server -- grep 'joined the game' /tmp/server.log" HouseK exec doom-server -- grep 'joined the game' /tmp/server.log; }
+house_close() { # close withdraws the offers and closes the parties; panic takes the page offline (LV06); the streamer and the house go
+  out_has "house: closed" show host "mesh host house close" "$MESH" host house close &&
+  [ -z "$(k get configmaps -n house -l edge-mesh/party-consent -o name)" ] && [ -z "$(k get networkpolicies -n house -l edge-mesh/party -o name)" ] &&
+  wait_for 40 live_players 0 || return 1
+  say host "panic: the house's broadcast stops at once with everything else"
+  "$MESH" host panic >/dev/null && wait_for 40 live_is off && ! live_get /api/v1/live/frame >/dev/null && echo "panic: the page says offline" &&
+  "$MESH" host panic --clear >/dev/null && wait_for 40 live_is on && echo "panic cleared: on the air again" || return 1
+  out_has "live: the streamer stopped" "$MESH" host live stop && wait_for 20 live_is off &&
+  kill "$LIVE_PID" 2>/dev/null; wait "$LIVE_PID" 2>/dev/null
+  K petersen delete pod doom-play-house --ignore-not-found --wait=false >/dev/null
+  out_has "house: removed" "$MESH" host house down && [ -z "$(k get namespace house --ignore-not-found -o name)" ]; }
 
 if [ -n "${UNTIL:-}" ]; then   # stop after that step, the VMs kept: what runs then is left running
   [[ "$UNTIL" =~ ^DM[0-9]{2}$ ]] || { echo "UNTIL=$UNTIL: a step id like DM27"; exit 2; }
@@ -463,6 +528,10 @@ step DM30 "D6: watch leave closes the host's party at once; watch stop removes t
 step DM31 "#102: petersen plays romero's game from her browser's path: her own game client on her node, no hostPort; the server says she joined" play_up
 step DM32 "#102: from her node her keys move her game (frames change with keys, hardly without); no secret, the console key, Enter and another node are refused; latency measured" play_keys
 step DM33 "#102: the host stops romero's game server (game stop) and starts it again (game start) on his node; a second start changes nothing" host_game
+step DM34 "LV08: the house match (#113): house is the host's (own node, no credential); its server, two robots and its spectator run on hostpc; its frames change" house_up
+step DM35 "L3-L5: a page server and the streamer: the page shows the house's changing frames and the broadcast notice; only the house's spectator is read, nothing is on the page's disk" live_on
+step DM36 "L8, LV09: the open house offers a party to every player and opens nothing; petersen accepts, plays in the house match from her node, and the page counts her" house_offer
+step DM37 "LV06: house close withdraws the offers and closes her party; panic takes the page offline and clearing it brings it back; live stop and house down remove it all" house_close
 
 [ -z "$SC" ] || [ "$FAILS" -ne 0 ] || { cp "$OUTD/match.gif" "$SC/match.gif"; for s in player host; do   # only a run that passed becomes a recording (the GIF first: down removes the state)
   python3 "$SCP" redact "$SC/$s.raw" "$SC/$s.tsv" --strip "$STATE/" --strip "$POC/" --strip "${POC%/*}/" || FAILS=$((FAILS+1)); done; }
