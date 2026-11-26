@@ -101,6 +101,10 @@ class Streamer(Base):
         s.run()
         self.assertTrue(self.sleeps and min(self.sleeps) >= 0.5, self.sleeps)
 
+    def test_no_clear_text_url_but_the_loopback(self):
+        args = ["run", "--token-file", str(self.tmp / "tok"), "--once"]
+        self.assertEqual(st.main([*args, "--url", "http://page.example.org"]), 2)
+
     def test_the_token_file_must_hold_a_token(self):
         (self.tmp / "tok").write_text("short\n")
         with self.assertRaises(SystemExit):

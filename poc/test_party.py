@@ -298,6 +298,18 @@ class House(unittest.TestCase):
         self.assertIn(["configmap", "house", "party-alice"], act["delete"])
         self.assertIn(["networkpolicy", "house", "party-alice"], act["delete"])
 
+    def test_reopening_asks_again(self):
+        # PR #117 review: close then open must not reopen a party on the player's old accept
+        d, _ = settle(world([ns("alice"), house()], [cm("alice", "house")]))
+        d, _ = settle(d)
+        d["namespaces"]["items"] = [ns("alice"), house(open_=False)]
+        d, act = settle(d)
+        self.assertIn(["configmap", "play-alice", "party-house"], act["delete"])
+        d["namespaces"]["items"] = [ns("alice"), house()]
+        for _ in range(3):
+            d, act = settle(d)
+            self.assertFalse([o for o in act["apply"] if o["kind"] == "NetworkPolicy"], act["apply"])
+
     def test_no_offer_without_the_hosts_label_nor_to_an_ended_lease_nor_with_parties_off(self):
         _, act = settle(world([ns("alice"), house(label="alice")], []))
         self.assertEqual(offers(act), [])                                                # a namespace called house is not the house

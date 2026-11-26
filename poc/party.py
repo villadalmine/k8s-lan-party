@@ -132,9 +132,12 @@ def plan(cfg: dict, now: int, data: dict) -> dict:
     # accepts); closed, it withdraws every offer, which also closes the parties of whoever was playing in it
     house = players.get(HOUSE)
     house_open = bool(house and house[1] and house[2].get(HOUSE_OPEN) == "yes" and on)
-    for (me, peer) in sorted(cons):
+    for (me, peer), c in sorted(cons.items()):
         if me == HOUSE and not house_open:
             gone.add((me, peer, "closed: the house match is closed"))
+        elif peer == HOUSE and not house_open and c["status"].startswith("active"):
+            # the player's half too: reopening the house must ask again, never reopen a party on an old accept (PR #117 review)
+            gone.add((me, peer, "closed: the house match is closed; accept again to play when it reopens"))
     if house_open:
         for who, (_, live, _) in sorted(players.items()):
             if who not in HOST_PEERS and live and ends.get(who, 0) > now and (HOUSE, who) not in cons:

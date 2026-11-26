@@ -59,9 +59,9 @@ class Streamer:
 
     # --- the host -------------------------------------------------------------------------------------------------------
     def _mesh(self, *args: str, timeout: int = 60) -> subprocess.CompletedProcess:
+        keep = {k: v for k, v in os.environ.items() if k.startswith("EMESH_") or k in ("POOL_CONFIG", "RUNTIME", "INCUS_PROJECT", "HOME")}
         return subprocess.run([self.a.mesh, "host", *args], capture_output=True, text=True, timeout=timeout,
-                              env={"EMESH_STATE": self.a.state, "PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"),
-                                   "HOME": os.environ.get("HOME", "/")})
+                              env={**keep, "EMESH_STATE": self.a.state, "PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin")})
 
     def _gate(self) -> str | None:
         """None when the house may be on the air; else the reason it may not (panic, or the host's tools fail)."""
@@ -171,6 +171,9 @@ def main(argv: list[str] | None = None) -> int:
     a = ap.parse_args(argv)
     if not re.fullmatch(r"https?://[A-Za-z0-9.:\[\]-]+(/[A-Za-z0-9._~/-]*)?", a.url):
         print("--url: http(s)://host[:port][/path]", file=sys.stderr)
+        return 2
+    if a.url.startswith("http://") and not re.match(r"http://(127\.0\.0\.1|localhost|\[::1\])(:|/|$)", a.url):
+        print("--url: https, except on this machine's loopback (the stream token never crosses a network in clear)", file=sys.stderr)
         return 2
     s = Streamer(a)
 

@@ -40,8 +40,8 @@ player's node never sends anything to the public site.
 `poc/page/streamer.py` runs on the host (a systemd unit, like the puller). It reads the spectator's frames the way the host console does
 (`watcher.Tap`: one `kubectl exec -i`, the pod's secret on stdin) and **pushes** them to the page: `POST /api/v1/live/frame` with a bearer
 token of its own (the **stream token**: not the puller's, so one leaked token gives one power), a JPEG body of at most 256 KiB, at most 2
-a second. The page never connects to the host: no port is opened anywhere, as for the puller. With panic on, or the host's admission
-closed, the streamer stops sending and tells the page `offline`.
+a second. The page never connects to the host: no port is opened anywhere, as for the puller. With panic on (or the
+host's status unreadable) the streamer stops sending and tells the page `offline` at its next check (every 10 seconds); the page's own operator switch (`page-server.sh close`) takes `/live` offline at once.
 
 ## L4: what the page keeps and serves
 
@@ -104,7 +104,7 @@ player's own consent. `house` is a reserved name (admission, `mesh host invite`,
 | LV07 | a visitor reaches the lab through the live page | no input path; the page never connects to the host | page unit test (no visitor POST on `/api/v1/live*`) |
 | LV08 | the house runs on the control plane or holds credentials | `house` like `watch-host`: own node, guard, no credential | lab (as DM28) |
 | LV09 | the house's offer opens a party alone | the player must accept; one consent opens nothing | party unit test; lab |
-| LV10 | the stream token leaks | it can push pictures only (no intake, no report); `mesh host live rotate-token` | streamer unit test |
+| LV10 | the stream token leaks | it can push pictures only (the puller's endpoints refuse it); rotate: delete the token file, `page-server.sh stream-token` again | page unit test |
 
 ## The pieces, in order
 

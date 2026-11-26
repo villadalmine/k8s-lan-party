@@ -125,7 +125,8 @@ case "$cmd" in
         [ -z "$ports" ] || printf '%s' "$ports" | grep -Eqx '[0-9]{1,5}/(TCP|UDP)(,[0-9]{1,5}/(TCP|UDP))*' || { echo "--ports: a list like 10666/UDP,8080/TCP"; exit 2; }
         printf 'apiVersion: v1\nkind: ConfigMap\nmetadata: {name: party-%s, labels: {edge-mesh/party-consent: "yes"}}\ndata: {peer: "%s", ports: "%s"}\n' \
           "$peer" "$peer" "$ports" | "$0" kubectl apply -f - >/dev/null || exit $?
-        echo "party with $peer: your consent is recorded; it opens once $peer agrees too (the host's next tick); see: edge-mesh party list" ;;
+        echo "party with $peer: your consent is recorded; it opens once $peer agrees too (the host's next tick); see: edge-mesh party list"
+        [ "$peer" != house ] || echo "the house match is BROADCAST on the public page (/live): anyone can watch it, you in it. Leave it with: edge-mesh party leave house" ;;
       leave)
         if [ -n "$peer" ]; then "$0" kubectl delete configmap "party-$peer" --ignore-not-found >/dev/null || exit $?
         else "$0" kubectl delete configmaps -l edge-mesh/party-consent >/dev/null || exit $?; fi

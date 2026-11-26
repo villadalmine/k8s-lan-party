@@ -95,7 +95,25 @@ class LivePage(unittest.TestCase):
     def test_lv01_wrong_tokens_are_limited(self):
         for _ in range(20):
             self.push(token="wrong-token-0123456789")
-        self.assertEqual(self.push(token=STREAM)[0], 429)       # this origin is locked out for a while, even with the right token
+        self.assertEqual(self.push(token="wrong-token-0123456789")[0], 429)   # this origin's wrong tries are locked out for a while
+
+    def test_lv01_the_right_token_is_never_locked_out_by_others(self):
+        for _ in range(25):
+            self.push(token="wrong-token-0123456789")
+        self.t[0] += 1
+        self.assertEqual(self.push(token=STREAM)[0], 204)     # the same address (CGNAT): the streamer still gets through
+
+    def test_lv01_wrong_tries_use_bounded_memory(self):
+        live = self.page.live
+        for i in range(10050):
+            with self.assertRaises(livemod.LiveRefusal):
+                live.auth(f"o{i}", "Bearer nope")
+        self.assertLessEqual(len(live.fails), 10000)
+
+    def test_lv10_the_stream_token_is_not_the_pullers(self):
+        h = {"Authorization": "Bearer " + STREAM}
+        self.assertEqual(self.http("GET", "/api/v1/puller/intake", None, h)[0], 401)
+        self.assertEqual(self.http("POST", "/api/v1/puller/report", b"{}", {**h, "Content-Type": "application/json"})[0], 401)
 
     def test_lv02_only_a_bounded_jpeg(self):
         self.assertEqual(self.push(b"not a picture")[0], 400)

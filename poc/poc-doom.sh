@@ -442,7 +442,8 @@ house_up() { # LV08: house is the host's like watch-host (own node, never the co
   sleep 2 && "$MESH" host house frame >"$OUTD/house2.jpg" || return 1
   echo "house frames: $(wc -c <"$OUTD/house1.jpg") and $(wc -c <"$OUTD/house2.jpg") bytes"
   ! cmp -s "$OUTD/house1.jpg" "$OUTD/house2.jpg" && show host "mesh host house status" "$MESH" host house status; }
-LIVE_PORT=18094; LIVE="http://127.0.0.1:$LIVE_PORT"
+LIVE_PORT=18094; LIVE="http://127.0.0.1:$LIVE_PORT"; LIVE_PID=""
+live_cleanup() { "$MESH" host live stop >/dev/null 2>&1; [ -z "$LIVE_PID" ] || { kill "$LIVE_PID" 2>/dev/null; wait "$LIVE_PID" 2>/dev/null; }; LIVE_PID=""; }
 live_get() { python3 -c 'import sys,urllib.request,urllib.error
 try: r=urllib.request.urlopen(sys.argv[1],timeout=5); sys.stdout.buffer.write(r.read())
 except urllib.error.HTTPError as e: sys.exit(e.code % 256 or 1)
@@ -455,6 +456,7 @@ live_on() { # L3/L4: a page server here (as on the public server, without Caddy)
   python3 -c 'import sys; sys.stdout.write(open(sys.argv[1]).read().strip())' "$STATE/page/stream.token" | sha256sum | cut -d' ' -f1 |
     python3 "$POC/page/page.py" set-stream-hash --state "$d" >/dev/null || return 1
   python3 "$POC/page/page.py" serve --state "$d" --listen "127.0.0.1:$LIVE_PORT" >"$d/page.log" 2>&1 & LIVE_PID=$!
+  trap live_cleanup EXIT   # a failed run leaves no page server or streamer behind for the next one
   wait_for 20 live_get /api/v1/live >/dev/null || return 1
   say host "the streamer pushes the house's frames to the public page; the page keeps the last one, in memory, and anyone can watch"
   out_has "live: the streamer started" show host "mesh host live start --url https://<the public page>" "$MESH" host live start --url "$LIVE" &&
@@ -485,8 +487,8 @@ house_close() { # close withdraws the offers and closes the parties; panic takes
   say host "panic: the house's broadcast stops at once with everything else"
   "$MESH" host panic >/dev/null && wait_for 40 live_is off && ! live_get /api/v1/live/frame >/dev/null && echo "panic: the page says offline" &&
   "$MESH" host panic --clear >/dev/null && wait_for 40 live_is on && echo "panic cleared: on the air again" || return 1
-  out_has "live: the streamer stopped" "$MESH" host live stop && wait_for 20 live_is off &&
-  kill "$LIVE_PID" 2>/dev/null; wait "$LIVE_PID" 2>/dev/null
+  out_has "live: the streamer stopped" "$MESH" host live stop && wait_for 20 live_is off || return 1
+  live_cleanup
   K petersen delete pod doom-play-house --ignore-not-found --wait=false >/dev/null
   out_has "house: removed" "$MESH" host house down && [ -z "$(k get namespace house --ignore-not-found -o name)" ]; }
 

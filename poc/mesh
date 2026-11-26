@@ -324,7 +324,7 @@ case "$1 ${2:-}" in
         fi
         echo "house: the match runs (server, robots robot-a and robot-b, the spectator $pod following robot-a; frames: mesh host house frame)" ;;
       stop)
-        k delete pod doom-server doom-bot-a doom-bot-b "$pod" -n "$h" --ignore-not-found --wait=false >/dev/null &&
+        k delete pod doom-server doom-bot-a doom-bot-b "$pod" -n "$h" --ignore-not-found --wait=true --timeout=90s >/dev/null &&
           k delete service doom -n "$h" --ignore-not-found >/dev/null || exit 1
         rm -f "$HD/spectator.token"; echo "house: the match stopped (the offers stay as they are: mesh host house close withdraws them)" ;;
       open|close)
@@ -338,7 +338,7 @@ case "$1 ${2:-}" in
         [ -n "$(k get namespace "$h" --ignore-not-found -o name)" ] || { echo "house: none (mesh host house init)"; exit 0; }
         echo "house: $( [ "$(k get namespace "$h" -o jsonpath='{.metadata.labels.edge-mesh/house-open}')" = yes ] && echo open || echo closed)"
         k get pods -n "$h" -o wide --no-headers 2>/dev/null | awk '{print "  " $1, $3, $7}'
-        python3 "$POC/party.py" list --config "${POOL_CONFIG:-$POC/pool.yaml}" --bundles "$STATE/bundles" \
+        python3 "$POC/party.py" list --read-only --config "${POOL_CONFIG:-$POC/pool.yaml}" --bundles "$STATE/bundles" \
           --nebula-cert "$CACHE/nebula-cert" --kc "$POC/kc" | awk -v h="$h" 'NR == 1 || $1 == h || $2 == h' ;;
       frame)
         [ -s "$HD/spectator.token" ] || { echo "the house has no spectator (mesh host house start)" >&2; exit 3; }
@@ -350,7 +350,7 @@ case "$1 ${2:-}" in
     esac ;;
   "host live")
     sub="${3:-status}"; shift 3 2>/dev/null || shift $#; LD="$STATE/house"; pidf="$LD/streamer.pid"
-    alive_streamer() { [ -s "$pidf" ] && kill -0 "$(cat "$pidf")" 2>/dev/null && grep -q streamer.py "/proc/$(cat "$pidf")/cmdline" 2>/dev/null; }
+    alive_streamer() { [ -s "$pidf" ] && ps -p "$(cat "$pidf")" -o args= 2>/dev/null | grep -q streamer.py; }   # ps: Linux and macOS
     case "$sub" in
       start)
         url=""; cacert=""
@@ -361,7 +361,9 @@ case "$1 ${2:-}" in
         mkdir -p "$LD"; chmod 700 "$LD"
         setsid nohup python3 "$POC/page/streamer.py" run --url "$url" --token-file "$STATE/page/stream.token" ${cacert:+--cacert "$cacert"} \
           --mesh "$POC/mesh" --state "$STATE" >>"$LD/streamer.log" 2>&1 </dev/null &
-        echo $! >"$pidf"; echo "live: the streamer started (log $LD/streamer.log)" ;;
+        echo $! >"$pidf"; sleep 2
+        alive_streamer || { echo "live: the streamer stopped at once:"; tail -n 3 "$LD/streamer.log"; rm -f "$pidf"; exit 1; }
+        echo "live: the streamer started (log $LD/streamer.log)" ;;
       stop)
         if alive_streamer; then kill "$(cat "$pidf")"; echo "live: the streamer stopped (the page shows offline)"; else echo "live: no streamer"; fi
         rm -f "$pidf" ;;

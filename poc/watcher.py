@@ -58,7 +58,7 @@ def affinity() -> dict:
 
 
 # the house (docs/LIVE-PAGE.md): its server, two robots and its spectator (1500m and 1280 MiB of limits); a ConfigMap per player it offers
-HOUSE_QUOTA = {"cpu_millis": 2000, "pods": 6, "memory_mib": 1536, "configmaps": 60}
+HOUSE_QUOTA = {"cpu_millis": 2000, "pods": 8, "memory_mib": 1536, "storage_mib": 3072, "configmaps": 60}   # room for a restart's overlap
 
 
 def manifests(cfg: dict, house: bool = False) -> dict:
@@ -67,7 +67,7 @@ def manifests(cfg: dict, house: bool = False) -> dict:
     never the control plane: poc/watcher-policy.yaml), edge-mesh/watcher=host; its quota is house_quota_* of pool.yaml."""
     q = dict(cfg)
     prefix = "house_quota_" if house else "watch_quota_"
-    for key in (("cpu_millis", "pods", "memory_mib", "configmaps") if house else ("cpu_millis", "pods")):
+    for key in (tuple(HOUSE_QUOTA) if house else ("cpu_millis", "pods")):
         if f"{prefix}{key}" in cfg:
             q[f"quota_{key}"] = cfg[f"{prefix}{key}"]
         elif house:
@@ -116,7 +116,8 @@ def status(kc: str, parties: list) -> dict:
         if r.returncode != 0:
             raise RuntimeError((r.stderr or r.stdout).strip()[:200])
         return json.loads(r.stdout)
-    ns = get("get", "namespaces", "-l", f"{WATCHER_LABEL}=host", "-o", "json").get("items", [])
+    ns = [n for n in get("get", "namespaces", "-l", f"{WATCHER_LABEL}=host", "-o", "json").get("items", [])
+          if n.get("metadata", {}).get("name") == WATCHER]   # the house carries the label for the guard; it is not the watcher
     rows = [{"owner": p["peer"], "status": p["status"]} for p in parties if p.get("player") == WATCHER]
     if not ns:
         return {"watcher": False, "parties": rows, "spectators": []}

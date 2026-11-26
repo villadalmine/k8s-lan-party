@@ -101,15 +101,22 @@ class Live:
         """The stream token, before any body is read (LV01); wrong tries are counted per origin, in memory."""
         now = self.clock()
         with self.lock:
-            fails = self._window(self.fails.setdefault(ident, deque()), now, self.cfg["live_fail_window_seconds"])
-            if len(fails) >= self.cfg["live_max_failures"]:
-                raise LiveRefusal(429, "too-many-tries", "too many failed tries from your address", int(self.cfg["live_fail_window_seconds"]))
             want = self.stream_hash()
             if want is None:
                 raise LiveRefusal(503, "no-stream", "no streamer is set up on this page")
             token = header[7:] if isinstance(header, str) and header.startswith("Bearer ") and len(header) <= 200 else ""
-            if not token or not hmac.compare_digest(hashlib.sha256(token.encode()).hexdigest(), want):
+            good = bool(token) and hmac.compare_digest(hashlib.sha256(token.encode()).hexdigest(), want)
+            if not good:   # the right token is never locked out by others' wrong tries from the same address (CGNAT; PR #117 review)
+                window = self.cfg["live_fail_window_seconds"]
+                fails = self._window(self.fails.get(ident, deque()), now, window)
+                if len(fails) >= self.cfg["live_max_failures"]:
+                    raise LiveRefusal(429, "too-many-tries", "too many failed tries from your address", int(window))
+                if len(self.fails) >= 10000:   # bounded memory whatever the number of origins: forget the expired ones, then the oldest
+                    self.fails = {k: q for k, q in self.fails.items() if q and now - q[-1] < window}
+                    while len(self.fails) >= 10000:
+                        self.fails.pop(next(iter(self.fails)))
                 fails.append(now)
+                self.fails[ident] = fails
                 raise LiveRefusal(401, "unauthorized", "not the streamer")
             if len(self._window(self.pushes, now, 1)) >= self.cfg["live_push_per_second"]:
                 raise LiveRefusal(429, "rate", "at most %d frames a second" % self.cfg["live_push_per_second"], 1)
@@ -161,4 +168,7 @@ class Live:
             if not self._live(now, closed):
                 raise LiveRefusal(404, "offline", "the house match is not on the air right now")
             self.viewers[ident] = now
+            if len(self.viewers) > 10000:   # bounded even if nobody asks the status
+                w = self.cfg["live_viewer_window_seconds"]
+                self.viewers = {k: t for k, t in self.viewers.items() if now - t < w}
             return self.frame
