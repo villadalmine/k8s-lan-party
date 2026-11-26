@@ -35,11 +35,14 @@ import actions  # noqa: E402
 import server  # noqa: E402
 
 NAME = re.compile(r"[a-z][a-z0-9-]{1,19}")
+ENDPOINT_TTL = 3   # seconds a spectator's or game client's (pod IP, secret) is reused before the API is asked again
 PEER = re.compile(r"[a-z][a-z0-9-]{1,19}")
 PORT_LIST = re.compile(r"[0-9]{1,5}/(?:TCP|UDP)(?:,[0-9]{1,5}/(?:TCP|UDP))*")
 NEBULA_PATH = re.compile(r"(?<![\w.-])/etc/nebula(?:/[^\s\"'<>]*)?")
 DOOM_IMAGE = re.compile(r"localhost/emesh-doom:12\.3\.0-[a-f0-9]{12}")
 DEFAULT_PORTS = ["10666/UDP"]
+# the keys the tab may send (poc/doom/watch_stream.py KEYS): no console key, no Enter, no letters
+PLAY_KEYS = {"ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Control", " ", "Alt", "Shift", ",", ".", "1", "2", "3", "4", "5", "6", "7"}
 MAX_BODY = 4096
 STATIC = HERE / "player-static"
 STATIC_FILES = {"/": ("index.html", "text/html; charset=utf-8"),
@@ -232,6 +235,7 @@ class Player:
             raise PlayerError(2, "kubectl", "install kubectl or k3s before starting the player console")
         self.clock = clock
         self.runner = runner
+        self._endpoints: dict = {}
         self.namespace, self.name = namespace_from_kubeconfig(kubeconfig)
         claims = token_claims(kubeconfig)
         self.expires_at = claims["exp"]
@@ -288,6 +292,7 @@ class Player:
         if route in ("parties", "games"):
             data = self._run(["get", "configmaps", "-n", self.namespace, "-l", "edge-mesh/party-consent", "-o", "json"])
             watchers = {p.get("metadata", {}).get("name", "")[len("doom-watch-"):] for p in self._watch_pods()}
+            players = {p.get("metadata", {}).get("name", "")[len("doom-play-"):] for p in self._play_pods()}
             rows = []
             for cm in data.get("items", []):
                 meta, body = cm.get("metadata", {}), cm.get("data", {})
@@ -296,20 +301,32 @@ class Player:
                     continue
                 status = (meta.get("annotations") or {}).get("edge-mesh/party-status", "waiting for host reconciliation")
                 rows.append({"peer": peer, "ports": body.get("ports", ""), "status": status,
-                             "watching": peer in watchers})
+                             "watching": peer in watchers, "playing": peer in players})
             if route == "games":
                 # a party with watch-host is the host watching this player's game: it serves no game to watch (PR #112 review)
                 active = [r for r in rows if r["status"].startswith("active:") and r["peer"] != "watch-host"]
                 active_peers = {r["peer"] for r in active}
-                active.extend({"peer": peer, "ports": "", "status": "inactive: party ended; stop the spectator", "watching": True}
-                              for peer in sorted(watchers - active_peers))
+                own_server = self._pod("doom-server") is not None
+                if own_server:
+                    active_peers.add(self.name)
+                # a spectator or a game client left behind (the party ended, the own server stopped) keeps its row, to be stopped:
+                # without it the page shows no Leave button and the pod keeps the quota (PR #114 review)
+                active.extend({"peer": peer, "ports": "", "status": "inactive: party ended; " + ("leave the game" if peer in players else "stop the spectator"),
+                               "watching": peer in watchers,
+                               "playing": peer in players, **({"own": True} if peer == self.name else {})}
+                              for peer in sorted((watchers | players) - active_peers))
+                if own_server:   # the player's own server: they may play it from the tab too
+                    active.insert(0, {"peer": self.name, "ports": "10666/UDP", "status": "active: your own game", "watching": False,
+                                      "playing": self.name in players, "own": True})
                 return active
             return rows
         if route == "actions":
             return [{"verb": v, "summary": desc, "params": params} for v, desc, params in (
                 ("party-invite", "ask a player to form a party", {"peer": "player name", "ports": "comma-separated allowed ports (optional)"}),
                 ("party-accept", "accept a player's invitation", {"peer": "player name", "ports": "comma-separated allowed ports (optional)"}),
-                ("party-leave", "withdraw one or all of your consents", {"peer": "player name (optional)"}),)]
+                ("party-leave", "withdraw one or all of your consents", {"peer": "player name (optional)"}),
+                ("play-start", "play a game in this tab: your own server's, or one you have a party with", {"peer": "the game's owner", "image": "the local Doom image"}),
+                ("play-stop", "leave the game you play from this tab", {"peer": "the game's owner"}),)]
         if route == "verbs":
             return actions.verbs("player")
         raise PlayerError(404, "not-found", "no such player view")
@@ -321,17 +338,49 @@ class Player:
                 return pod
         return None
 
+    def _play_pods(self):
+        data = self._run(["get", "pods", "-n", self.namespace, "-o", "json"])
+        return [pod for pod in data.get("items", [])
+                if re.fullmatch(r"doom-play-[a-z][a-z0-9-]{1,19}", pod.get("metadata", {}).get("name", ""))]
+
     def _watch_pods(self):
         data = self._run(["get", "pods", "-n", self.namespace, "-o", "json"])
         return [pod for pod in data.get("items", [])
                 if re.fullmatch(r"doom-watch-[a-z][a-z0-9-]{1,19}", pod.get("metadata", {}).get("name", ""))]
 
-    def watch_frame(self, peer: str) -> bytes:
-        if not PEER.fullmatch(peer) or peer == self.name:
+    def _endpoint(self, kind: str, peer: str):
+        """_lookup, kept ENDPOINT_TTL seconds: a frame or a key is not worth several kubectl calls (on a lab each frame took ~0.8 s, so a
+        tab got about one frame a second); a party that closes or a pod that goes is noticed within those seconds, and the pod's own secret
+        still guards every request. Dropped at once when the pod does not answer, and by watch-stop and play-stop."""
+        key, now = (kind, peer), self.clock()
+        hit = self._endpoints.get(key)
+        if hit and now - hit[0] < ENDPOINT_TTL:
+            if isinstance(hit[1], PlayerError):
+                raise hit[1]
+            return hit[1]
+        try:
+            found = self._lookup(kind, peer)
+        except PlayerError as e:   # not ready yet is kept too: a tab asking 10 times a second must not cost 5 kubectl calls each time
+            if e.status != 404:
+                raise
+            found = e
+        self._endpoints[key] = (now, found)
+        if isinstance(found, PlayerError):
+            raise found
+        return found
+
+    def _forget(self, kind: str, peer: str) -> None:
+        self._endpoints.pop((kind, peer), None)
+
+    def _lookup(self, kind: str, peer: str):
+        """(pod IP, secret) of this player's own spectator (kind watch) or game client (kind play) of peer's game, only when it runs on
+        this player's own node with a private address (D7); else 404. Watching needs an active party; playing one's own game does not."""
+        if not PEER.fullmatch(peer) or peer == "watch-host" or (kind == "watch" and peer == self.name):
             raise PlayerError(400, "bad-peer", "peer must be a game participant")
-        if not any(g["peer"] == peer and g["status"].startswith("active:") for g in self.get("games", {})):
-            raise PlayerError(404, "watch-unavailable", "the party is no longer active")
-        pod = self._watch_pod(peer)
+        if not (kind == "play" and peer == self.name) and \
+                not any(g["peer"] == peer and g["status"].startswith("active:") for g in self.get("games", {})):
+            raise PlayerError(404, kind + "-unavailable", "the party is no longer active")
+        pod = self._pod(f"doom-{kind}-{peer}")
         spec = pod.get("spec", {}) if pod else {}
         status = pod.get("status", {}) if pod else {}
         containers = spec.get("containers", [])
@@ -341,20 +390,57 @@ class Player:
             addr = ipaddress.ip_address(status.get("podIP", ""))
         except ValueError:
             addr = None
-        if (not pod or pod.get("status", {}).get("phase") != "Running" or spec.get("nodeName") != self.name or
+        if (not pod or status.get("phase") != "Running" or spec.get("nodeName") != self.name or
                 not addr or not addr.is_private or addr.is_loopback or
                 addr.is_link_local or addr.is_multicast or not re.fullmatch(r"[a-f0-9]{64}", token)):
-            raise PlayerError(404, "watch-unavailable", "the spectator is not ready")
-        conn = http.client.HTTPConnection(addr.compressed, 17777, timeout=2)
+            what = "the spectator" if kind == "watch" else "your game client"
+            raise PlayerError(404, kind + "-unavailable", what + " is not ready")
+        return addr.compressed, token
+
+    def _pod(self, name: str):
+        data = self._run(["get", "pods", "-n", self.namespace, "-o", "json"])
+        return next((pod for pod in data.get("items", []) if pod.get("metadata", {}).get("name") == name), None)
+
+    def frame(self, kind: str, peer: str) -> bytes:
+        addr, token = self._endpoint(kind, peer)
+        conn = http.client.HTTPConnection(addr, 17777, timeout=2)
         try:
             conn.request("GET", "/frame", headers={"Authorization": "Bearer " + token, "Connection": "close"})
             response = conn.getresponse()
             data = response.read(2_000_001)
             if response.status != 200 or len(data) > 2_000_000 or not data.startswith(b"\xff\xd8") or not data.endswith(b"\xff\xd9"):
-                raise PlayerError(502, "watch-frame", "the spectator returned an invalid frame")
+                raise PlayerError(502, kind + "-frame", "the pod returned an invalid frame")
             return data
         except (TimeoutError, OSError, http.client.HTTPException):
-            raise PlayerError(503, "watch-frame", "the spectator frame is not available yet") from None
+            self._forget(kind, peer)
+            raise PlayerError(503, kind + "-frame", "the frame is not available yet") from None
+        finally:
+            conn.close()
+
+    def watch_frame(self, peer: str) -> bytes:
+        return self.frame("watch", peer)
+
+    def keys(self, peer: str, body) -> dict:
+        """POST /api/v1/play/{peer}/input: the tab's keys to this player's own game client, checked here and again in the pod."""
+        if not isinstance(body, dict) or set(body) - {"down", "up"} or not all(
+                isinstance(body.get(k, []), list) and len(body.get(k, [])) <= 8 and
+                all(isinstance(x, str) and x in PLAY_KEYS for x in body.get(k, [])) for k in ("down", "up")):
+            raise PlayerError(400, "bad-keys", "only the game's keys: arrows, Control, space, Alt, Shift, 1-7, comma, period")
+        addr, token = self._endpoint("play", peer)
+        conn = http.client.HTTPConnection(addr, 17777, timeout=2)
+        try:
+            raw = json.dumps({"down": body.get("down", []), "up": body.get("up", [])}).encode()
+            conn.request("POST", "/input", body=raw, headers={"Authorization": "Bearer " + token, "Content-Type": "application/json",
+                                                             "Connection": "close"})
+            response = conn.getresponse()
+            response.read(64)
+            if response.status == 429:
+                raise PlayerError(429, "too-fast", "too many keys at once")
+            if response.status != 204:
+                raise PlayerError(502, "play-input", "the game client refused the keys")
+            return {"ok": True}
+        except (TimeoutError, OSError, http.client.HTTPException):
+            raise PlayerError(503, "play-input", "the game client did not answer") from None
         finally:
             conn.close()
 
@@ -367,8 +453,9 @@ class Player:
             image = body.get("image", "")
             if not isinstance(peer, str) or not PEER.fullmatch(peer) or peer in (self.name, "watch-host"):
                 raise PlayerError(400, "bad-peer", "peer must be a game participant")
-            if not any(game["peer"] == peer for game in self.get("games", {})):
+            if not any(game["peer"] == peer and game["status"].startswith("active:") for game in self.get("games", {})):
                 raise PlayerError(403, "not-a-game", "watching needs an active party with that game")
+            self._forget("watch", peer)
             if not isinstance(image, str) or not DOOM_IMAGE.fullmatch(image):
                 raise PlayerError(400, "bad-image", "build or import the pinned local Doom image first")
             existing = self._watch_pods()
@@ -385,9 +472,40 @@ class Player:
                 raise PlayerError(400, "watcher", "the spectator manifest was rejected")
             self._run(["apply", "-n", self.namespace, "-f", "-", "-o", "json"], stdin=rendered.stdout)
             return {"message": f"spectator starting for {peer}"}
+        if verb == "play-start":
+            image = body.get("image", "")
+            if not isinstance(peer, str) or not PEER.fullmatch(peer) or peer == "watch-host":
+                raise PlayerError(400, "bad-peer", "peer must be a game's owner")
+            if peer == self.name:
+                if self._pod("doom-server") is None:
+                    raise PlayerError(404, "no-game", "you run no game server")
+            elif not any(game["peer"] == peer and game["status"].startswith("active:") for game in self.get("games", {})):
+                raise PlayerError(403, "not-a-game", "playing needs an active party with that game")
+            self._forget("play", peer)
+            if not isinstance(image, str) or not DOOM_IMAGE.fullmatch(image):
+                raise PlayerError(400, "bad-image", "build or import the pinned local Doom image first")
+            if self._play_pods():
+                raise PlayerError(409, "play-exists", "stop the game you play before starting another")
+            env = {**os.environ, "WATCH_TOKEN": secrets.token_hex(32)}
+            try:
+                rendered = subprocess.run([str(POC / "doom" / "pod.sh"), "player", image, peer, self.name],
+                                          capture_output=True, timeout=10, check=False, env=env)
+            except (OSError, subprocess.TimeoutExpired):
+                raise PlayerError(502, "player", "could not prepare the game client") from None
+            if rendered.returncode:
+                raise PlayerError(400, "player", "the game client manifest was rejected")
+            self._run(["apply", "-n", self.namespace, "-f", "-", "-o", "json"], stdin=rendered.stdout)
+            return {"message": f"joining {peer}'s game"}
+        if verb == "play-stop":
+            if not isinstance(peer, str) or not PEER.fullmatch(peer):
+                raise PlayerError(400, "bad-peer", "peer must be a game's owner")
+            self._forget("play", peer)
+            self._run(["delete", "pod", "doom-play-" + peer, "-n", self.namespace, "--ignore-not-found", "--wait=false"])
+            return {"message": f"left {peer}'s game"}
         if verb == "watch-stop":
             if not isinstance(peer, str) or not PEER.fullmatch(peer) or peer == self.name:
                 raise PlayerError(400, "bad-peer", "peer must be a game participant")
+            self._forget("watch", peer)
             self._run(["delete", "pod", "doom-watch-" + peer, "-n", self.namespace,
                        "--ignore-not-found", "--wait=false"])
             return {"message": f"spectator stopped for {peer}"}
@@ -472,17 +590,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
         route = raw[len("/api/v1/"):]
         try:
             if self.command == "GET":
-                match = re.fullmatch(r"watch/([a-z][a-z0-9-]{1,19})/frame", route)
+                match = re.fullmatch(r"(watch|play)/([a-z][a-z0-9-]{1,19})/frame", route)
                 if match:
                     if query_text:
                         return self.send(400, {"error": "query", "message": "the frame route takes no query parameters"})
-                    return self.send(200, self.player.watch_frame(match.group(1)), ctype="image/jpeg")
+                    return self.send(200, self.player.frame(match.group(1), match.group(2)), ctype="image/jpeg")
                 query = parse_qs(query_text, keep_blank_values=True, strict_parsing=bool(query_text), max_num_fields=4)
                 return self.send(200, self.player.get(route, query))
             n = int(self.headers.get("Content-Length", "0"))
             if n < 1 or n > MAX_BODY or self.headers.get_content_type() != "application/json":
                 return self.send(400, {"error": "bad-body", "message": "send a JSON object no larger than 4096 bytes"})
             body = json.loads(self.rfile.read(n))
+            match = re.fullmatch(r"play/([a-z][a-z0-9-]{1,19})/input", route)
+            if match:
+                return self.send(200, self.player.keys(match.group(1), body))
             if not route.startswith("actions/"):
                 return self.send(403, {"error": "role", "message": "the player console has no host actions"})
             return self.send(202, self.player.act(route[len("actions/"):], body))

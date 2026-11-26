@@ -49,10 +49,11 @@ mkdir -p /opt/nebula && curl -fsSL "https://github.com/slackhq/nebula/releases/d
 curl -fsSLo /usr/local/bin/k3s "https://github.com/k3s-io/k3s/releases/download/v1.37.1%2Bk3s1/$K3S_BIN" && chmod +x /usr/local/bin/k3s
 git clone -q https://github.com/villadalmine/k8s-lan-party.git                      # only for the join script, poc/edge-mesh
 install -m 755 k8s-lan-party/poc/edge-mesh /usr/local/bin/edge-mesh
-install -d -m 755 /usr/local/lib/edge-mesh/poc/console /usr/local/lib/edge-mesh/poc/page
+install -d -m 755 /usr/local/lib/edge-mesh/poc/console /usr/local/lib/edge-mesh/poc/page /usr/local/lib/edge-mesh/poc/doom
 cp -a k8s-lan-party/poc/console/. /usr/local/lib/edge-mesh/poc/console/ # includes the player console and its static page
 install -m 644 k8s-lan-party/poc/page/page.py k8s-lan-party/poc/page/seal.py k8s-lan-party/poc/page/news.py /usr/local/lib/edge-mesh/poc/page/
-install -m 644 k8s-lan-party/poc/admission.py k8s-lan-party/poc/pool.py /usr/local/lib/edge-mesh/poc/
+(cd k8s-lan-party/poc && install -m 644 admission.py pool.py meshlock.py participant.py party.py watcher.py /usr/local/lib/edge-mesh/poc/)
+install -m 755 k8s-lan-party/poc/doom/pod.sh /usr/local/lib/edge-mesh/poc/doom/      # the console's Watch and Play render their pods with it
 /opt/nebula/nebula -version && k3s --version | head -1                               # 1.11.2 and v1.37.1+k3s1
 exit                                                                                 # return to the player account before joining
 ```
@@ -233,7 +234,12 @@ sudo edge-mesh kubectl exec doom-server -- grep -E 'connected|joined|disconnecte
 ```
 
 Before the party (or after `edge-mesh party leave`) the robot prints `no server answered` and the log has no line for it: that is the party working,
-not a failure. It is a deathmatch: romero's own robot (`poc/doom/pod.sh client "$IMAGE" doom-bot`, in his namespace) plays too. The whole run is `poc/poc-doom.sh` (DM01-DM30, with the spectators of carmack and of the host); `make poc-doom` does it on Incus VMs.
+not a failure. It is a deathmatch: romero's own robot (`poc/doom/pod.sh client "$IMAGE" doom-bot`, in his namespace) plays too. The whole run is `poc/poc-doom.sh` (DM01-DM33, with the spectators of carmack and of the host, and petersen playing from her browser's path); `make poc-doom` does it on Incus VMs.
+
+**Playing from your browser (#102).** `edge-mesh console` (on your machine, as yourself) shows each game you have an active party with:
+type the image tag `poc/doom/build.sh` printed, press **Play**, click the picture and play (arrows, Control fires, space opens, 1-7 weapons;
+no mouse, no sound). Play runs your own game client as a pod on your machine, inside your quota (400m CPU and 384Mi of your 1000m):
+**Leave the game** stops it. Your keys go only to that pod's own screen, never through the host.
 
 ## Leaving
 

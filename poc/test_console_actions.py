@@ -153,6 +153,13 @@ class ActionsTest(DaemonCase):
                          ("burn", "socket", "local", 0, False, j["id"]))
         self.assertEqual(oct((self.state / "console" / "audit.jsonl").stat().st_mode & 0o777), "0o600")
 
+    def test_game_stop_asks_to_type_the_owner(self):
+        status, plan = self.post("game-stop", {"args": {"owner": "ana"}})
+        self.assertEqual((status, plan["type_to_confirm"]), (200, "ana"))
+        status, body = self.post("game-stop", {"args": {"owner": "ana"}, "confirm": plan["confirm"], "typed": "bob"})
+        self.assertEqual(status, 400)
+        self.assertEqual(self.mutations(), [])
+
     def test_c09_a_dangerous_verb_without_confirmation_runs_nothing(self):
         status, plan = self.post("kick", {"args": {"name": "ana"}})
         self.assertEqual(status, 200)
