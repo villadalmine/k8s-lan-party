@@ -97,8 +97,15 @@ right token too (the page still loads and says so). Anyone on the host can reach
 (`mesh host console url` or `rotate-token`, on the host) lifts the lockout and starts a new count. The socket is not affected, so those
 commands always work.
 
-**From another machine.** Nothing new is opened on the host: an SSH tunnel brings the loopback port to your machine. Use the **same port**
-on both ends, because the daemon checks the `Host` header against its own port.
+### Reaching the consoles: an SSH tunnel, or a local ingress
+
+Both consoles (the host's, `mesh host console --web`, and a player's, `edge-mesh console`) listen on the **loopback only** and accept a
+request only when its `Host` (and `Origin`, when a browser sends one) is their own loopback address and port: `127.0.0.1:<port>`,
+`localhost:<port>` or `[::1]:<port>`. That is what keeps a malicious web page (DNS rebinding) away. So there are two ways in; publishing a
+console to the internet is not one of them yet (#116).
+
+**1. An SSH tunnel (the default).** Nothing new is opened on the host: the tunnel brings the loopback port to your machine. Use the
+**same port** on both ends, because the daemon checks the `Host` header against its own port.
 
 ```sh
 # on the host (or in the systemd unit's ExecStart): the daemon with the web console
@@ -107,6 +114,47 @@ on both ends, because the daemon checks the `Host` header against its own port.
 ssh -N -L 8090:127.0.0.1:8090 you@your-host &
 ssh you@your-host 'cd <the clone>/poc && ./mesh host console url'
 ```
+
+To keep it, put it in `~/.ssh/config` on your machine, then `ssh -N console-host` (add the player console's port the same way if you run one
+on a machine you reach by SSH):
+
+```
+Host console-host
+    HostName your-host
+    User you
+    LocalForward 8090 127.0.0.1:8090
+    ExitOnForwardFailure yes
+    ServerAliveInterval 60
+```
+
+The week demo (`poc/doom/week.sh`) writes its tunnel line to `.week/week/tunnel`: the host console on the lab host's loopback, and
+petersen's console through a relay on her VM's lab address that accepts the lab host only (Incus proxies into a VM are NAT-only).
+
+**2. A local ingress (a reverse proxy on your own machine or LAN).** To open a console from another device of your home network without
+SSH, run a reverse proxy **next to the daemon** that serves TLS on the LAN and forwards to the loopback, rewriting `Host` and `Origin` to the
+daemon's own (tested with Caddy 2.11.9: the page loads, the API answers 401 without the token and 200 with it, and a confirmed action goes
+through):
+
+```
+# Caddyfile on the host: https://console.lan for the LAN, the console on 127.0.0.1:8090
+https://console.lan {
+	tls internal                                  # or your own certificate; never plain HTTP: the token travels in every request
+	@lan remote_ip 192.168.0.0/16 10.0.0.0/8      # your LAN only
+	handle @lan {
+		reverse_proxy 127.0.0.1:8090 {
+			header_up Host 127.0.0.1:8090
+			header_up Origin http://127.0.0.1:8090
+		}
+	}
+	respond 403
+}
+```
+
+What changes when you do it: the console's token becomes the only lock for anyone on that network (keep it in a private file; `mesh host
+console url` rotates it); 10 wrong tokens lock the web listener for everyone, so a device on the LAN can lock you out (a new token lifts it,
+from the host's shell); the audit lines still say `127.0.0.1`, because the proxy is the peer. Rewriting `Origin` is safe here only because the
+page sends its token in a header, never in a cookie: a foreign site without the token gets 401. Do not point a public name or the internet at
+it; that is #116.
 
 ![The web console: the status of the game and one button per action of the console role](images/console-status.png)
 

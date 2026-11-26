@@ -12,7 +12,8 @@ fetch() { # pinned binaries, cached next to the scripts
 vm_up() { # vm_up <name> <cpus> <mem> <ip>
   local n="emesh-$1"
   incus info "$n" >/dev/null 2>&1 && incus delete -f "$n"
-  incus init "$IMG" "$n" --vm -c limits.cpu="$2" -c limits.memory="$3" -d root,size=12GiB --network "$VMNET" >/dev/null
+  # INCUS_POOL: the storage pool of the machines' disks (default: the project's default pool); a slow, large one suits a game left running
+  incus init "$IMG" "$n" --vm -c limits.cpu="$2" -c limits.memory="$3" ${INCUS_POOL:+--storage "$INCUS_POOL"} -d root,size=12GiB --network "$VMNET" >/dev/null
   incus config device set "$n" eth0 ipv4.address="$4" >/dev/null
   incus start "$n"
   wait_for 240 incus exec "$n" -- true

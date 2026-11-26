@@ -58,7 +58,13 @@ image() { # the image, once (cached by the hash of its inputs), and its name
   DOOM_IMG=$(echo "$out" | tail -2 | head -1); TAR=$(echo "$out" | tail -1); echo "$DOOM_IMG $TAR"; [ -s "$TAR" ] && [ -n "$DOOM_IMG" ]; }
 admitted() { "$MESH" host request romero --ip 198.51.100.10 && "$MESH" host request carmack --ip 198.51.100.20 && "$MESH" host request petersen --ip 198.51.100.30 &&
   "$MESH" host auto on && say host "three friends ask for a place; one tick of the host admits all three" && out_has "approved 3 | slots 3/3 used" show host "mesh host auto --once" tick; }
-joined() { local w; for w in $PEOPLE; do "$MESH" play "$w" || return 1; done; for w in $PEOPLE; do wait_for 420 ready "$w" || return 1; done; }
+joined() { # the three machines first, at once (a VM takes minutes, more on a slow pool), then the three joins: a join token lives 8 minutes
+  # from the tick of DM03, and three machines made one after the other outlived petersen's (the regression of 2026-11-26)
+  local w pids=""
+  for w in $PEOPLE; do vm_new "$w" >"$STATE/vm-$w.log" 2>&1 & pids="$pids $!"; done
+  for w in $pids; do wait "$w" || { tail -n 5 "$STATE"/vm-*.log; return 1; }; done
+  for w in $PEOPLE; do dx "$w" edge-mesh join /bundle --accept-golden-rule || return 1; done
+  for w in $PEOPLE; do wait_for 420 ready "$w" || return 1; done; }
 loaded() { # no registry: the tarball goes into each player's node (k3s ctr), which then has the image and pulls nothing
   local who; for who in $PEOPLE; do
     incus file push -q "$TAR" "emesh-$who/root/doom.tar" && incus exec "emesh-$who" -- sh -c 'k3s ctr -n k8s.io images import /root/doom.tar >/dev/null && rm -f /root/doom.tar' &&

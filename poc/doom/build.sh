@@ -22,7 +22,7 @@ if [ ! -s "$TAR" ]; then
   else # no container engine here: a VM of the run's project builds it (needs the game's bridge: after `mesh host init`)
     . "$POC/lib.sh"; . "$POC/vm/lib-vm.sh"
     B=emesh-doombuild
-    vm_up doombuild 6 8GiB "$UNDERLAY_NET.9" >&2
+    INCUS_POOL= vm_up doombuild 6 8GiB "$UNDERLAY_NET.9" >&2   # the default pool: a build writes a lot, and it is deleted after
     trap 'incus delete -f "$B" >/dev/null 2>&1 || true' EXIT
     incus exec "$B" -- sh -c 'DEBIAN_FRONTEND=noninteractive apt-get install -y -qq podman >/dev/null && mkdir -p /root/doom' >&2
     tar cf - -C "$D" Containerfile server.sh client.sh watch-client.sh play-client.sh watch_stream.py | incus exec "$B" -- tar xf - -C /root/doom

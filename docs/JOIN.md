@@ -239,7 +239,7 @@ not a failure. It is a deathmatch: romero's own robot (`poc/doom/pod.sh client "
 **Playing from your browser (#102).** `edge-mesh console` (on your machine, as yourself) shows each game you have an active party with:
 type the image tag `poc/doom/build.sh` printed, press **Play**, click the picture and play (arrows, Control fires, space opens, 1-7 weapons;
 no mouse, no sound). Play runs your own game client as a pod on your machine, inside your quota (400m CPU and 384Mi of your 1000m):
-**Leave the game** stops it. Your keys go only to that pod's own screen, never through the host.
+**Leave the game** stops it. Your keys go only to that pod's own screen, never through the host. The console listens on your machine's loopback; to open it from another device of yours, use an SSH tunnel or a local ingress (`docs/CONSOLE.md`, "Reaching the consoles").
 
 ## Leaving
 

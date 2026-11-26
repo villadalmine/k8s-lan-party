@@ -40,7 +40,11 @@ case "${1:-}" in
       incus start "$r"
     fi
     wait_for 120 incus exec "$r" -- getent hosts deb.debian.org   # its address is up and it resolves (the image has no ping)
-    incus exec "$r" -- sh -c 'command -v vtysh >/dev/null || { for i in 1 2 3 4 5; do apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq frr curl openssl iproute2 >/dev/null && break; sleep 5; done; }'
+    # FRR is installed stopped (policy-rc.d) and started once, below, with its config: on the lab host a restart could not stop the daemons the
+    # package had started (kill: Permission denied inside the container, 2026-11-26), so bgpd never came up and the router had no BGP
+    incus exec "$r" -- sh -c 'command -v vtysh >/dev/null || { printf "#!/bin/sh\nexit 101\n" >/usr/sbin/policy-rc.d; chmod 755 /usr/sbin/policy-rc.d
+      for i in 1 2 3 4 5; do apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq frr curl openssl iproute2 >/dev/null && break; sleep 5; done
+      rm -f /usr/sbin/policy-rc.d; }'
     fill frr.conf | incus exec "$r" -- sh -c 'cat >/etc/frr/frr.conf.new'
     incus exec "$r" -- sh -c 'sed -i "s/^bgpd=no/bgpd=yes/" /etc/frr/daemons; mkdir -p /var/log/frr; chown frr:frr /var/log/frr
       if ! cmp -s /etc/frr/frr.conf.new /etc/frr/frr.conf || ! pidof bgpd >/dev/null; then mv /etc/frr/frr.conf.new /etc/frr/frr.conf; systemctl restart frr; echo "changed: frr"; else rm /etc/frr/frr.conf.new; fi'

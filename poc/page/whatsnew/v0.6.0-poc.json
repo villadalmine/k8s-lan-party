@@ -1,0 +1,92 @@
+{
+  "version": "v0.6.0-poc",
+  "date": "2026-11-26",
+  "title": "the console for everyone: host mode, player mode, watching and playing the game in the browser",
+  "release": "https://github.com/villadalmine/k8s-lan-party/releases/tag/v0.6.0-poc",
+  "summary": "v0.4.0-poc gave the host one console. v0.6.0-poc gives one to everyone, in two modes, and puts the game in the tab. Host mode shows every verb the host has: what the web may run, with a plan and a confirmation, and what stays on the host's own terminal, disabled with the command to type. Player mode is a console on the player's own machine that holds only the player's namespace credential: the lease, the parties, the games the player may join. Watching: a spectator of a match runs as a pod of the watcher, on the watcher's own node, and its picture reaches the tab by the pod's IP behind a secret of that pod alone; the host watches through a watcher namespace of its own, which a party must accept like any player, and whose quota caps how many views there are. Playing: the player's own game client runs on the player's machine, its screen comes to the tab and only the game's keys go back, into that pod's display and nowhere else. Below, a real poc-doom run, from the robots' match to a player playing from the browser's path.",
+  "issues": [
+    99,
+    100,
+    101,
+    102,
+    103
+  ],
+  "story": {
+    "player": {
+      "title": "The players: romero hosts a match, petersen and carmack watch and play",
+      "steps": [
+        "romero runs a Doom server in his namespace on his own machine; petersen and carmack join it through a party they both accepted.",
+        "carmack watches romero's game: his spectator runs on his own node, and his console shows its picture by the pod's IP, with a secret of that pod.",
+        "petersen presses Play: her own game client runs on her machine, the server says she joined, and her keys, from her node only, move her game; the console key and Enter never get in."
+      ]
+    },
+    "host": {
+      "title": "The host: every verb in one page, and a view of the match",
+      "steps": [
+        "The host console lists every verb: the ones the web may run, and the ones that stay on the host's terminal, with their command.",
+        "The host's watcher, watch-host, is invited to romero's game, and romero accepts it like any player; the Watch tab shows the match, from a pod on the host's own machine.",
+        "At the cap of watch-host's quota one more spectator is refused; game stop ends romero's server and game start brings it back, on his machine."
+      ]
+    }
+  },
+  "casts": [
+    {
+      "file": "player.cast",
+      "side": "player",
+      "title": "The players' screens",
+      "caption": "a real poc-doom run, recorded the way make showcase-doom does in Incus VMs."
+    },
+    {
+      "file": "host.cast",
+      "side": "host",
+      "title": "The host's screen",
+      "caption": "the same run from the host's machine: the parties, the watcher, the views and the game's verbs."
+    }
+  ],
+  "media": [
+    {
+      "file": "match.gif",
+      "title": "carmack's screen during the match",
+      "alt": "A first-person view of a small FreeDM deathmatch map: a marine among corridors, with Doom's health, ammo and frags bar at the bottom.",
+      "caption": "captured by carmack's robot under a virtual screen (Xvfb + ffmpeg) in this run's match: 320x200. The browser shows the same kind of picture to a spectator or a player."
+    }
+  ],
+  "features": [
+    {
+      "name": "Host mode: every verb",
+      "what": "The host console shows every host verb: the web runs the ones the registry allows, with a plan and a typed confirmation where a mistake would cost; the rest stay disabled with the command to type on the host.",
+      "why": "One page to see what the host can do, without widening what a browser may do.",
+      "command": "mesh host console --web 127.0.0.1:8090",
+      "issues": [
+        103
+      ]
+    },
+    {
+      "name": "Player mode",
+      "what": "edge-mesh console: a console on the player's loopback with the player's namespace kubeconfig only - the lease and its countdown, the node's connectivity, the player's events, parties and the games the player may join; party consents from the page.",
+      "why": "A player sees their own part of the party, and the API still enforces what they may touch.",
+      "command": "edge-mesh console",
+      "issues": [
+        100
+      ]
+    },
+    {
+      "name": "Watching",
+      "what": "A spectator per watcher, pinned to the watcher's own node; its picture reaches the console by the pod's IP behind a secret of that pod. The host's watcher is a namespace of its own, invited to a party like a player, and its quota caps the views.",
+      "why": "A view of the match without a hostPort, a port-forward through the host or a new path into a party.",
+      "command": "mesh host watch invite romero\nmesh host watch start romero",
+      "issues": [
+        101
+      ]
+    },
+    {
+      "name": "Playing in the browser",
+      "what": "Play in the player console starts the player's own game client on their machine; the tab shows its screen and sends only the game's keys, into that pod's display; no console key, no Enter, no letters. The host starts and stops a player's game server.",
+      "why": "The game in a tab, while the keys never leave the player's machine.",
+      "command": "edge-mesh console   # Play\nmesh host game stop romero",
+      "issues": [
+        102
+      ]
+    }
+  ]
+}
