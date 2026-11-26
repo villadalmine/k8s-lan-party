@@ -56,7 +56,7 @@ player_console() { # petersen's own console, as a non-root user of her machine w
   # connections only)
   incus exec "$PL" -- sh -c "id -u player >/dev/null 2>&1 || useradd -m -s /bin/sh player; mkdir -p $LIB/doom" || return 1
   # the files docs/JOIN.md installs on a player's machine (tests/test_player_console_files.py keeps that list complete)
-  tar cf - --exclude=__pycache__ -C "$POC" console page/page.py page/seal.py page/news.py admission.py pool.py meshlock.py participant.py \
+  tar cf - --exclude=__pycache__ -C "$POC" console page/page.py page/seal.py page/news.py page/live.py admission.py pool.py meshlock.py participant.py \
     party.py watcher.py doom/pod.sh | incus exec "$PL" -- tar xf - -C "$LIB" || return 1
   incus exec "$PL" -- python3 "$LIB/console/player.py" install-kubeconfig --source /etc/edge-mesh/kubeconfig --user player >/dev/null || return 1
   incus exec "$PL" -- sh -c "systemctl stop edge-mesh-console 2>/dev/null; systemctl reset-failed edge-mesh-console 2>/dev/null

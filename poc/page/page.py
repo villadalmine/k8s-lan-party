@@ -47,6 +47,7 @@ for _p in (HERE.parent, HERE):   # the repository layout (poc/page) and the depl
     sys.path.insert(0, str(_p))
 from admission import NAME, RESERVED, AdmissionError, clean_text, locked_state  # noqa: E402
 from pool import client_ip, identity, load_config, _norm as pool_norm  # noqa: E402
+import live  # noqa: E402
 import seal as keys  # noqa: E402
 import news  # noqa: E402
 
@@ -98,7 +99,7 @@ SECURITY_HEADERS = {
 }
 JS, CSS = "application/javascript; charset=utf-8", "text/css; charset=utf-8"
 # asciinema-player 3.17.0 (Apache-2.0), from the npm tarball, self-hosted: its SHA-256 in static/VENDOR.md, checked by poc/test_whatsnew.py
-STATIC = {"/static/page.js": JS, "/static/page.css": CSS, "/static/whatsnew.js": JS, "/static/asciinema-player.min.js": JS,
+STATIC = {"/static/page.js": JS, "/static/page.css": CSS, "/static/whatsnew.js": JS, "/static/live.js": JS, "/static/asciinema-player.min.js": JS,
           "/static/asciinema-player.css": CSS}
 
 
@@ -151,6 +152,7 @@ class Page:
         self.cfg = {**DEFAULTS, **(cfg or {})}
         self.clock = clock or (lambda: int(time.time()))
         self.pow_key = self._secret("pow.key")
+        self.live = live.Live(self.control, self.cfg)   # the live page (#113): the last frame of the house match, in memory only
 
     # --- files of this server -------------------------------------------------------------------------------------------
     def _secret(self, name: str) -> bytes:
@@ -520,7 +522,7 @@ TEMPLATE = """<!doctype html>
 <html lang=en><head><meta charset=utf-8><meta name=viewport content="width=device-width, initial-scale=1">
 <title>k8s-lan-party: ask for a place</title><link rel=stylesheet href=/static/page.css></head>
 <body><main>
-<p class=top><a href=/whats-new>What's new: the latest release, told as a game</a></p>
+<p class=top><a href=/live>Live: watch the house match</a> &middot; <a href=/whats-new>What's new: the latest release, told as a game</a></p>
 <h1>Ask for a place in the mesh</h1>
 <p>A shared Kubernetes cluster where people lend machines. A place is one machine of yours as a <code>public</code> node for a limited
 time. <b>Golden rule:</b> what runs on someone else's machine can be seen by its owner, so only shareable workloads go to your node.</p>
@@ -560,6 +562,33 @@ watch is your list of parties (<code>sudo edge-mesh party list</code>), since a 
 <p>Without a browser, everything here is a JSON API (<code>/api/v1/...</code>): docs/PUBLIC-PAGE.md in the repository.</p>
 <noscript><p>The form needs JavaScript for the proof of work; or use <code>visit.py</code>.</p></noscript>
 </main><script src=/static/page.js></script></body></html>
+"""
+
+
+LIVE_PATHS = ("/live", "/api/v1/live", "/api/v1/live/frame", "/api/v1/live/offline")
+LIVE_TEMPLATE = """<!doctype html>
+<html lang=en><head><meta charset=utf-8><meta name=viewport content="width=device-width, initial-scale=1">
+<title>k8s-lan-party: the house match, live</title><link rel=stylesheet href=/static/page.css></head>
+<body><main>
+<p class=top><a href=/>Ask for a place</a> &middot; <a href=/whats-new>What's new</a></p>
+<h1>The house match, live</h1>
+<p class=onair id=state>Looking for the match&hellip;</p>
+<figure class=live><img id=frame alt="The house match as its spectator sees it: a first-person view of a small FreeDM deathmatch map" width=640 height=400>
+<figcaption>What the host's spectator of the <b>house match</b> sees: a Doom deathmatch (Odamex, FreeDM) the host runs on its own machine,
+played by robots and by whoever joins it. <b>This match is broadcast</b>: everyone who plays in it was told so before agreeing to. A
+player's own game is never shown here. No sound; about two frames a second.</figcaption></figure>
+<h2>Join and play</h2>
+<ol>
+<li><a href=/#ask>Ask for a place</a> and join with a Linux machine of yours (the steps are on that page and in
+<a href="https://github.com/villadalmine/k8s-lan-party/blob/main/docs/JOIN.md">docs/JOIN.md</a>).</li>
+<li>On that machine open your console: <code>edge-mesh console</code>. The house invites every player: <b>Accept</b> its party (that is
+your consent to play in a broadcast match).</li>
+<li>Type the Doom image tag of <code>poc/doom/build.sh</code>, press <b>Play</b>, click the picture and play: arrows, Control fires,
+space opens doors, 1-7 weapons. Your game client runs on your machine; only its picture and your keys cross to your tab.</li>
+</ol>
+<p>How this page works and what it keeps (the last picture, in memory, nothing else):
+<a href="https://github.com/villadalmine/k8s-lan-party/blob/main/docs/LIVE-PAGE.md">docs/LIVE-PAGE.md</a>.</p>
+</main><script src=/static/live.js></script></body></html>
 """
 
 
@@ -631,6 +660,47 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError, UnicodeDecodeError, RecursionError):
             raise Refusal(400, "bad-json", "the body is not one JSON object") from None
 
+    def _raw(self, limit: int) -> bytes:
+        """A pushed frame: Content-Type image/jpeg, a Content-Length within the limit, nothing chunked."""
+        ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+        if ctype != "image/jpeg":
+            raise Refusal(415, "jpeg-only", "send Content-Type: image/jpeg")
+        if self.headers.get("Transfer-Encoding"):
+            raise Refusal(411, "length-required", "send a Content-Length, no chunked body")
+        try:
+            n = int(self.headers.get("Content-Length", ""))
+        except ValueError:
+            raise Refusal(411, "length-required", "send a Content-Length") from None
+        if n < 0 or n > limit:
+            raise Refusal(413, "too-large", f"the body is limited to {limit} bytes")
+        raw = self.rfile.read(n)
+        if len(raw) != n:
+            raise Refusal(400, "short-body", "the body is shorter than its Content-Length")
+        return raw
+
+    def _live(self, method: str, p: str, xff) -> None:
+        """The live page (docs/LIVE-PAGE.md L4): anyone reads; only the streamer, with its token, pushes (checked before any body)."""
+        lv, page = self.page.live, self.page
+        try:
+            if method == "GET" and p == "/live":
+                self._send(200, LIVE_TEMPLATE.encode(), "text/html; charset=utf-8")
+            elif method == "GET" and p == "/api/v1/live":
+                self._json(200, {"api": API, **lv.status(page.operator_closed())})
+            elif method == "GET" and p == "/api/v1/live/frame":
+                self._send(200, lv.read(page.who(self._peer(), xff), page.operator_closed()), "image/jpeg")
+            elif method == "POST" and p == "/api/v1/live/frame":
+                lv.auth(page.who(self._peer(), xff), self.headers.get("Authorization"))
+                lv.push(self._raw(lv.cfg["live_max_frame_bytes"]), self.headers.get("X-Live-Players"))
+                self._send(204, b"", "text/plain; charset=utf-8")
+            elif method == "POST" and p == "/api/v1/live/offline":
+                lv.auth(page.who(self._peer(), xff), self.headers.get("Authorization"))
+                lv.offline()
+                self._send(204, b"", "text/plain; charset=utf-8")
+            else:
+                self._other()
+        except live.LiveRefusal as e:
+            self._refuse(Refusal(e.status, e.error, e.message, e.retry_after))
+
     def _peer(self) -> str:
         return self.client_address[0]
 
@@ -664,6 +734,8 @@ class Handler(BaseHTTPRequestHandler):
     def _route_inner(self, method: str) -> None:
         p, page, xff = self.path.split("?", 1)[0], self.page, self.headers.get("X-Forwarded-For")
         try:
+            if p in LIVE_PATHS:
+                return self._live(method, p, xff)
             if method == "GET" and p == "/":
                 self._send(200, page.html().encode(), "text/html; charset=utf-8")
             elif method == "GET" and p in self.static:
@@ -792,7 +864,7 @@ def make_server(page: Page, listen: str) -> Server:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="the public page of the automatic pool (docs/PUBLIC-PAGE.md)")
-    ap.add_argument("cmd", choices=["serve", "set-puller-hash", "close", "open", "status"])
+    ap.add_argument("cmd", choices=["serve", "set-puller-hash", "set-stream-hash", "close", "open", "status"])
     ap.add_argument("--state", required=True)
     ap.add_argument("--config")
     ap.add_argument("--listen", default="127.0.0.1:8088")
@@ -801,21 +873,22 @@ def main(argv: list[str] | None = None) -> int:
     a = ap.parse_args(argv)
     os.umask(0o077)   # every file this writes holds requests, addresses or keys
     cfg = load_config(a.config) if a.config else {}
-    if a.cmd == "set-puller-hash":
+    if a.cmd in ("set-puller-hash", "set-stream-hash"):   # the puller's token, or the streamer's (#113): one power each
+        who = "puller" if a.cmd == "set-puller-hash" else "stream"
         h = (sys.stdin.read(200).split() or [""])[0]
         if not re.fullmatch(r"[0-9a-f]{64}", h):
-            print("give the SHA-256 of the puller's token (64 hex characters) on stdin", file=sys.stderr)
+            print(f"give the SHA-256 of the {who}'s token (64 hex characters) on stdin", file=sys.stderr)
             return 2
         ctl = Path(a.control or a.state)
         ctl.mkdir(mode=0o755 if a.control else 0o700, parents=True, exist_ok=True)   # the page's own user reads it
-        fd = os.open(ctl / "puller.sha256.new", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)   # a hash, not the token: readable
+        fd = os.open(ctl / f"{who}.sha256.new", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)   # a hash, not the token: readable
         with os.fdopen(fd, "w") as f:
             f.write(h + "\n")
-        os.replace(ctl / "puller.sha256.new", ctl / "puller.sha256")
+        os.replace(ctl / f"{who}.sha256.new", ctl / f"{who}.sha256")
         if a.control:   # root writes it, the page's own user reads it (the umask above would make it 0600)
             os.chmod(ctl, 0o755)
-            os.chmod(ctl / "puller.sha256", 0o644)
-        print("puller: hash set")
+            os.chmod(ctl / f"{who}.sha256", 0o644)
+        print(f"{who}: hash set")
         return 0
     if a.cmd in ("close", "open"):
         f = Path(a.control or a.state) / "closed"
