@@ -5,6 +5,7 @@ __pycache__/
 *.pem
 *.key
 poc/.state/
+poc/.week/
 poc/.cache/
 poc/results/
 poc/.regression/

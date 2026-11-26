@@ -1,0 +1,88 @@
+# The watcher guard (D6, docs/CONSOLE-MODES.md, issue #101): the host's watcher namespace (`watch-host`, labelled edge-mesh/watcher=host,
+# poc/watcher.py) runs its pods on a node of trust `own` that is NOT the control plane (DESIGN.md: no workload on the control plane).
+# Only the host writes there; this is what makes the rule hold whatever pod spec the host's tools send. Applied by `mesh host watch init`;
+# idempotent.
+#  - the mutation replaces any nodeAffinity with one term: trust In [own] AND node-role.kubernetes.io/control-plane DoesNotExist (the
+#    trust label is under node-restriction.kubernetes.io/, which no kubelet can set on its own Node);
+#    (dyn(): a CEL map literal needs one value type, and here they are a string and a list, as in participant-policy.yaml);
+#  - the validation refuses a pod that names its node (spec.nodeName skips the scheduler and the affinity), that tolerates the control
+#    plane's taint or every taint, that is not exactly that affinity after the mutation, or that calls itself shareable.
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingAdmissionPolicy
+metadata:
+  name: edge-mesh-watcher-own
+spec:
+  failurePolicy: Fail
+  reinvocationPolicy: Never
+  matchConstraints:
+    namespaceSelector:
+      matchLabels: {edge-mesh/watcher: host}
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE"]
+        resources: ["pods"]
+  mutations:
+    - patchType: JSONPatch
+      jsonPatch:
+        expression: >-
+          has(object.spec.affinity) ?
+          [JSONPatch{op: "add", path: "/spec/affinity/nodeAffinity",
+                     value: {"requiredDuringSchedulingIgnoredDuringExecution": {"nodeSelectorTerms": [{"matchExpressions": [
+                       {"key": dyn("node-restriction.kubernetes.io/trust"), "operator": dyn("In"), "values": dyn(["own"])},
+                       {"key": dyn("node-role.kubernetes.io/control-plane"), "operator": dyn("DoesNotExist")}]}]}}}] :
+          [JSONPatch{op: "add", path: "/spec/affinity",
+                     value: {"nodeAffinity": {"requiredDuringSchedulingIgnoredDuringExecution": {"nodeSelectorTerms": [{"matchExpressions": [
+                       {"key": dyn("node-restriction.kubernetes.io/trust"), "operator": dyn("In"), "values": dyn(["own"])},
+                       {"key": dyn("node-role.kubernetes.io/control-plane"), "operator": dyn("DoesNotExist")}]}]}}}}]
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingAdmissionPolicyBinding
+metadata:
+  name: edge-mesh-watcher-own
+spec:
+  policyName: edge-mesh-watcher-own
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: edge-mesh-watcher-guard
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    namespaceSelector:
+      matchLabels: {edge-mesh/watcher: host}
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE"]
+        resources: ["pods"]
+  validations:
+    - expression: "!has(object.spec.nodeName) || object.spec.nodeName == ''"
+      message: "a watcher pod may not set spec.nodeName: the scheduler places it on an own node that is not the control plane (watcher guard)"
+    - expression: >-
+        !has(object.spec.tolerations) || !object.spec.tolerations.exists(t,
+        !has(t.key) || t.key == '' || t.key == 'node-role.kubernetes.io/control-plane')
+      message: "a watcher pod may not tolerate the control plane's taint or every taint (watcher guard)"
+    - expression: >-
+        !has(object.metadata.labels) || !('edge-mesh/sensitivity' in object.metadata.labels) ||
+        object.metadata.labels['edge-mesh/sensitivity'] == 'private'
+      message: "a watcher pod is private: it runs on the host's own machines only (watcher guard)"
+    - expression: >-
+        has(object.spec.affinity) && has(object.spec.affinity.nodeAffinity) &&
+        has(object.spec.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution) &&
+        object.spec.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms.size() == 1 &&
+        !has(object.spec.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms[0].matchFields) &&
+        object.spec.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms[0].matchExpressions.exists(e,
+          e.key == 'node-restriction.kubernetes.io/trust' && e.operator == 'In' && e.values == ['own']) &&
+        object.spec.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms[0].matchExpressions.exists(e,
+          e.key == 'node-role.kubernetes.io/control-plane' && e.operator == 'DoesNotExist')
+      message: "a watcher pod runs on an own node that is not the control plane (D6; watcher guard)"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: edge-mesh-watcher-guard
+spec:
+  policyName: edge-mesh-watcher-guard
+  validationActions: [Deny]

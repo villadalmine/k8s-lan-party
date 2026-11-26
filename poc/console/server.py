@@ -56,6 +56,8 @@ import mutate  # noqa: E402
 from page import SECURITY_HEADERS, Handler as PageHandler, Refusal as PageRefusal  # noqa: E402
 
 VERSION = "0.1.0"
+# the public page's headers, but a frame of the host's spectator (fetched with the bearer token, shown from a blob: URL) may be an image
+CONSOLE_HEADERS = {**SECURITY_HEADERS, "Content-Security-Policy": SECURITY_HEADERS["Content-Security-Policy"].replace("img-src 'self'", "img-src 'self' blob:")}
 SUN_PATH_MAX = 107                     # bytes of a unix socket path (108 with the terminating NUL)
 ENGINE_TIMEOUT = 60                    # seconds a read of the engine may take (it waits for the ledger's lock behind a tick)
 MAX_CONNECTIONS = 16                   # handled at once; more get a 503
@@ -72,13 +74,16 @@ READS = {   # route -> the engine's pure read (argv after poc/mesh) and how its 
     "players": (["host", "players", "--json", "--read-only"], "json"),
     "parties": (["host", "party", "list", "--read-only", "--json"], "json"),
     "metrics": (["host", "admission-metrics", "--read-only"], "text"),
+    "watch": (["host", "watch", "status", "--json", "--read-only"], "json"),
 }
 WEB_DEFAULT = "127.0.0.1:8090"
 BAD_TOKENS, BAD_WINDOW, LOCKOUT = 10, 600, 600   # 10 wrong web tokens in 10 minutes: 429 on the web listener for 10 minutes
 STATIC = HERE / "static"
 STATIC_FILES = {"/": ("index.html", "text/html; charset=utf-8"), "/console.js": ("console.js", "application/javascript; charset=utf-8"),
                 "/console.css": ("console.css", "text/css; charset=utf-8")}
-ROUTES = ("health", "status", "requests", "leases", "players", "parties", "events", "audit", "metrics", "pool", "page", "actions", "verbs")
+ROUTES = ("health", "status", "requests", "leases", "players", "parties", "events", "audit", "metrics", "pool", "page", "actions", "verbs",
+          "watch")
+FRAME_MAX_PER_SECOND = 4               # frames of one spectator per second, per console (a tab polling faster gets 429)
 
 
 class HungUp(Exception):
@@ -165,6 +170,37 @@ class Console:
         self.redact = Redactor(state, given)
         self.plans = mutate.Plans()
         self.runner = mutate.Runner(state, mesh, self.redact, mutate.console_notify, kill_grace)
+        self.taps: dict = {}                # owner -> watcher.Tap: one kept channel per host spectator (D7's host path)
+        self.frame_times: dict = {}
+        self.tap_lock = threading.Lock()
+
+    def frame(self, owner: str) -> bytes:
+        """GET /api/v1/watch/{owner}/frame: one JPEG of the host's spectator of that owner's game, by watcher.Tap (the host's
+        own views only, D7: through the API server, never the mesh). 404 when there is no spectator (no secret under the state); the secret
+        never leaves the daemon."""
+        import watcher   # poc/watcher.py, beside the engine
+        tok = self.state / "watch" / f"{owner}.token"
+        if not tok.is_file():
+            raise Refusal(404, "no-spectator", f"no spectator of {owner}: start one (watch-start)")
+        now = time.monotonic()
+        with self.tap_lock:
+            recent = [t for t in self.frame_times.get(owner, []) if now - t < 1]
+            if len(recent) >= FRAME_MAX_PER_SECOND:
+                raise Refusal(429, "too-fast", f"at most {FRAME_MAX_PER_SECOND} frames a second")
+            self.frame_times[owner] = recent + [now]
+            fw = self.taps.get(owner)
+            if fw is None:
+                fw = self.taps[owner] = watcher.Tap(str(self.mesh.parent / "kc"), f"doom-watch-{owner}", tok)
+        try:
+            return fw.fetch()
+        except watcher.NoFrame:   # the channel works; the spectator has no picture yet: keep it (no new exec per request)
+            raise Refusal(502, "spectator", "the spectator did not send a frame (starting, stopped, or its party closed)") from None
+        except (RuntimeError, OSError, ValueError):
+            with self.tap_lock:
+                if self.taps.get(owner) is fw:   # never a newer channel another request opened
+                    self.taps.pop(owner)
+            fw.close()
+            raise Refusal(502, "spectator", "the spectator did not send a frame (starting, stopped, or its party closed)") from None
 
     def reads(self, route: str):
         return self.status() if route == "status" else self.read(route)
@@ -291,6 +327,10 @@ class Console:
             if not NAME.fullmatch(parts[1]):
                 raise Refusal(400, "bad-name", "a name is 2 to 20 characters: a-z, 0-9 and '-', starting with a letter")
             return 200, self.activity(parts[1]), "json"
+        if len(parts) == 3 and parts[0] == "watch" and parts[2] == "frame":
+            if not NAME.fullmatch(parts[1]) or parts[1] in ("host", "watch-host"):
+                raise Refusal(400, "bad-name", "a name is 2 to 20 characters: a-z, 0-9 and '-', starting with a letter")
+            return 200, self.frame(parts[1]), "jpeg"
         if len(parts) == 2 and parts[0] == "jobs":
             if not JOB.fullmatch(parts[1]):
                 raise Refusal(400, "bad-job", "a job id is 16 hex characters")
@@ -302,7 +342,7 @@ class Console:
             return 200, {"ok": True, "version": VERSION, "role": role}, "json"
         if path == "status":
             return 200, self.status(), "json"
-        if path in ("requests", "leases", "players", "parties"):
+        if path in ("requests", "leases", "players", "parties", "watch"):
             return 200, self.read(path), "json"
         if path in ("pool", "page"):
             return 200, getattr(self, path)(), "json"
@@ -358,7 +398,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _send(self, status: int, body: bytes, ctype: str, extra: dict | None = None) -> None:
         self.send_response(status)
-        for k, v in {**SECURITY_HEADERS, **(extra or {})}.items():
+        for k, v in {**CONSOLE_HEADERS, **(extra or {})}.items():
             self.send_header(k, v)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
@@ -415,9 +455,11 @@ class Handler(BaseHTTPRequestHandler):
                 status, body, kind = self.console.get(path, query, self.role)
                 if kind == "text":
                     self._send(status, self.console.redact.text(body).encode(), "text/plain; version=0.0.4; charset=utf-8")
+                elif kind == "jpeg":
+                    self._send(status, body, "image/jpeg")
                 else:
                     self._json(status, body, raw=self.console.raw_job(body, self.role) if path.startswith("jobs/") else None)
-            elif path in ROUTES or path.startswith(("players/", "jobs/", "actions/")):
+            elif path in ROUTES or path.startswith(("players/", "jobs/", "actions/", "watch/")):
                 self._json(405, {"error": "method", "message": "not allowed here"}, {"Allow": "POST" if path.startswith("actions/") else "GET"})
             else:
                 raise Refusal(404, "not-found", "no such route")

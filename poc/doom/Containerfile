@@ -30,11 +30,11 @@ RUN curl -fsSL -o freedm.zip "https://github.com/freedoom/freedoom/releases/down
 FROM ${DEBIAN_IMAGE}
 RUN apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
       libsdl2-2.0-0 libsdl2-mixer-2.0-0 libpng16-16t64 libcurl4t64 zlib1g libzstd1 libdwarf1 libstdc++6 \
-      xvfb xauth xdotool ffmpeg ca-certificates >/dev/null && rm -rf /var/lib/apt/lists/*
+      xvfb xauth xdotool ffmpeg python3 curl ca-certificates >/dev/null && rm -rf /var/lib/apt/lists/*
 COPY --from=build /opt/odamex /opt/odamex
 COPY --from=build /opt/wad /opt/wad
 COPY --from=build /opt/licenses /opt/licenses
-COPY server.sh client.sh /usr/local/bin/
-RUN chmod 755 /usr/local/bin/server.sh /usr/local/bin/client.sh
+COPY server.sh client.sh watch-client.sh watch_stream.py /usr/local/bin/
+RUN chmod 755 /usr/local/bin/server.sh /usr/local/bin/client.sh /usr/local/bin/watch-client.sh /usr/local/bin/watch_stream.py
 ENV HOME=/tmp
 USER 65534:65534

@@ -112,6 +112,9 @@ def plan(verb: str, args: dict, reads) -> list[str]:
         mine = [l for l in ls if l["name"] == name]
         what = {"reap-one": "end the lease of", "kick": "kick", "revoke": "revoke the certificate of"}[verb]
         return [f"{what} {name}", f"lease: {lease_line(mine)}"]
+    if verb == "watch-invite":
+        return [f"ask {args['owner']} to let the host watch: the host's half of a party (watch-host)",
+                f"nothing opens until {args['owner']} runs: edge-mesh party accept watch-host"]
     if verb == "party-end":
         return [f"end the party of {args['a']} and {args['b']}: both consents and the NetworkPolicies removed"]
     return [f"{verb} {json.dumps(args, sort_keys=True)}"]

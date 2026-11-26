@@ -362,3 +362,55 @@ and cut the game when it stopped (it took the mesh's route); the suite now tries
 On `4bc229e` (the code head; later PR commits only update join documentation), the local `poc-player` suite passed PM01-PM07 and the related unit tests passed. The full local checks passed: 131 tests with 3 skips, 395 PoC tests, and `make pr-check` (6 OK, 0 WARN, 0 FAIL). A Chromium smoke of the actual player page with mocked API responses confirmed the token leaves the address bar, views render safely, host verbs stay disabled, a party invite sends the scoped request, and there are no JS errors.
 
 On srv-t7910, `REGRESSION_RUNTIME=docker-vm INCUS_PROJECT=emesh-player100b ONLY="poc-join poc-vm" make regression` on commit `4bc229e` finished `ALLDONE:0`. `poc-join` passed in Docker inside the disposable VM (17 checks) and in Incus (17); `poc-vm` passed in Incus (36 checks). The generated feature table marks `join: PASS` (including its `poc-vm` proofs V01 and V04). The player status view is intentionally limited to local Nebula and namespace API connectivity; the player identity does not read a cluster-scoped Node or claim its Kubernetes Ready condition.
+
+## Spectator stream spike (#101; 2026-11-16)
+
+Superseded by the next section (2026-11-17): `poc-doom` DM01-DM27 PASS on `71aba03`. The text below is the state on 2026-11-16. The existing Doom proof remained `DM01-DM20: PASS` from its earlier Dell run. The current `feat/console-watch` branch adds the authenticated
+watcher endpoint and DM21-DM23; those cluster checks are **pending** a fresh Dell regression. Locally, the complete `make test` suite passes
+401 tests, including six stream/pod tests. The player-console watch API and UI are now wired to start/stop a watcher in the player's own
+namespace and proxy frames from its Pod IP. Static checks (`py_compile`, `node --check`, `bash -n`, `git diff --check`) pass. The live Doom
+spectator, the browser view and the updated `poc-doom` regression have not yet been run; the prior DM01-DM20 result does not prove this change.
+
+PR #112 review found that a watcher could outlive a closed party and disappear from the player's Games view, leaving no Stop control. The player view
+now keeps an inactive watcher row available for cleanup, and the frame proxy returns 404 once the party is no longer active. The focused player
+tests pass 12/12; final cluster regression and browser verification remain pending.
+
+## Watching on the lab: what the Dell runs found, and the host's watcher (#101, D6; 2026-11-17)
+
+- **Full regression on `dddf9d0`** (`REGRESSION_RUNTIME=docker-vm`, project `emesh-watch101`): every suite through `poc-player` PASS; `poc-doom`
+  FAIL on DM12, DM13, DM19 and DM20. The spectator pod was never created: `pod.sh watcher` wrote the port as a bare YAML number and the API
+  refuses a command that is not all strings. `poc-participants-e2e`, `poc-page`, `poc-nat`, `poc-bgp`, `poc-vm`, `poc-golden` and `poc-down`
+  were SKIP(pool): the storage pool passed 85 % during the run. They have **not** run on this branch.
+- **`ONLY=poc-doom`, four runs** (projects `emesh-doom101a` to `d`), each fix on the next commit:
+  - `44f76af`: argument quoting fixed; DM19 and DM20 PASS, DM24 PASS; DM25 FAIL because the Doom image name overwrote the VM image variable
+    of `lib-vm.sh` (`hostpc` never booted).
+  - `124c098`: DM24 to DM26 PASS. DM27 showed the host's spectator reach romero's server through the party (`watch-host has connected`) and then
+    fail: its console keys were too short and went to chat.
+  - `7c55de8`: **DM24 to DM27 PASS** (D6 end to end: no watcher without an own node; `hostpc` joins as own; `watch-host` without credentials;
+    one consent opens nothing; after romero's consent the host's spectator runs on `hostpc`, not the control plane, and the server names it).
+    DM12 then failed on its own check `kubectl auth can-i create pods/portforward`, which asks about a pod *named* portforward (yes); the
+    subresource is `--subresource=portforward`, which the participant Role does not grant. DM19 failed once on a negative frag count.
+  - `71aba03`: the spectator follows with `+spy <player>` on Odamex's command line (no keyboard), DM12 asks `can-i` with the subresource, DM19
+    takes negative frags. **`poc-doom` RESULT PASS, 27/27** (`ALLDONE:0`, project `emesh-doom101d`, left behind: nothing). D7 passes
+    on the lab for the first time: carmack's spectator on his own node (hostPorts 0), `can-i create pods --subresource=portforward`: no,
+    unauthenticated and wrong-token requests 401, changing JPEG frames from the pod's IP on his node, nothing from petersen's node or pod;
+    the server names `watch-carmack` once; and D6 again (DM24-DM27, `watch-host` on `hostpc`).
+- **The suites the full regression skipped, and `poc-party` again** (`party.py` changed), on `bcb2530` (`REGRESSION_RUNTIME=docker-vm`, project
+  `emesh-rest101`, `ALLDONE:0`): `poc-party` 17 PASS, `poc-participants-e2e` 11 PASS, `poc-page` 31 PASS, `poc-nat` 26 PASS, `poc-bgp` 20 PASS,
+  `poc-vm` 36 PASS, `poc-golden` 31 PASS (1 DEP), `poc-down` teardown done on Docker and Incus. With the full run on `dddf9d0` and `poc-doom` on
+  `71aba03`, every suite of the table has passed on this branch, though not all on one commit. The commits after `bcb2530` touch cluster paths only
+  for `poc-doom` (DM28-DM29), the reserved names (`admission.py`, `mesh`, `participants/policy.yaml`) and the player console's watch-start check.
+- **DM28-DM29, after the review of #112:** on `ce773b6` DM29 PASS (leave closes the host's party at once, down removes `watch-host`, romero's
+  second robot ended cleanly) and DM28 FAIL: its probe pod had a CPU request above its limit, refused by the API before any admission (the
+  reviewer's finding). On `ca92e0a` **`poc-doom` RESULT PASS, 29/29** (project `emesh-doom101f`, `ALLDONE:0`): every DM28 refusal is the
+  `ValidatingAdmissionPolicy 'edge-mesh-watcher-guard'` itself (nodeName cp; the control plane's toleration; a toleration of every taint;
+  shareable), and the plain pod is admitted with trust In [own] AND control-plane DoesNotExist.
+- **The host's views (`20b878b`):** `poc-doom` **RESULT PASS, 29/29** and `poc-console` **RESULT PASS, 19/19** (project `emesh-hv101`,
+  `ALLDONE:0`). DM27 now runs the host's spectator with `mesh host watch start romero` and reads it the way the host console does:
+  `watch status --json --read-only` names it on `hostpc` following romero, and two `watch frame romero` calls return changing JPEGs through the
+  API server to the host's own pod (no hostPort). The registry's new watch verbs leave the console suite unchanged.
+- **WB05 and the closing steps (`040eb8a`):** `poc-doom` **RESULT PASS, 30/30** (project `emesh-hv102`). DM29 measured the host's
+  spectator following romero's robot: **298m of CPU over 20 s** against its limit of 300m (request 200m, as `poc/doom/pod.sh` sets it; the run printed 150m from a fixed string, now read from the pod), so it runs at its limit; at the
+  cap the API server refused one more (`exceeded quota: pool, requested: pods=1, used: pods=2, limited: pods=2`). DM30: `watch leave`,
+  `watch stop` and `watch down` close it. **Decided (4.2):** the spectator keeps 300m: it feeds a view of 4 frames a second, and
+  `watch-host`'s quota (`limits.cpu: 1`) holds three of them at full use; a spectator held at its limit renders fewer frames, never more CPU.

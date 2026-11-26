@@ -16,6 +16,7 @@ helm_cp repo add cilium https://helm.cilium.io >/dev/null 2>&1 || true
 helm_cp upgrade --install cilium cilium --repo https://helm.cilium.io --version "$CILIUM_VERSION" -n kube-system \
   --set routingMode=tunnel --set tunnelProtocol=vxlan \
   --set encryption.enabled=true --set encryption.type=wireguard --set encryption.nodeEncryption=true \
+  --set-string extraConfig.allow-localhost=always \
   --set MTU="$POD_MTU" \
   --set kubeProxyReplacement=false \
   --set k8sServiceHost="$CP_NEB" --set k8sServicePort=6443 \
