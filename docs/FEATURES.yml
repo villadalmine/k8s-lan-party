@@ -245,7 +245,7 @@ features:
     description: the player's local console on loopback; owns only the player's namespace kubeconfig, shows lease/countdown, local Nebula and namespace API connectivity, own events/parties/joinable games and allows only their party consents; watches a game and plays it in the tab (#101, #102) through the player's own pods on their own node, by Pod IP behind a per-pod secret, keys only into the pod's own display
     layer: tenancy
     user_facing: true
-    releases: ["v0.6.0-poc"]
+    releases: ["v0.6.0-poc", "v0.7.0-poc"]
     learn:
       concept: "Least privilege: a player's local UI uses only the namespace credential already issued to that player, and the API still enforces its RBAC boundary."
       analogy: "A key opens your room and the shared doors your friends agreed to; the host's office stays locked."
@@ -278,7 +278,7 @@ features:
     description: LAN party mode (issue #75) - two players who both agreed reach each other's namespace on the party's ports only; a third does not; leave, off, end, kick and lease end close it; the host's watcher identity watch-host (D6, #101) is one more peer that the owner accepts, its pods on an own node that is never the control plane
     layer: tenancy
     user_facing: true
-    releases: ["v0.3.0-poc", "v0.6.0-poc"]
+    releases: ["v0.3.0-poc", "v0.6.0-poc", "v0.7.0-poc"]
     learn:
       concept: "Mutual consent: a declarative NetworkPolicy opens only after both sides say yes, which is zero trust between tenants."
       analogy: "Two friends at a LAN party agree to plug a cable between their machines; either one can pull it."
@@ -295,7 +295,7 @@ features:
     description: the Doom deathmatch and spectator views over parties (issue #75 part B and #101) - romero's Odamex server with FreeDM; three players play through two parties on 10666/UDP and carmack's named spectator follows by spy; its bearer-authenticated JPEG frames reach only carmack's own node by Pod IP, with no port-forward or hostPort; other namespaces cannot reach it; the image has nothing non-free
     layer: tenancy
     user_facing: true
-    releases: ["v0.3.0-poc", "v0.3.1-poc", "v0.6.0-poc"]
+    releases: ["v0.3.0-poc", "v0.3.1-poc", "v0.6.0-poc", "v0.7.0-poc"]
     learn:
       concept: "Pairwise, non-transitive access: a party between A and B, and another between A and C, opens nothing between B and C."
       analogy: "romero hosts the server; carmack and petersen each cable into his machine, never into each other's."
@@ -311,7 +311,7 @@ features:
     description: the live page (#113, docs/LIVE-PAGE.md) - the house match, the host's own Doom game on its own machine with two robots and whoever accepts the house's party, is shown on /live of the public page; a streamer on the host pushes its spectator's frames outbound with its own token; the page keeps the last one in memory, limits viewers and has no visitor input; panic takes it offline; join and play goes through the ask flow and the player's own console
     layer: admission
     user_facing: true
-    releases: []
+    releases: ["v0.7.0-poc"]
     learn:
       concept: "Broadcast only what everyone in it agreed to, and push it out from the inside: the public side never connects in and keeps nothing."
       analogy: "A shop window that shows the house band playing: the band chose the window, and the street sees through the glass but cannot walk in."
