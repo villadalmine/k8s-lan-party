@@ -15,12 +15,14 @@
 #   poc/doom/week.sh resume    unfreeze, wait for the nodes, start the robots again
 #   poc/doom/week.sh down      remove everything it made
 # Its own Incus project and bridge (never default, emesh-demo or emeshbr): WEEK_PROJECT (emesh-doomweek), WEEK_NET (emdoomwk),
-# WEEK_UNDERLAY (10.84.0, must be free), WEEK_WEB (127.0.0.1:18791), WEEK_DAYS (7: the leases and the certificates). PERSIST=1, so a
+# WEEK_UNDERLAY (10.84.0, must be free), WEEK_WEB (127.0.0.1:18791), WEEK_DAYS (7: the leases and the certificates), WEEK_POOL (the
+# Incus storage pool of its disks; empty: the default pool. A large slow one, a NAS, keeps the fast pool for the tests). PERSIST=1, so a
 # reboot of the lab brings nebula and k3s back (then `resume`).
 set -u
 D="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; POC="$(dirname "$D")"
 export INCUS_PROJECT="${WEEK_PROJECT:-emesh-doomweek}" VMNET="${WEEK_NET:-emdoomwk}" UNDERLAY_NET="${WEEK_UNDERLAY:-10.84.0}" PERSIST=1 RUNTIME=incus
 export EMESH_STATE="${WEEK_STATE:-$POC/.week}"
+[ -z "${WEEK_POOL:-}" ] || export INCUS_POOL="$WEEK_POOL"
 WEB="${WEEK_WEB:-127.0.0.1:18791}"; PLAYWEB="${WEEK_PLAY:-127.0.0.1:18792}"; DAYS="${WEEK_DAYS:-7}"; RUN="$EMESH_STATE/week"; ROBOT_SECONDS=600
 case " default emesh-demo " in *" $INCUS_PROJECT "*) echo "project $INCUS_PROJECT: never touched"; exit 2 ;; esac
 case " emeshbr emeshdemo " in *" $VMNET "*) echo "bridge $VMNET: never touched"; exit 2 ;; esac
