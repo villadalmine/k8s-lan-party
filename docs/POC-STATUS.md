@@ -414,3 +414,12 @@ tests pass 12/12; final cluster regression and browser verification remain pendi
   cap the API server refused one more (`exceeded quota: pool, requested: pods=1, used: pods=2, limited: pods=2`). DM30: `watch leave`,
   `watch stop` and `watch down` close it. **Decided (4.2):** the spectator keeps 300m: it feeds a view of 4 frames a second, and
   `watch-host`'s quota (`limits.cpu: 1`) holds three of them at full use; a spectator held at its limit renders fewer frames, never more CPU.
+- **Playing in the browser (#102, `76bbf14`):** `poc-doom` **RESULT PASS, 33/33** (project `emesh-showcase060`, the run that recorded
+  v0.6.0-poc's What's new). DM31: petersen's own game client on her node (`imagePullPolicy: Never`, no hostPort), the server says she joined.
+  DM32: from her node, no secret 401, the console key 400, Enter 400, from carmack's node no answer; the spike's numbers: **key round trip
+  31.8 ms, frame round trip 1.8 ms** (median of 10, from her node), 10 frames a second; mean luma difference of the picture **0.07 without
+  keys, 10.14 after 1.5 s of ArrowLeft**. DM33: `game stop` and `game start` of romero's server. DM27 also read two changing frames through
+  the console daemon; DM29 measured the host's spectator at 286m of its 300m. The earlier run on `838c653` (31/33) failed DM27 and DM32 on
+  timing only (fixed: both wait). Through the real consoles on the week demo: Play joined in 6 s; 10 frames a second through the player
+  console once it kept the pod's address 3 s (1 a second before); key round trip ~38 ms through the console. **A is playable: noVNC (B)
+  is not needed.**
