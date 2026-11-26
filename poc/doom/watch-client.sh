@@ -4,7 +4,8 @@
 set -eu
 HOST="${1:?server host}"; PORT="${2:?server port}"; TARGET="${3:?player to follow}"; WATCHER="${4:?watcher name}"
 NAME="${WATCH_NAME:-watch-$WATCHER}"
-case "$HOST" in doom.play-*.svc.cluster.local) ;; *) echo "watch client needs an in-cluster Doom service" >&2; exit 2 ;; esac
+# a player's game, or the house match (docs/LIVE-PAGE.md): its spectator doom-watch-house reads doom.house
+case "$HOST" in doom.play-*.svc.cluster.local|doom.house.svc.cluster.local) ;; *) echo "watch client needs an in-cluster Doom service" >&2; exit 2 ;; esac
 case "$PORT" in 10666) ;; *) echo "watch client only supports the consented Odamex port" >&2; exit 2 ;; esac
 [[ "$TARGET" =~ ^[a-z][a-z0-9-]{1,19}$ && "$WATCHER" =~ ^[a-z][a-z0-9-]{1,19}$ && "$NAME" =~ ^[a-z][a-z0-9-]{1,29}$ ]] || { echo "invalid Doom player name" >&2; exit 2; }
 [[ "${WATCH_TOKEN:-}" =~ ^[a-f0-9]{64}$ ]] || { echo "watch token missing or invalid" >&2; exit 2; }

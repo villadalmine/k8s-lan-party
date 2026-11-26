@@ -5,7 +5,8 @@
 #   play-client.sh <server host> <port> <player>
 set -eu
 HOST="${1:?server host}"; PORT="${2:?server port}"; NAME="${3:?player name}"
-case "$HOST" in doom|doom.play-*.svc.cluster.local) ;; *) echo "play client needs an in-cluster Doom service" >&2; exit 2 ;; esac
+# a player's own game, another player's, or the house match (docs/LIVE-PAGE.md: a player plays it from their own node)
+case "$HOST" in doom|doom.play-*.svc.cluster.local|doom.house.svc.cluster.local) ;; *) echo "play client needs an in-cluster Doom service" >&2; exit 2 ;; esac
 case "$PORT" in 10666) ;; *) echo "play client only supports the consented Odamex port" >&2; exit 2 ;; esac
 [[ "$NAME" =~ ^[a-z][a-z0-9-]{1,19}$ ]] || { echo "invalid Doom player name" >&2; exit 2; }
 [[ "${WATCH_TOKEN:-}" =~ ^[a-f0-9]{64}$ ]] || { echo "token missing or invalid" >&2; exit 2; }
