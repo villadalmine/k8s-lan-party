@@ -434,6 +434,12 @@ host_watch_closes() { # romero's second robot ended; the host leaves (the party 
 HouseK() { k -n house "$@"; }
 house_log() { HouseK exec doom-server -- cat /tmp/server.log; }
 house_joined() { [ "$(house_log | grep -c "$1 joined the game")" -gt 0 ]; }
+house_dump() { # a failed house step says what the house looked like: its pods, Service, the server's and robots' last lines, the streamer's
+  echo "---- the house when the step failed"; HouseK get pods,services,endpoints -o wide 2>&1
+  echo "-- server log"; house_log 2>&1 | tail -n 15
+  local p; for p in doom-bot-a doom-bot-b doom-watch-house; do echo "-- $p"; HouseK logs "$p" --tail=12 2>&1; done
+  echo "-- streamer"; tail -n 15 "$STATE/house/streamer.log" 2>&1; [ ! -f "$STATE/livepage/page.log" ] || { echo "-- page"; tail -n 10 "$STATE/livepage/page.log"; }; }
+dumped() { "$@" || { house_dump; return 1; }; }   # step DMxx "..." dumped <the step's function>
 house_up() { # LV08: house is the host's like watch-host (own node, never the control plane, no credential); its match runs there
   say host "the house match: the host's own Doom game on its own machine, two robots in it, and its spectator. This is what the live page shows"
   out_has "house: namespace house ready" show host "mesh host house init" "$MESH" host house init &&
@@ -536,10 +542,10 @@ step DM30 "D6: watch leave closes the host's party at once; watch stop removes t
 step DM31 "#102: petersen plays romero's game from her browser's path: her own game client on her node, no hostPort; the server says she joined" play_up
 step DM32 "#102: from her node her keys move her game (frames change with keys, hardly without); no secret, the console key, Enter and another node are refused; latency measured" play_keys
 step DM33 "#102: the host stops romero's game server (game stop) and starts it again (game start) on his node; a second start changes nothing" host_game
-step DM34 "LV08: the house match (#113): house is the host's (own node, no credential); its server, two robots and its spectator run on hostpc; its frames change" house_up
-step DM35 "L3-L5: a page server and the streamer: the page shows the house's changing frames and the broadcast notice; only the house's spectator is read, nothing is on the page's disk" live_on
-step DM36 "L8, LV09: the open house offers a party to every player and opens nothing; petersen accepts, plays in the house match from her node, and the page counts her" house_offer
-step DM37 "LV06: house close withdraws the offers and closes her party; panic takes the page offline and clearing it brings it back; live stop and house down remove it all" house_close
+step DM34 "LV08: the house match (#113): house is the host's (own node, no credential); its server, two robots and its spectator run on hostpc; its frames change" dumped house_up
+step DM35 "L3-L5: a page server and the streamer: the page shows the house's changing frames and the broadcast notice; only the house's spectator is read, nothing is on the page's disk" dumped live_on
+step DM36 "L8, LV09: the open house offers a party to every player and opens nothing; petersen accepts, plays in the house match from her node, and the page counts her" dumped house_offer
+step DM37 "LV06: house close withdraws the offers and closes her party; panic takes the page offline and clearing it brings it back; live stop and house down remove it all" dumped house_close
 
 [ -z "$SC" ] || [ "$FAILS" -ne 0 ] || { cp "$OUTD/match.gif" "$SC/match.gif"; for s in player host; do   # only a run that passed becomes a recording (the GIF first: down removes the state)
   python3 "$SCP" redact "$SC/$s.raw" "$SC/$s.tsv" --strip "$STATE/" --strip "$POC/" --strip "${POC%/*}/" || FAILS=$((FAILS+1)); done; }
