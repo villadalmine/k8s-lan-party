@@ -208,6 +208,7 @@ simulation of a player's machine, not host actions.
 | `host live on` | mutates: the house match may stream to the public page again | low: players in the house are broadcast, as their accept told them | `live-on` | click | local, console |
 | `host live off` | mutates: the page says offline and stays so; the match and the demo keep running | none: going off the air is always safe | `live-off` | none | local, console |
 | `host live status --json` | read: the switch and whether the streamer runs | | `GET /live` | | local, console |
+| `host panel --json` | read: the panel, counts and states only, with the host's profile config ([PANEL.md](PANEL.md)) | | `GET /panel` | | local, console |
 | `host game start <owner>` | mutates: a Doom server (pod and UDP Service) in the owner's namespace, on the owner's node (#102) | medium: a new workload on a player's machine | `game-start` | click | local, console |
 | `host game stop <owner>` | mutates: removes it; everyone in that game is out | high | `game-stop` | type the name | local, console |
 | `host watch init`, `host watch down` | create or remove the watcher's namespace (down closes its parties and removes every spectator) | | **never**: typed on the host (`GET /verbs` shows them disabled) | | |
@@ -241,6 +242,7 @@ the socket and on the loopback; only the role differs.
 | `GET /api/v1/metrics` | the admission metrics, Prometheus text, no identities |
 | `GET /api/v1/watch`, `GET /api/v1/watch/{owner}/frame` | the host's watcher (D6): its parties and spectators, from a pure read; one JPEG of the host's spectator of that game, through the API server to the host's own pod, at most 4 a second (429 beyond); 404 when none runs. The page draws them as the Watch view (CONSOLE-MODES.md) |
 | `GET /api/v1/live` | the live page's switch (`on`/`off`) and whether the streamer runs (`streaming`), from a file and a pid on the host (#119); `live-off` and `live-on` change it. Driving these from a bot: [CONSOLE-BOTS.md](CONSOLE-BOTS.md) |
+| `GET /api/v1/panel` | what the proofs of concept are doing now, as the public page shows it but with the host's own profile (`poc/panel.yaml`): [PANEL.md](PANEL.md) |
 | `GET /api/v1/actions` | the registry entries the caller's role may run: verb, params, confirmation, timeout |
 | `POST /api/v1/actions/{verb}` | `{"args": {...}}`: starts a job (202), or answers with a plan to confirm (200) |
 | `GET /api/v1/jobs/{id}` | a job: running, done, failed or timeout; the engine's exit code; its output, redacted |

@@ -63,14 +63,17 @@ def markdown(cat: dict) -> str:
 
 
 def page_json(cat: dict) -> str:
-    """For the public page, which has no YAML: per release, the cards of the features it shows (poc/page/whatsnew/news.py renders them)."""
+    """For the public page, which has no YAML: per release, the cards of the features it shows (poc/page/whatsnew/news.py renders them),
+    and every learn block by feature (the live page's panel shows them next to the live values)."""
     data, rel = rows(cat), {}
     for r in data:
         for v in r["releases"]:
             rel.setdefault(v, []).append({k: r[k] for k in ("id", "concept", "analogy", "real_world", "seen_in")})
     # no hash inside: poc/test_whatsnew.py scans every committed file for 64-character hex strings (a leaked key looks like one), and
     # `check` already compares this file byte for byte with what the catalog generates, which is a stronger seal
-    return json.dumps({"releases": rel}, sort_keys=True, indent=1, ensure_ascii=True) + "\n"
+    # every learn block by feature, for the live page's panel (#119): what each running number is an instance of
+    feats = {r["id"]: {k: r[k] for k in ("concept", "analogy", "real_world")} for r in data}
+    return json.dumps({"features": feats, "releases": rel}, sort_keys=True, indent=1, ensure_ascii=True) + "\n"
 
 
 def stale(cat: dict) -> list[str]:

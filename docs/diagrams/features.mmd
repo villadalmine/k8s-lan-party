@@ -42,6 +42,7 @@ flowchart LR
     f_party["party"]
     f_doom["doom"]
     f_live_page["live-page"]
+    f_panel["panel"]
     f_public_page["public-page"]
     f_lighthouse_external["lighthouse-external"]
     f_revoke["revoke"]
@@ -79,6 +80,7 @@ flowchart LR
     c_ffmpeg["ffmpeg"]
     c_Python_stdlib["Python stdlib"]
     c_Caddy["Caddy"]
+    c_kubelet_stats_summary["kubelet stats/summary"]
     c_page["page"]
     c_lighthouse["lighthouse"]
     c_CA["CA"]
@@ -143,6 +145,10 @@ flowchart LR
     p_poc_page_autolive_py["poc/page/autolive.py"]
     p_poc_page_static_live_js["poc/page/static/live.js"]
     p_poc_page_deploy_emesh_live___service["poc/page/deploy/emesh-live-*.service"]
+    p_poc_panel_py["poc/panel.py"]
+    p_poc_panel_yaml["poc/panel.yaml"]
+    p_poc_page_panelspec_py["poc/page/panelspec.py"]
+    p_poc_test_panel_py["poc/test_panel.py"]
     p_poc_page__["poc/page/*"]
     p_poc_poc_page_sh["poc/poc-page.sh"]
     p_poc_lighthouse_vps_sh["poc/lighthouse-vps.sh"]
@@ -320,6 +326,15 @@ flowchart LR
   f_live_page -.-> p_poc_page_autolive_py
   f_live_page -.-> p_poc_page_static_live_js
   f_live_page -.-> p_poc_page_deploy_emesh_live___service
+  s_poc_doom -->|"DM39"| f_panel
+  f_panel --> c_Kubernetes_API
+  f_panel --> c_kubelet_stats_summary
+  f_panel --> c_Cilium
+  f_panel --> c_Python_stdlib
+  f_panel -.-> p_poc_panel_py
+  f_panel -.-> p_poc_panel_yaml
+  f_panel -.-> p_poc_page_panelspec_py
+  f_panel -.-> p_poc_test_panel_py
   s_poc_page -->|"G01-G26, G09c, G25b"| f_public_page
   f_public_page --> c_page
   f_public_page --> c_Caddy

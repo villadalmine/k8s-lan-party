@@ -8,6 +8,7 @@ estimate, a refusal, or the bundle **sealed to the visitor's own key** (poc/page
 
 The visitor (a person with a browser, a script or an agent: the same JSON API and the same limits for all of them):
   GET  /api/v1/status                 the free places, the length of the list, an estimate; open or closed
+  GET  /api/v1/panel                  what the host's proofs of concept are doing now: counts and states only (#119)
   GET  /api/v1/challenge              a proof-of-work challenge (HMAC-signed, expires, single use)
   POST /api/v1/requests               name, the two public keys, the solved challenge -> a claim code, shown once (the page keeps its hash)
   POST /api/v1/requests/status        claim code -> state, position, estimate (repeatable)
@@ -48,6 +49,7 @@ for _p in (HERE.parent, HERE):   # the repository layout (poc/page) and the depl
 from admission import NAME, RESERVED, AdmissionError, clean_text, locked_state  # noqa: E402
 from pool import client_ip, identity, load_config, _norm as pool_norm  # noqa: E402
 import live  # noqa: E402
+import panelspec  # noqa: E402
 import seal as keys  # noqa: E402
 import news  # noqa: E402
 
@@ -245,6 +247,16 @@ class Page:
                 "lease_seconds": s.get("lease_seconds", 0),
                 "next_end_in_seconds": [max(0, e - now) for e in s.get("next_ends", [])],
                 "reported_at": rep.get("at"), "difficulty": self.cfg["difficulty"]}
+
+    def panel(self) -> dict:
+        """GET /api/v1/panel (#119): what the host's proofs of concept are doing, as its puller last reported it. Only while the host is
+        reporting (the same 5 minutes as the status): a silent host is shown as not live, never with its last numbers."""
+        now = self.clock()
+        with locked_state(self.dir) as st:
+            rep, pan = st.get("report") or {}, st.get("panel") or {}
+            fresh = bool(rep) and now - rep["at"] <= self.cfg["puller_stale_seconds"] and bool(pan) and pan.get("at") == rep["at"]
+            return {"api": API, "live": fresh, "at": pan.get("at") if fresh else None,
+                    "fields": {k: v for k, v in pan.get("fields", {}).items() if k in panelspec.FIELDS} if fresh else {}}
 
     # --- the visitor ----------------------------------------------------------------------------------------------------
     def status(self) -> dict:
@@ -452,8 +464,10 @@ class Page:
         raise err
 
     def _apply(self, st: dict, body, now: int) -> dict:
-        if not isinstance(body, dict) or set(body) != {"closed", "status", "updates"} or not isinstance(body["closed"], bool):
-            raise Refusal(400, "bad-report", "send exactly: closed (bool), status, updates")
+        if not isinstance(body, dict) or set(body) - {"panel"} != {"closed", "status", "updates"} or not isinstance(body["closed"], bool):
+            raise Refusal(400, "bad-report", "send exactly: closed (bool), status, updates, and optionally panel")
+        if "panel" in body and not panelspec.valid(body["panel"]):   # the page trusts no sender: the same allowlist and types as the host's
+            raise Refusal(400, "bad-report", "panel: only the fields of panelspec.FIELDS, each an integer or a boolean as declared")
         s, ups = body["status"], body["updates"]
         ints = ("slots_total", "slots_used", "waiting", "eligible", "lease_seconds")
         if not isinstance(s, dict) or set(s) != set(ints) | {"next_ends"} or \
@@ -464,6 +478,10 @@ class Page:
         if not isinstance(ups, list) or len(ups) > 200:
             raise Refusal(400, "bad-report", "updates: a list of at most 200")
         st["report"] = {"at": now, "closed": body["closed"], "status": {**s, "next_ends": sorted(s["next_ends"])}}
+        if "panel" in body:
+            st["panel"] = {"at": now, "fields": dict(body["panel"])}
+        else:
+            st.pop("panel", None)   # the host stopped publishing it: nothing old is shown
         applied = ignored = 0
         if body["closed"]:   # panic on the control plane: nothing waits here any more, no sealed bundle stays
             for r in st["intakes"].values():
@@ -577,6 +595,12 @@ LIVE_TEMPLATE = """<!doctype html>
 <figcaption>What the host's spectator of the <b>house match</b> sees: a Doom deathmatch (Odamex, FreeDM) the host runs on its own machine,
 played by robots and by whoever joins it. <b>This match is broadcast</b>: everyone who plays in it was told so before agreeing to. A
 player's own game is never shown here. No sound; about two frames a second.</figcaption></figure>
+<h2>What is running right now</h2>
+<p class=note id=panelstate>Asking the host&hellip;</p>
+<p>This match is a game, and every piece under it is a platform engineering idea running for real: a mesh, encryption, tenancy,
+consent, admission. These are the host's own numbers, sent by its puller about once a minute: counts and states only, never a name or an
+address. Each one sits next to the idea it shows.</p>
+<div id=panel class=panel></div>
 <h2>Join and play</h2>
 <ol>
 <li><a href=/#ask>Ask for a place</a> and join with a Linux machine of yours (the steps are on that page and in
@@ -597,6 +621,7 @@ space opens doors, 1-7 weapons. Your game client runs on your machine; only its 
 class Handler(BaseHTTPRequestHandler):
     page: Page = None   # set by make_server
     static: dict = {}
+    panel_groups: list = []
     server_version = "k8s-lan-party-page"
     sys_version = ""
     protocol_version = "HTTP/1.0"   # one request per connection: nothing is held open
@@ -743,6 +768,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, body, ctype, *extra)
             elif method == "GET" and p == "/api/v1/status":
                 self._json(200, page.status())
+            elif method == "GET" and p == "/api/v1/panel":
+                self._json(200, {**page.panel(), "groups": self.panel_groups})
             elif method == "GET" and p == "/api/v1/challenge":
                 self._json(200, page.challenge())
             elif method == "POST" and p == "/api/v1/requests":
@@ -755,7 +782,7 @@ class Handler(BaseHTTPRequestHandler):
                 auth = self.headers.get("Authorization")
                 # the token is checked before the body is read: an unauthenticated client makes the page read nothing
                 self._json(200, page.report(self._peer(), xff, auth, lambda: self._body(page.cfg["max_report_bytes"])))
-            elif p in ("/", "/api/v1/status", "/api/v1/challenge", "/api/v1/requests", "/api/v1/requests/status",
+            elif p in ("/", "/api/v1/status", "/api/v1/panel", "/api/v1/challenge", "/api/v1/requests", "/api/v1/requests/status",
                        "/api/v1/requests/claim", "/api/v1/puller/intake", "/api/v1/puller/report") or p in self.static:
                 self._other()
             else:
@@ -844,6 +871,22 @@ def _hang_up(request) -> None:
         pass
 
 
+def panel_groups(d: Path) -> list[dict]:
+    """The panel's sections for the page: titles, field labels and each field's feature with its learn block (concept, analogy, real
+    world) from whatsnew/learn.json, generated from docs/FEATURES.yml. Text of the repository, built once; the values come from the host."""
+    try:
+        learn = json.loads((d / "learn.json").read_text(encoding="utf-8")).get("features", {})
+    except (OSError, ValueError):
+        learn = {}
+    out = []
+    for title, fields in panelspec.GROUPS:
+        feats = list(dict.fromkeys(panelspec.FIELDS[f][0] for f in fields))
+        out.append({"title": title, "fields": [{"id": f, "label": panelspec.LABELS[f], "feature": panelspec.FIELDS[f][0]} for f in fields],
+                    "learn": [{"id": i, **{k: learn[i][k] for k in ("concept", "analogy", "real_world") if k in learn.get(i, {})}}
+                              for i in feats]})
+    return out
+
+
 def make_server(page: Page, listen: str) -> Server:
     host, _, port = listen.rpartition(":")
     host = host.strip("[]")
@@ -857,7 +900,7 @@ def make_server(page: Page, listen: str) -> Server:
         static[path] = (body, "application/x-asciicast; charset=utf-8")
     for path, body in news.media(HERE / "whatsnew", releases).items():   # game screens: images of this server only
         static[path] = (body, "image/gif")
-    handler = type("PageHandler", (Handler,), {"page": page, "static": static})
+    handler = type("PageHandler", (Handler,), {"page": page, "static": static, "panel_groups": panel_groups(HERE / "whatsnew")})
     c = page.cfg
     return Server((host, int(port)), handler, c["max_threads"], c["request_total_seconds"], c["max_per_origin"], tuple(c["trusted_proxies"]))
 

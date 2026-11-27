@@ -2296,6 +2296,153 @@
      }
     ]
    }
+  },
+  "/api/v1/panel": {
+   "get": {
+    "operationId": "getPanel",
+    "summary": "The panel (#119): what the proofs of concept are doing now, counts and states only, with the host's profile (docs/PANEL.md)",
+    "tags": [
+     "read"
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "required": [
+          "at",
+          "profile",
+          "publish",
+          "up",
+          "fields"
+         ],
+         "properties": {
+          "at": {
+           "type": "integer"
+          },
+          "profile": {
+           "type": "string",
+           "enum": [
+            "public",
+            "self-hosted",
+            "host"
+           ]
+          },
+          "publish": {
+           "type": "boolean"
+          },
+          "up": {
+           "type": "boolean"
+          },
+          "fields": {
+           "type": "object",
+           "description": "only the fields of poc/page/panelspec.py, each an integer or a boolean",
+           "additionalProperties": {
+            "type": [
+             "integer",
+             "boolean"
+            ]
+           }
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "description": "a bad name, id or query",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "no or wrong credential",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "404": {
+      "description": "no such route, or no such job",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "405": {
+      "description": "another method",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "429": {
+      "description": "too many bad tokens",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "500": {
+      "description": "the console could not answer",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "502": {
+      "description": "the engine's read failed or was not JSON",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "503": {
+      "description": "too many connections at once",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "504": {
+      "description": "the engine did not answer in time",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     }
+    }
+   }
   }
  },
  "components": {

@@ -75,7 +75,8 @@ READS = {   # route -> the engine's pure read (argv after poc/mesh) and how its 
     "parties": (["host", "party", "list", "--read-only", "--json"], "json"),
     "metrics": (["host", "admission-metrics", "--read-only"], "text"),
     "watch": (["host", "watch", "status", "--json", "--read-only"], "json"),
-    "live": (["host", "live", "status", "--json"], "json"),   # the live switch and whether the streamer runs (#119): a file and a pid
+    "live": (["host", "live", "status", "--json"], "json"),
+    "panel": (["host", "panel", "--json"], "json"),   # #119: the panel with the host's profile config, a pure read   # the live switch and whether the streamer runs (#119): a file and a pid
 }
 WEB_DEFAULT = "127.0.0.1:8090"
 BAD_TOKENS, BAD_WINDOW, LOCKOUT = 10, 600, 600   # 10 wrong web tokens in 10 minutes: 429 on the web listener for 10 minutes
@@ -83,7 +84,7 @@ STATIC = HERE / "static"
 STATIC_FILES = {"/": ("index.html", "text/html; charset=utf-8"), "/console.js": ("console.js", "application/javascript; charset=utf-8"),
                 "/console.css": ("console.css", "text/css; charset=utf-8")}
 ROUTES = ("health", "status", "requests", "leases", "players", "parties", "events", "audit", "metrics", "pool", "page", "actions", "verbs",
-          "watch", "live")
+          "watch", "live", "panel")
 FRAME_MAX_PER_SECOND = 4               # frames of one spectator per second, per console (a tab polling faster gets 429)
 
 
@@ -343,7 +344,7 @@ class Console:
             return 200, {"ok": True, "version": VERSION, "role": role}, "json"
         if path == "status":
             return 200, self.status(), "json"
-        if path in ("requests", "leases", "players", "parties", "watch", "live"):
+        if path in ("requests", "leases", "players", "parties", "watch", "live", "panel"):
             return 200, self.read(path), "json"
         if path in ("pool", "page"):
             return 200, getattr(self, path)(), "json"
