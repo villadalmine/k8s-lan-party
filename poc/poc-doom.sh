@@ -455,7 +455,7 @@ house_up() { # LV08: house is the host's like watch-host (own node, never the co
   echo "house frames: $(wc -c <"$OUTD/house1.jpg") and $(wc -c <"$OUTD/house2.jpg") bytes"
   ! cmp -s "$OUTD/house1.jpg" "$OUTD/house2.jpg" && show host "mesh host house status" "$MESH" host house status; }
 LIVE_PORT=18094; LIVE="http://127.0.0.1:$LIVE_PORT"; LIVE_PID=""
-live_cleanup() { [ -z "${AUTO_PID:-}" ] || { kill "$AUTO_PID" 2>/dev/null; wait "$AUTO_PID" 2>/dev/null; AUTO_PID=""; }; "$MESH" host live stop >/dev/null 2>&1; [ -z "$LIVE_PID" ] || { kill "$LIVE_PID" 2>/dev/null; wait "$LIVE_PID" 2>/dev/null; }; LIVE_PID=""; }
+live_cleanup() { "$MESH" host live on >/dev/null 2>&1; [ -z "${AUTO_PID:-}" ] || { kill "$AUTO_PID" 2>/dev/null; wait "$AUTO_PID" 2>/dev/null; AUTO_PID=""; }; "$MESH" host live stop >/dev/null 2>&1; [ -z "$LIVE_PID" ] || { kill "$LIVE_PID" 2>/dev/null; wait "$LIVE_PID" 2>/dev/null; }; LIVE_PID=""; }
 live_get() { python3 -c 'import sys,urllib.request,urllib.error
 try: r=urllib.request.urlopen(sys.argv[1],timeout=5); sys.stdout.buffer.write(r.read())
 except urllib.error.HTTPError as e: sys.exit(e.code % 256 or 1)
@@ -533,7 +533,7 @@ live_auto() { # #119: on the air whenever the cluster is up, nobody starting it;
   out=$(console_api "$web" "$tf" POST actions/live-off '{"args": {}}') && id=$(echo "$out" | sed -n 's/.*"id": "\([0-9a-f]\{16\}\)".*/\1/p') &&
     for i in $(seq 30); do out=$(console_api "$web" "$tf" GET "jobs/$id" "") && case "$out" in *'"state": "done"'*) break ;; esac; sleep 1; done &&
     case "$out" in *'"state": "done"'*) ;; *) echo "live-off: $out"; false ;; esac && wait_for 30 live_is off &&
-    console_api "$web" "$tf" GET live "" | python3 -c 'import json, sys; sys.exit(json.load(sys.stdin) != {"switch": "off", "streaming": False})' && sleep 15 && ! live_is on &&
+    console_api "$web" "$tf" GET live "" | sed '1s/^[0-9]* //' | python3 -c 'import json, sys; sys.exit(json.load(sys.stdin) != {"switch": "off", "streaming": False})' && sleep 15 && ! live_is on &&
     HouseK get pod doom-server doom-bot-a doom-bot-b doom-watch-house >/dev/null &&
     echo "live-off through the API: the page is offline and stays so; the house match keeps running" || { kill "$pid"; wait "$pid" 2>/dev/null; return 1; }
   out=$(console_api "$web" "$tf" POST actions/live-on '{"args": {}}') && case "$out" in 200*'"will"'*) ;; *) echo "live-on: $out"; false ;; esac &&

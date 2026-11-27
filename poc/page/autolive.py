@@ -72,8 +72,11 @@ class Auto:
         p = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=self._env(), start_new_session=True)
         try:
             out, err = p.communicate(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            os.killpg(p.pid, signal.SIGKILL)
+        except BaseException:   # a timeout, or this unit stopped (SIGTERM, Ctrl-C): nothing of the child is left behind
+            try:
+                os.killpg(p.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
             p.communicate()
             raise
         return subprocess.CompletedProcess(argv, p.returncode, out, err)

@@ -314,7 +314,7 @@ exactly as today: the person who typed the command already confirmed it.
   `poc/meshlock.py hold` takes the `flock`, prints `locked`, and keeps it while the `mesh` it serves runs (it polls every 0.1 s; a zombie
   counts as gone); it is in the caller's process group, so the daemon's SIGKILL at a timeout frees it too. Python's `fcntl.flock` exists on
   macOS as well, so there is no second mechanism for systems without `flock(1)`. The node guard's own lock stays, nested inside this one.
-  `panic` is the one verb `mesh` does not lock: admission.py takes the same lock itself right after writing the switch
+  `panic` and `live-off` are the verbs `mesh` does not lock (`live-off` touches only a file and the host's own streamer): admission.py takes the same lock itself right after writing the switch
   (`--engine-lock`), so the switch never waits and the expulsions do.
   Whatever runs directly marks its whole process tree direct (`EMESH_DIRECT=1`): a nested `mesh` sent to the daemon would queue behind
   its own parent's lock.
