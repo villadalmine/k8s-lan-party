@@ -6,13 +6,15 @@ It reads the house match's spectator (`doom-watch-house` in the namespace `house
 reads its views (`watcher.Tap`: one `kubectl exec -i`, the pod's secret on stdin) and pushes each frame to the page with the **stream
 token** (`POST /api/v1/live/frame`, `Authorization: Bearer`), at most --fps a second. It never pulls anything from the page and the page
 never connects to it. Every --check seconds it asks `mesh host admission-status --json`: with panic on (or that read failing) it tells
-the page `offline` (`POST /api/v1/live/offline`) and sends nothing until that changes (LV06). The stream token can only push pictures
+the page `offline` (`POST /api/v1/live/offline`) and sends nothing until that changes (LV06). The live switch does the same: while
+`<state>/live.off` exists (`mesh host live off`, the console's `live-off`) it is offline, whoever started it (#119). The stream token can only push pictures
 (LV10): it is not the puller's, and the page keeps only its SHA-256 (`page.py set-stream-hash`).
 
     streamer.py --url https://page.example.org --token-file FILE [--cacert FILE] [--mesh poc/mesh] [--state poc/.state]
                 [--fps 2] [--check 10] [--once] run
 
-Exit codes: 0 stopped (SIGTERM, or --once done); 1 the page refused the token (fix it, then start again); 2 bad arguments.
+Exit codes: 0 stopped (SIGTERM, or --once done); 2 bad arguments; 4 the page refused the token (fix it, then start again). Not 1: that
+is what Python exits with on any crash, and autolive.py starts a crashed streamer again but never a refused one.
 """
 from __future__ import annotations
 
@@ -30,6 +32,8 @@ import urllib.request
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+LIVE_OFF = "live.off"   # the live switch, in the state directory (not under house/: it outlives `house down`)
+REFUSED = 4
 sys.path.insert(0, str(HERE.parent))
 import watcher  # noqa: E402
 
@@ -64,7 +68,9 @@ class Streamer:
                               env={**keep, "EMESH_STATE": self.a.state, "PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin")})
 
     def _gate(self) -> str | None:
-        """None when the house may be on the air; else the reason it may not (panic, or the host's tools fail)."""
+        """None when the house may be on the air; else the reason it may not (the live switch, panic, or the host's tools fail)."""
+        if (Path(self.a.state) / LIVE_OFF).exists():   # read first and locally: off holds even when the engine is busy or down
+            return "the live switch is off"
         try:
             r = self._mesh("admission-status", "--json")
             st = json.loads(r.stdout) if r.returncode == 0 else None
@@ -151,7 +157,7 @@ class Streamer:
                 self.sleep(period if not blocked else min(self.a.check, 5))
         except Stop as e:
             print(f"streamer: {e}", file=sys.stderr)
-            return 1
+            return REFUSED
         finally:
             if self.tap is not None:
                 self.tap.close()

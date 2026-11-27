@@ -533,7 +533,7 @@ live_auto() { # #119: on the air whenever the cluster is up, nobody starting it;
   out=$(console_api "$web" "$tf" POST actions/live-off '{"args": {}}') && id=$(echo "$out" | sed -n 's/.*"id": "\([0-9a-f]\{16\}\)".*/\1/p') &&
     for i in $(seq 30); do out=$(console_api "$web" "$tf" GET "jobs/$id" "") && case "$out" in *'"state": "done"'*) break ;; esac; sleep 1; done &&
     case "$out" in *'"state": "done"'*) ;; *) echo "live-off: $out"; false ;; esac && wait_for 30 live_is off &&
-    console_api "$web" "$tf" GET live "" | grep -q '"switch": "off", "streaming": false' && sleep 15 && ! live_is on &&
+    console_api "$web" "$tf" GET live "" | python3 -c 'import json, sys; sys.exit(json.load(sys.stdin) != {"switch": "off", "streaming": False})' && sleep 15 && ! live_is on &&
     HouseK get pod doom-server doom-bot-a doom-bot-b doom-watch-house >/dev/null &&
     echo "live-off through the API: the page is offline and stays so; the house match keeps running" || { kill "$pid"; wait "$pid" 2>/dev/null; return 1; }
   out=$(console_api "$web" "$tf" POST actions/live-on '{"args": {}}') && case "$out" in 200*'"will"'*) ;; *) echo "live-on: $out"; false ;; esac &&

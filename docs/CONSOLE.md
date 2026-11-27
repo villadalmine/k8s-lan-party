@@ -234,7 +234,7 @@ the socket and on the loopback; only the role differs.
 | `GET /api/v1/health` | the daemon answers, its version and the caller's role; calls no engine |
 | `GET /api/v1/status` | places used and total, waiting, eligible now, next to end, auto, panic, last tick |
 | `GET /api/v1/requests`, `/leases`, `/players`, `/players/{name}/activity`, `/parties` | the lists, from pure reads |
-| `GET /api/v1/verbs` | every registry verb, plus `init`, `down`, `watch-init` and `watch-down`, with `allowed` for the caller's role; for the others `why`, and the `command` to type on the host (`invite`, `bundle`, `refresh`, and those four, which no role runs). A description for a client to draw disabled buttons: the refusal is each POST's (#103) |
+| `GET /api/v1/verbs` | every registry verb, plus `init`, `down`, `watch-init`, `watch-down`, `house-init` and `house-down`, with `allowed` for the caller's role; for the others `why`, and the `command` to type on the host (`invite`, `bundle`, `refresh`, and those six, which no role runs). A description for a client to draw disabled buttons: the refusal is each POST's (#103) |
 | `GET /api/v1/events?since=&limit=`, `GET /api/v1/audit?limit=` | the last lines of each log (at most 500) |
 | `GET /api/v1/pool` | capacity and admission switches, active leases and the queue, grouped from existing pure reads; sampled in sequence, so a tick may occur between them |
 | `GET /api/v1/page` | the puller's last local observation: `state` (open/closed/unknown), `reported_at`, `age_seconds`, `admission_closed`; no network call or page control |

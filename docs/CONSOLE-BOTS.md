@@ -100,10 +100,11 @@ print(run("live-on"))                          # {'plan': [...]}: shown to its o
 
 ## What a bot cannot do through the API
 
-- **Create or destroy:** `init`, `down`, `house init`, `house down`, `watch init` and `watch down` are typed on the host only (`GET /verbs`
-  says so).
+- **Create or destroy:** `init`, `down`, `house init`, `house down`, `watch init` and `watch down` are not in the API: they are typed on
+  the host only (`GET /verbs` lists them as `allowed: false`, with the command; a POST answers 404).
 - **The persistent CA or a private key:** the local-only verbs (`invite`, `bundle`, `refresh`, `approve --trust friends`) need the socket,
   on the host.
 - **Turn the live page on without a confirmation:** `live-on` always asks for the plan first.
 
-Every call a bot makes is in the console's audit log (`GET /audit`), with `role: console` and `source: web`, like the page's.
+Every job a bot starts is in the console's audit log (`GET /audit`), with `role: console` and `source: web`, like the page's. Reads and
+the first POST of a confirmed verb (the plan) change nothing and leave no line.

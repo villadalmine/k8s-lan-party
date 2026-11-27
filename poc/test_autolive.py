@@ -43,13 +43,15 @@ class Cluster:
     """kubectl and mesh as the fake sees them: is the API ready, does the house exist, which pods it has, what ran."""
 
     def __init__(self):
-        self.up, self.house, self.pods, self.calls = True, True, list(ALL), []
+        self.up, self.house, self.pods, self.calls, self.silent = True, True, list(ALL), [], False
 
     def run(self, argv, timeout=60):
         self.calls.append(argv[1:])
         out, code = "", 0
         if argv[1:] == ["get", "--raw", "/readyz"]:
             out, code = ("ok", 0) if self.up else ("", 1)
+        elif self.silent and argv[1:2] == ["get"]:
+            raise subprocess.TimeoutExpired(argv, timeout)
         elif argv[1:3] == ["get", "namespace"]:
             out = "namespace/house" if self.house else ""
         elif argv[1:3] == ["get", "pods"]:
@@ -138,14 +140,14 @@ class AutoTest(unittest.TestCase):
 
     def test_a_refused_token_stops_for_good(self):
         self.auto.step()
-        self.children[0].code = 1
-        self.assertEqual(self.auto.loop(), 1)
+        self.children[0].code = autolive.REFUSED
+        self.assertEqual(self.auto.loop(), autolive.REFUSED)
         self.assertEqual(len(self.children), 1)
         self.assertTrue(any("refused the stream token" in m for m in self.said))
 
     def test_the_switch_off_stops_and_keeps_it_off_and_leaves_the_house(self):
         self.auto.step()
-        (self.dir / "house" / "live.off").write_text("")
+        (self.dir / "live.off").write_text("")
         self.auto.step()
         self.assertTrue(self.children[0].terminated, "off stops the streamer (it tells the page offline)")
         self.assertFalse((self.dir / "house" / "streamer.pid").exists())
@@ -154,9 +156,24 @@ class AutoTest(unittest.TestCase):
             self.auto.step()
         self.assertEqual(len(self.children), 1, "kept off")
         self.assertNotIn(["host", "house", "stop"], self.mesh_calls(), "the match and the demo keep running")
-        (self.dir / "house" / "live.off").unlink()
+        (self.dir / "live.off").unlink()
         self.auto.step()
         self.assertEqual(len(self.children), 2, "on: it streams again at the next pass")
+
+    def test_a_crash_is_not_a_refusal(self):
+        self.auto.step()
+        self.children[0].code = 1          # what Python exits with on any uncaught error
+        self.auto.step()
+        self.now[0] = 6
+        self.auto.step()
+        self.assertEqual(len(self.children), 2, "a crashed streamer is started again; only a refused token (4) stops it")
+
+    def test_a_silent_cluster_starts_nothing(self):
+        self.cluster.silent = True         # the API server answers /readyz but times out on the house's reads
+        for _ in range(3):
+            self.auto.step()
+        self.assertEqual(self.mesh_calls(), [], "not knowing the pods is not every pod missing")
+        self.assertEqual(sum("not about the house" in m for m in self.said), 1)
 
     def test_stop_ends_the_child(self):
         self.auto.step()

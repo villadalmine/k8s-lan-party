@@ -222,6 +222,10 @@ HOST_ONLY = (
      "it creates the namespace and admission policies the watcher lives in: typed on the host only"),
     ("watch-down", "mesh host watch down", "remove the host's watcher and close its parties",
      "it deletes the namespace, its spectators and the frames' secrets: typed on the host only"),
+    ("house-init", "mesh host house init", "make the house match's namespace on an own machine (docs/LIVE-PAGE.md L1)",
+     "it creates the namespace, the house's identity and the policies the broadcast match lives in: typed on the host only"),
+    ("house-down", "mesh host house down", "remove the house match, its robots and its spectator",
+     "it deletes the namespace and the house's state (the live switch stays): typed on the host only"),
 )
 WHY_LOCAL = "it signs with the persistent CA, or writes a private key or a running machine's configuration: typed on the host only"
 

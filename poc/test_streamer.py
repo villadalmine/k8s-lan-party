@@ -86,10 +86,17 @@ class Streamer(Base):
         s.run(once=True)
         self.assertEqual([p for p, _, _ in f.posts], ["/api/v1/live/offline", "/api/v1/live/frame"])
 
+    def test_the_live_switch_holds_whoever_started_the_streamer(self):
+        s = self.make(None)
+        (self.tmp / "live.off").write_text("")
+        self.assertEqual(s._gate(), "the live switch is off", "read before the engine: it holds while the engine is busy or down")
+        (self.tmp / "live.off").unlink()
+        self.assertEqual(s._gate(), "the host's status could not be read")
+
     def test_lv10_a_refused_token_stops_it(self):
         f = Fake()
         f.code = 401
-        self.assertEqual(self.make(f).run(), 1)
+        self.assertEqual(self.make(f).run(), st.REFUSED)
 
     def test_never_more_than_two_frames_a_second(self):
         f = Fake()

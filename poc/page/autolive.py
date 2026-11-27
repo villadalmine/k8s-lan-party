@@ -14,12 +14,13 @@ It runs on the HOST, in the foreground (a systemd unit, `emesh-live-auto.service
   The streamer alone already says offline on panic, and the page goes offline by itself after 15 s without a frame, so a cluster that
   goes down takes the match off the air, and one that comes back puts it back.
 
-A streamer that the page refused (exit 1: a wrong stream token) is not started again: that needs the operator (page-server.sh
+A streamer that the page refused (exit 4: a wrong stream token) is not started again: that needs the operator (page-server.sh
 stream-token). SIGTERM stops the streamer (which tells the page offline) and then this.
 
     autolive.py --url https://page.example.org [--cacert FILE] [--mesh poc/mesh] [--state poc/.state] [--check 30] [--once] run
 
-Exit codes: 0 stopped (SIGTERM, or --once done); 1 the page refused the stream token; 2 bad arguments or no stream token.
+Exit codes: 0 stopped (SIGTERM, or --once done); 2 bad arguments or no stream token; 4 the page refused the stream token. The unit
+does not restart it on 2 or 4 (RestartPreventExitStatus): both need the operator.
 """
 from __future__ import annotations
 
@@ -33,11 +34,18 @@ import sys
 import time
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from streamer import LIVE_OFF, REFUSED  # noqa: E402
+
 HERE = Path(__file__).resolve().parent
 HOUSE = "house"
 HOUSE_PODS = ("doom-server", "doom-bot-a", "doom-bot-b", "doom-watch-house")
 BACKOFF_MIN, BACKOFF_MAX = 5.0, 300.0
 HEALTHY_SECONDS = 60.0   # a streamer that lived this long earns the short pause again
+
+
+class Unknown(Exception):
+    """The cluster did not answer a read: nothing is decided from it."""
 
 
 class Auto:
@@ -60,7 +68,15 @@ class Auto:
         return {**keep, "EMESH_STATE": self.a.state, "PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin")}
 
     def _run(self, argv: list[str], timeout: int = 60) -> subprocess.CompletedProcess:
-        return subprocess.run(argv, capture_output=True, text=True, timeout=timeout, env=self._env())
+        # its own process group, killed whole at the timeout: kc is a shell over incus exec and kubectl, which would be left behind
+        p = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=self._env(), start_new_session=True)
+        try:
+            out, err = p.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            os.killpg(p.pid, signal.SIGKILL)
+            p.communicate()
+            raise
+        return subprocess.CompletedProcess(argv, p.returncode, out, err)
 
     def _spawn(self) -> subprocess.Popen:
         argv = [sys.executable, str(HERE / "streamer.py"), "run", "--url", self.a.url, "--token-file", self.token_file(),
@@ -74,7 +90,7 @@ class Auto:
         return Path(self.a.state) / "house"
 
     def switched_off(self) -> bool:
-        return (self.house_dir() / "live.off").exists()
+        return (Path(self.a.state) / LIVE_OFF).exists()
 
     def token_file(self) -> str:
         return str(Path(self.a.state) / "page" / "stream.token")
@@ -87,18 +103,20 @@ class Auto:
         return r.returncode == 0 and r.stdout.strip() == "ok"
 
     def house_pods(self) -> list[str] | None:
-        """The house's pods by name, or None when there is no house (the operator never made it)."""
+        """The house's pods by name, or None when there is no house (the operator never made it). Raises Unknown when the cluster does
+        not answer the reads: a slow API server is not "every pod is missing", and starts nothing."""
         try:
-            r = self.run_cmd([self.kc(), "get", "pods", "-n", HOUSE, "-o", "json"], timeout=30)
             ns = self.run_cmd([self.kc(), "get", "namespace", HOUSE, "--ignore-not-found", "-o", "name"], timeout=30)
-        except (OSError, subprocess.TimeoutExpired):
-            return []
-        if ns.returncode == 0 and not ns.stdout.strip():
-            return None
-        try:
-            items = json.loads(r.stdout).get("items", []) if r.returncode == 0 else []
-        except ValueError:
-            items = []
+            if ns.returncode != 0:
+                raise Unknown()
+            if not ns.stdout.strip():
+                return None
+            r = self.run_cmd([self.kc(), "get", "pods", "-n", HOUSE, "-o", "json"], timeout=30)
+            items = json.loads(r.stdout).get("items", []) if r.returncode == 0 else None
+        except (OSError, subprocess.TimeoutExpired, ValueError, AttributeError):
+            raise Unknown() from None
+        if not isinstance(items, list):
+            raise Unknown()
         return [i.get("metadata", {}).get("name", "") for i in items if isinstance(i, dict)]
 
     # --- one pass -------------------------------------------------------------------------------------------------------
@@ -108,7 +126,11 @@ class Auto:
             self.last = what
 
     def ensure_house(self) -> None:
-        pods = self.house_pods()
+        try:
+            pods = self.house_pods()
+        except Unknown:
+            self.tell("the cluster answers, but not about the house now; nothing started")
+            return
         if pods is None:
             self.tell("the cluster is up, but there is no house (the operator runs mesh host house init once); nothing to show")
             return
@@ -137,7 +159,7 @@ class Auto:
             if code is None:
                 return
             self.child = None
-            if code == 1:
+            if code == REFUSED:
                 self.refused = True
                 self.say("the page refused the stream token: not starting the streamer again (page-server.sh stream-token)")
                 return
@@ -190,7 +212,7 @@ class Auto:
                 if once:
                     return 0
                 if self.refused:
-                    return 1
+                    return REFUSED
                 self.sleep(self.a.check)
         finally:
             self.stop()

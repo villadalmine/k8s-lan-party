@@ -97,7 +97,9 @@ case "$class" in registry|mutate)
     [ ! -S "$sock" ] || exec python3 "$POC/console/client.py" run --socket "$sock" --mesh "$0" -- "$@"
   fi
   export EMESH_DIRECT=1
-  [ "$verb" = panic ] || mesh_lock
+  # panic and live-off take nothing: they write their switch at once (panic takes the lock inside admission.py, after its switch;
+  # live-off touches only a file and a local process), so a long reap or tick never keeps the page on the air
+  case "$verb" in panic|live-off) ;; *) mesh_lock ;; esac
   if [ "$class" = registry ] && [ -z "${EMESH_AUDITED:-}" ] && [ "$verb" != tick ]; then
     export EMESH_AUDITED=1; t0=${EPOCHREALTIME:-$(date +%s)}; rc=0
     # Ctrl-C stops the verb (the child gets it from the terminal), not this layer: a half-done verb still leaves its line, and then this
@@ -352,7 +354,7 @@ case "$1 ${2:-}" in
       *) usage ;;
     esac ;;
   "host live")
-    sub="${3:-status}"; shift 3 2>/dev/null || shift $#; LD="$STATE/house"; pidf="$LD/streamer.pid"; off="$LD/live.off"
+    sub="${3:-status}"; shift 3 2>/dev/null || shift $#; LD="$STATE/house"; pidf="$LD/streamer.pid"; off="$STATE/live.off"   # the switch outlives house down
     alive_streamer() { [ -s "$pidf" ] && ps -p "$(cat "$pidf")" -o args= 2>/dev/null | grep -q streamer.py; }   # ps: Linux and macOS
     page_args() { url=""; cacert=""
       while [ $# -gt 0 ]; do case "$1" in --url) url="${2:-}"; shift 2 ;; --cacert) cacert="${2:-}"; shift 2 ;; *) usage ;; esac; done
@@ -373,7 +375,7 @@ case "$1 ${2:-}" in
         if alive_streamer; then kill "$(cat "$pidf")"; echo "live: the streamer stopped (the page shows offline)"; else echo "live: no streamer"; fi
         rm -f "$pidf" ;;
       off)
-        mkdir -p "$LD"; chmod 700 "$LD"; : >"$off"
+        : >"$off"   # first: every streamer checks it (whoever started it), and live auto starts none while it exists
         if alive_streamer; then kill "$(cat "$pidf")"; fi; rm -f "$pidf"
         echo "live: off - the page says offline; the house match and the demo keep running (mesh host live on to stream again)" ;;
       on)

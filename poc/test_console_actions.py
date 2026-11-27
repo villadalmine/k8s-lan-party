@@ -238,6 +238,18 @@ class ActionsTest(DaemonCase):
         self.job(slow)
         self.assertIn(["host", "panic"], self.mutations())
 
+    def test_live_off_skips_the_queue_too(self):   # #119: going off the air never waits behind a reap
+        os.environ.update(FAKE_SLEEP="3", FAKE_SLEEP_ONLY="burn")
+        slow = self.post("burn", {"args": {}})[1]["id"]
+        time.sleep(0.2)
+        status, j = self.post("live-off", {"args": {}})
+        self.assertEqual(status, 202)
+        j = self.job(j["id"], 1.5)
+        self.assertEqual((j["state"], j["exit"]), ("done", 0))
+        self.assertEqual(self.console.runner.get(slow).state, "running")
+        self.job(slow)
+        self.assertIn(["host", "live", "off"], self.mutations())
+
     def test_c12_a_timeout_kills_the_process_group(self):
         child = self.tmp / "child.pid"
         os.environ.update(FAKE_SLEEP="30", FAKE_TERM_IGNORE="1", FAKE_CHILD=str(child))
