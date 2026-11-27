@@ -27,6 +27,10 @@ The one list is `poc/page/panelspec.py`: the host sends only these fields and th
 - Every value is read from the cluster when the puller runs (`mesh host panel`, `poc/panel.py`): `kubectl get` of nodes, pods, namespaces
   and `cilium-config`; the kubelets' own `stats/summary` through the API server (k3s here runs without metrics-server); and the host's
   read-only reads (`party list --read-only --json`, `admission-metrics --read-only`). Nothing is written.
+- The whole read has a budget of 45 s (`--budget`): a read that would pass it is not started. With `publish: no` the puller reads
+  nothing at all (`--if-published`), so the panel never slows the puller's report.
+- The encryption fields come from `cilium-config`, the configuration Cilium runs with; no such ConfigMap means no Cilium (flannel), so
+  "no"; a failed read of it is not a "no", it leaves them out.
 - A read that fails leaves its fields out, and the page shows them as **not live**. CPU in use is left out if one ready node does not
   answer: a sum without it would be wrong.
 - The page shows the panel only while the host reports (the public page's 5 minutes). A silent host shows **nothing**, never its last
@@ -70,3 +74,6 @@ The host console reads the same panel: `GET /api/v1/panel` ([CONSOLE.md](CONSOLE
 | PN04 | the panel changes the cluster | `kubectl get`, `stats/summary` and `--read-only` reads only | `poc/test_panel.py` (the fake refuses anything else) |
 | PN05 | a config shows more than meant | profiles are allowlists, `off` only narrows, unknown names are refused, `host` is never published | `poc/test_panel.py` |
 | PN06 | a value is guessed | a failed read leaves its field out; the page says "not live" | `poc/test_panel.py` |
+
+Known gap: DM39 proves `mesh host panel` on a real cluster; the path puller, report, page and `/live` is proven by `poc/test_panel.py`
+against the real page code, not on the lab (poc-doom runs no puller).

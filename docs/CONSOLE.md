@@ -242,7 +242,7 @@ the socket and on the loopback; only the role differs.
 | `GET /api/v1/metrics` | the admission metrics, Prometheus text, no identities |
 | `GET /api/v1/watch`, `GET /api/v1/watch/{owner}/frame` | the host's watcher (D6): its parties and spectators, from a pure read; one JPEG of the host's spectator of that game, through the API server to the host's own pod, at most 4 a second (429 beyond); 404 when none runs. The page draws them as the Watch view (CONSOLE-MODES.md) |
 | `GET /api/v1/live` | the live page's switch (`on`/`off`) and whether the streamer runs (`streaming`), from a file and a pid on the host (#119); `live-off` and `live-on` change it. Driving these from a bot: [CONSOLE-BOTS.md](CONSOLE-BOTS.md) |
-| `GET /api/v1/panel` | what the proofs of concept are doing now, as the public page shows it but with the host's own profile (`poc/panel.yaml`): [PANEL.md](PANEL.md) |
+| `GET /api/v1/panel` | what the proofs of concept are doing now, with the same config the puller uses (`poc/panel.yaml`, or `PANEL_CONFIG` in the daemon's environment), whether it is published or not: [PANEL.md](PANEL.md) |
 | `GET /api/v1/actions` | the registry entries the caller's role may run: verb, params, confirmation, timeout |
 | `POST /api/v1/actions/{verb}` | `{"args": {...}}`: starts a job (202), or answers with a plan to confirm (200) |
 | `GET /api/v1/jobs/{id}` | a job: running, done, failed or timeout; the engine's exit code; its output, redacted |

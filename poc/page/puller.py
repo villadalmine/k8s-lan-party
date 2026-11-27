@@ -316,7 +316,7 @@ class Puller:
         """The panel (#119) for the report, when poc/panel.yaml says publish: yes. Counts and states only, checked against the same
         allowlist the page uses; anything wrong leaves it out, and never stops the intake."""
         try:
-            r = self.mesh("panel", "--json", timeout=180)
+            r = self.mesh("panel", "--json", "--if-published", timeout=60)   # panel.py's own budget is 45 s
             p = json.loads(r.stdout) if r.returncode == 0 else None
         except (OSError, ValueError, subprocess.TimeoutExpired, Fail):
             return None

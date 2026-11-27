@@ -64,10 +64,11 @@ class Fake:
             if a[:2] == ["get", "pods"] and "pods" not in self.down:
                 return j({"items": [{"metadata": {"namespace": ns, "name": n}} for ns, n in self.pods]})
             if a[:2] == ["get", "namespaces"] and "namespaces" not in self.down:
-                return j({"items": [{"metadata": {"name": n, "labels": {"edge-mesh/house-open": "yes"} if n == "house" and self.house_open
-                                                  else {}}} for n in self.namespaces]})
+                return j({"items": [{"metadata": {"name": n, "labels": {"edge-mesh/house": "host", "edge-mesh/house-open": "yes"}
+                                                  if n == "house" and self.house_open else {}}, "status": {"phase": "Active"}}
+                                     for n in self.namespaces]})
             if a[:3] == ["get", "configmap", "cilium-config"] and self.cilium is not None:
-                return j({"data": self.cilium})
+                return j({"data": self.cilium}) if self.cilium else ""   # {}: no Cilium (--ignore-not-found prints nothing)
             return None
         if a == ["host", "party", "list", "--read-only", "--json"] and "parties" not in self.down:
             return j(self.parties)
@@ -85,7 +86,7 @@ class Snapshot(unittest.TestCase):
         f = panel.snapshot(self.r)
         self.assertEqual(f, {
             "nodes_total": 3, "nodes_ready": 2, "player_nodes": 2,
-            "cpu_total_millicores": 4000 + 1500 + 4000, "memory_total_mib": 8192 + 2048 + 8192,
+            "cpu_total_millicores": 4000 + 1500, "memory_total_mib": 8192 + 2048,   # the Ready nodes only
             "cpu_used_millicores": 3000, "memory_used_mib": 4096,
             "pods_running": 5, "player_pods_running": 2, "games_running": 2,
             "player_namespaces": 2, "house_open": True,
@@ -111,9 +112,15 @@ class Snapshot(unittest.TestCase):
         self.assertEqual(panel.snapshot(self.r), {})
 
     def test_no_cilium_means_no_encryption(self):
-        self.fake.cilium = None
+        self.fake.cilium = {}
         f = panel.snapshot(self.r)
         self.assertEqual((f["wireguard"], f["node_encryption"], f["mutual_auth"]), (False, False, False))
+
+    def test_a_failed_cilium_read_is_not_a_no(self):
+        self.fake.cilium = None                    # a timeout or RBAC: never a guessed "not encrypted"
+        f = panel.snapshot(self.r)
+        for k in ("wireguard", "node_encryption", "mutual_auth"):
+            self.assertNotIn(k, f)
 
     def test_no_name_leaves_the_host(self):
         out = panel.shape(panel.snapshot(self.r), panel.load_config(None))

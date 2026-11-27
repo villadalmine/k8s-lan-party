@@ -75,8 +75,8 @@ READS = {   # route -> the engine's pure read (argv after poc/mesh) and how its 
     "parties": (["host", "party", "list", "--read-only", "--json"], "json"),
     "metrics": (["host", "admission-metrics", "--read-only"], "text"),
     "watch": (["host", "watch", "status", "--json", "--read-only"], "json"),
-    "live": (["host", "live", "status", "--json"], "json"),
-    "panel": (["host", "panel", "--json"], "json"),   # #119: the panel with the host's profile config, a pure read   # the live switch and whether the streamer runs (#119): a file and a pid
+    "live": (["host", "live", "status", "--json"], "json"),   # the live switch and whether the streamer runs (#119): a file and a pid
+    "panel": (["host", "panel", "--json"], "json"),   # #119: the panel, with the same config as the puller's (poc/panel.yaml), a pure read
 }
 WEB_DEFAULT = "127.0.0.1:8090"
 BAD_TOKENS, BAD_WINDOW, LOCKOUT = 10, 600, 600   # 10 wrong web tokens in 10 minutes: 429 on the web listener for 10 minutes

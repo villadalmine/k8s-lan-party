@@ -15,7 +15,9 @@ What it may show is set by a profile in a config the operator writes (poc/panel.
 A profile is an allowlist and the config can only narrow it: `off` removes fields, nothing adds one. An unknown key, profile or field
 is refused at start (exit 2): a typo never shows more than was meant.
 
-    panel.py [--config poc/panel.yaml] [--mesh poc/mesh] snapshot      the panel as JSON (a pure read)
+    panel.py [--config poc/panel.yaml] [--mesh poc/mesh] [--budget 45] snapshot [--if-published]
+                                                                       the panel as JSON (a pure read); --if-published (the puller):
+                                                                       read nothing at all unless the config publishes it
     panel.py [--config poc/panel.yaml] check                           the config is valid (exit 0) or not (exit 2)
 
 Exit codes: 0 done; 1 the cluster could not be read at all; 2 a bad config or arguments.
@@ -24,7 +26,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
+import signal
 import subprocess
 import sys
 import time
@@ -83,22 +87,40 @@ def allowed(cfg: dict) -> list[str]:
 # --- the reads ---------------------------------------------------------------------------------------------------------------------
 
 class Reader:
-    """Every read is a pure read: kubectl get, the kubelets' stats through the API server, and mesh's --read-only reads."""
+    """Every read is a pure read: kubectl get, the kubelets' stats through the API server, and mesh's --read-only reads. The whole
+    panel has a budget (--budget, 45 s: under the console's 60 s for an engine read): a read that would pass it is not started, and its
+    fields are left out, like any failed read."""
 
-    def __init__(self, mesh: str, run=None):
+    def __init__(self, mesh: str, run=None, budget: float = 45.0, clock=time.monotonic):
         self.mesh, self.kc = mesh, str(Path(mesh).parent / "kc")
         self.run = run or self._run
+        self.clock, self.deadline = clock, clock() + budget
 
-    @staticmethod
-    def _run(argv: list[str], timeout: int = 30) -> str | None:
-        try:
-            r = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
-        except (OSError, subprocess.TimeoutExpired):
+    def left(self) -> float:
+        return self.deadline - self.clock()
+
+    def _run(self, argv: list[str], timeout: int = 30) -> str | None:
+        t = min(timeout, self.left())
+        if t < 1:
             return None
-        return r.stdout if r.returncode == 0 else None
+        # its own process group, killed whole at the timeout: kc is a shell over incus exec and kubectl, which would be left behind
+        try:
+            p = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, start_new_session=True)
+        except OSError:
+            return None
+        try:
+            out, _ = p.communicate(timeout=t)
+        except subprocess.TimeoutExpired:
+            os.killpg(p.pid, signal.SIGKILL)
+            p.communicate()
+            return None
+        return out if p.returncode == 0 else None
 
-    def json(self, *args: str, timeout: int = 30):
-        out = self.run([self.kc, *args], timeout)
+    def kubectl(self, *args: str, timeout: int = 15) -> str | None:
+        return self.run([self.kc, *args, "--request-timeout=10s"], timeout)
+
+    def json(self, *args: str, timeout: int = 15):
+        out = self.kubectl(*args, timeout=timeout)
         try:
             return json.loads(out) if out else None
         except ValueError:
@@ -128,9 +150,10 @@ def snapshot(r: Reader) -> dict:
     ready = [n for n in items if any(c.get("type") == "Ready" and c.get("status") == "True" for c in n.get("status", {}).get("conditions", []))]
     f["nodes_ready"] = len(ready)
     f["player_nodes"] = sum(1 for n in items if n.get("metadata", {}).get("labels", {}).get("edge-mesh/participant"))
-    cpu_total = [cpu_millicores(n.get("status", {}).get("allocatable", {}).get("cpu", "")) for n in items]
-    mem_total = [mib(n.get("status", {}).get("allocatable", {}).get("memory", "")) for n in items]
-    if items and None not in cpu_total and None not in mem_total:
+    # the machines that are up: the totals and the use are both over the Ready nodes (the kubelet's working set includes its system)
+    cpu_total = [cpu_millicores(n.get("status", {}).get("allocatable", {}).get("cpu", "")) for n in ready]
+    mem_total = [mib(n.get("status", {}).get("allocatable", {}).get("memory", "")) for n in ready]
+    if ready and None not in cpu_total and None not in mem_total:
         f["cpu_total_millicores"], f["memory_total_mib"] = sum(cpu_total), sum(mem_total)
     used_cpu = used_mem = 0
     for n in ready:
@@ -156,15 +179,25 @@ def snapshot(r: Reader) -> dict:
         nss = namespaces.get("items", [])
         f["player_namespaces"] = sum(1 for n in nss if n.get("metadata", {}).get("name", "").startswith("play-"))
         house = [n for n in nss if n.get("metadata", {}).get("name") == "house"]
-        f["house_open"] = bool(house) and house[0].get("metadata", {}).get("labels", {}).get("edge-mesh/house-open") == "yes"
-    cm = r.json("get", "configmap", "cilium-config", "-n", "kube-system", "-o", "json")
-    if cm is not None:
+        md = house[0].get("metadata", {}) if house else {}
+        labels = md.get("labels") or {}
+        # as party.py decides it: the host's house (its label), Active, not being deleted, and opened
+        f["house_open"] = bool(house) and labels.get("edge-mesh/house") == "host" and labels.get("edge-mesh/house-open") == "yes" and \
+            house[0].get("status", {}).get("phase") == "Active" and not md.get("deletionTimestamp")
+    # the configuration Cilium runs with (its ConfigMap; checked at run time by poc-cilium). Not there at all (flannel): nothing
+    # encrypts pod traffic. The read failing (a timeout, RBAC): the fields are left out, never a guessed "no"
+    raw = r.kubectl("get", "configmap", "cilium-config", "-n", "kube-system", "--ignore-not-found", "-o", "json")
+    try:
+        cm = json.loads(raw) if raw and raw.strip() else ({} if raw is not None else None)
+    except ValueError:
+        cm = None
+    if cm == {}:
+        f["wireguard"] = f["node_encryption"] = f["mutual_auth"] = False
+    elif isinstance(cm, dict):
         d = cm.get("data", {})
         f["wireguard"] = d.get("enable-wireguard") == "true"
         f["node_encryption"] = d.get("encrypt-node") == "true"
         f["mutual_auth"] = d.get("mesh-auth-mutual-enabled") == "true"   # authentication.mutual.spire.enabled
-    elif namespaces is not None:   # the cluster answered and has no Cilium (flannel): nothing encrypts pod traffic
-        f["wireguard"] = f["node_encryption"] = f["mutual_auth"] = False
     parties = r.run([r.mesh, "host", "party", "list", "--read-only", "--json"], 60)
     try:
         rows = json.loads(parties) if parties else None
@@ -208,6 +241,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("cmd", choices=["snapshot", "check"])
     ap.add_argument("--config", default=str(HERE / "panel.yaml"))
     ap.add_argument("--mesh", default=str(HERE / "mesh"))
+    ap.add_argument("--budget", type=float, default=45.0)
+    ap.add_argument("--if-published", action="store_true", help="read nothing unless the config publishes the panel (the puller)")
     a = ap.parse_args(argv)
     try:
         cfg = load_config(a.config)
@@ -217,7 +252,10 @@ def main(argv: list[str] | None = None) -> int:
     if a.cmd == "check":
         print(f"panel: profile {cfg['profile']}, {len(allowed(cfg))} fields, publish {'yes' if cfg['publish'] else 'no'}")
         return 0
-    fields = snapshot(Reader(a.mesh))
+    if a.if_published and not cfg["publish"]:   # the puller asks every minute: not published costs no read at all
+        print(json.dumps({"at": int(time.time()), "profile": cfg["profile"], "publish": False, "up": None, "fields": {}}))
+        return 0
+    fields = snapshot(Reader(a.mesh, budget=a.budget))
     if not fields:
         print(json.dumps({"at": int(time.time()), "profile": cfg["profile"], "publish": cfg["publish"], "up": False, "fields": {}}))
         return 1

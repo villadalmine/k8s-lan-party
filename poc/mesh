@@ -356,7 +356,8 @@ case "$1 ${2:-}" in
       *) usage ;;
     esac ;;
   "host panel")   # #119: the panel's numbers, a pure read (poc/panel.py); --json is the only output
-    python3 "$POC/panel.py" --config "${PANEL_CONFIG:-$POC/panel.yaml}" --mesh "$POC/mesh" snapshot ;;
+    shift 2; [ "${1:-}" != --json ] || shift   # JSON is the only output; --if-published: the puller's (nothing read unless published)
+    python3 "$POC/panel.py" --config "${PANEL_CONFIG:-$POC/panel.yaml}" --mesh "$POC/mesh" snapshot "$@" ;;
   "host live")
     sub="${3:-status}"; shift 3 2>/dev/null || shift $#; LD="$STATE/house"; pidf="$LD/streamer.pid"; off="$STATE/live.off"   # the switch outlives house down
     alive_streamer() { [ -s "$pidf" ] && ps -p "$(cat "$pidf")" -o args= 2>/dev/null | grep -q streamer.py; }   # ps: Linux and macOS
