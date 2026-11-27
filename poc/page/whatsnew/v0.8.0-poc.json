@@ -1,0 +1,88 @@
+{
+ "version": "v0.8.0-poc",
+ "date": "2026-11-27",
+ "title": "the live page on its own, its switch in the console, and the panel: what the proofs of concept are doing, live",
+ "release": "https://github.com/villadalmine/k8s-lan-party/releases/tag/v0.8.0-poc",
+ "summary": "v0.7.0-poc put the house match on the public page, started by hand. v0.8.0-poc keeps it there on its own: whenever the host's cluster is up, live auto starts what is missing of the house match and keeps the streamer running; a switch, live-off and live-on, takes the page off the air and back without stopping the demo, from the CLI or the host console's API, so the host's own agents can drive it as documented in CONSOLE-BOTS.md. Next to the match, the live page now has a panel: what the proofs of concept are doing right now, read from the running cluster (machines, encryption between pods, the pool, CPU and memory, parties, games, admission), each number next to the idea it shows. Only counts and yes/no travel, from a fixed list the page checks again; a read that fails is left out, never guessed; a silent host shows nothing. Below, a real poc-doom run of this release.",
+ "issues": [
+  119
+ ],
+ "story": {
+  "player": {
+   "title": "The players: the match on the air, and the numbers under it",
+   "steps": [
+    "Anyone opens /live: the house match is on the air with nobody having started it, and below it the panel says what the platform under the game is doing now.",
+    "The panel's numbers are counts and yes/no only: how many machines, whether pod traffic is encrypted with WireGuard, how many games and parties, never a name or an address.",
+    "petersen accepts the house's party and plays in the broadcast match from her own machine, as in v0.7.0-poc."
+   ]
+  },
+  "host": {
+   "title": "The host: live auto, the switch, and the panel",
+   "steps": [
+    "mesh host live auto: whenever the cluster is up it starts what is missing of the house match and keeps the streamer running; a robot removed or a streamer killed comes back.",
+    "live-off through the console's API keeps the page off the air while the match keeps running; live-on, with a plan and a confirmation, brings it back; both are in the audit log.",
+    "mesh host panel --json: the panel read from the cluster, as the public page shows it; the puller sends it only when the host's panel.yaml says publish: yes."
+   ]
+  }
+ },
+ "casts": [
+  {
+   "file": "player.cast",
+   "side": "player",
+   "title": "The players' screens",
+   "caption": "a real poc-doom run of this release, recorded the way make showcase-doom does in Incus VMs."
+  },
+  {
+   "file": "host.cast",
+   "side": "host",
+   "title": "The host's screen",
+   "caption": "the same run from the host's machine: live auto, the switch through the console's API, and the panel."
+  }
+ ],
+ "media": [
+  {
+   "file": "match.gif",
+   "title": "carmack's screen during the match",
+   "alt": "A first-person view of a small FreeDM deathmatch map: a marine among corridors, with Doom's health, ammo and frags bar at the bottom.",
+   "caption": "captured by carmack's robot under a virtual screen (Xvfb + ffmpeg) in this run's match: 320x200."
+  }
+ ],
+ "features": [
+  {
+   "name": "Live on its own",
+   "what": "Every 30 s, when the API server is ready, it starts only what is missing of the house match and keeps the streamer as its child, restarted with a growing wait; it never opens a house or accepts for a player, and with the cluster down it touches nothing.",
+   "why": "The match is on the air whenever the host's cluster is, with nobody starting it.",
+   "command": "mesh host live auto --url https://<the public page>",
+   "issues": [
+    119
+   ]
+  },
+  {
+   "name": "The live switch",
+   "what": "live-off stops the broadcast and keeps it stopped, for every streamer and under auto, while the match runs; it skips the engine's lock and the console's queue. live-on asks for a plan and a confirmation, because players in the house are broadcast.",
+   "why": "Off the air is not tearing the demo down, and the host's agents can do it through the console's API.",
+   "command": "mesh host live off\nmesh host live on\nmesh host live status --json",
+   "issues": [
+    119
+   ]
+  },
+  {
+   "name": "The panel",
+   "what": "What is running right now, next to the idea it shows: machines and players' machines, WireGuard and node encryption, the pool, CPU and memory of the ready machines, parties, games and the house, admission since the host began. Integers and yes/no only, from one allowlist (panelspec.py) that the host sends and the page checks.",
+   "why": "The match is not just a game: the panel shows the platform under it, with real numbers or none.",
+   "command": "mesh host panel --json\nGET /api/v1/panel",
+   "issues": [
+    119
+   ]
+  },
+  {
+   "name": "Profiles",
+   "what": "poc/panel.yaml: public, self-hosted or host; off can only take fields away; an unknown key or field is refused; publish is no in the repository, and the host profile is never published.",
+   "why": "Someone running the project on their own gets the same panel, limited by their own config.",
+   "command": "python3 poc/panel.py --config poc/panel.yaml check",
+   "issues": [
+    119
+   ]
+  }
+ ]
+}
