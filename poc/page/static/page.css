@@ -31,3 +31,12 @@ th, td { text-align: left; padding: .3rem .6rem .3rem 0; border-bottom: 1px soli
 /* the live page (#113) */
 .onair{font-weight:600}.onair.on::before{content:"\25CF  ";color:#c62828}
 figure.live{margin:1em 0}figure.live img{display:block;width:min(100%,640px);height:auto;aspect-ratio:8/5;image-rendering:pixelated;background:#000;border:1px solid #888}
+/* the live page's panel (#119): the host's numbers, each group next to the idea it shows */
+.panel{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:.8rem;margin:.8rem 0}
+.panel section{border:1px solid var(--line);border-radius:6px;padding:.6rem .8rem;min-width:0}
+.panel h3{margin:.1rem 0 .5rem;font-size:1rem}
+.panel dl{display:grid;grid-template-columns:auto 1fr;gap:.15rem .7rem;margin:0 0 .5rem}
+.panel dt{font-variant-numeric:tabular-nums;font-weight:600;text-align:right}
+.panel dd{margin:0}
+.panel .off{color:var(--muted);font-style:italic}
+.panel details{font-size:.92em}.panel details p{margin:.3rem 0}

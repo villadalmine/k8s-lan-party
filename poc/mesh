@@ -48,6 +48,8 @@
 #                                          withdraws the offers (and closes their parties); frame = one JPEG of its spectator
 #   mesh host live start --url <page> [--cacert F] | stop | status [--json]   the streamer (poc/page/streamer.py): the house's frames to
 #                                          the page, outbound only, with the stream token (page-server.sh stream-token makes it)
+#   mesh host panel [--json]               the panel (#119): what the proofs of concept are doing now, counts and states only, as JSON;
+#                                          what it may show is poc/panel.yaml's profile (PANEL_CONFIG)
 #   mesh host live on|off                  the live switch (#119): off stops the streamer (the page says offline) and keeps it stopped, also
 #                                          under `live auto`; the house match and the demo keep running. on lets it stream again
 #   mesh host live auto --url <page> [--cacert F]   (foreground, the unit emesh-live-auto) on the air whenever the cluster is up
@@ -353,6 +355,9 @@ case "$1 ${2:-}" in
         rm -rf "$HD"; party_sync; echo "house: removed" ;;
       *) usage ;;
     esac ;;
+  "host panel")   # #119: the panel's numbers, a pure read (poc/panel.py); --json is the only output
+    shift 2; [ "${1:-}" != --json ] || shift   # JSON is the only output; --if-published: the puller's (nothing read unless published)
+    python3 "$POC/panel.py" --config "${PANEL_CONFIG:-$POC/panel.yaml}" --mesh "$POC/mesh" snapshot "$@" ;;
   "host live")
     sub="${3:-status}"; shift 3 2>/dev/null || shift $#; LD="$STATE/house"; pidf="$LD/streamer.pid"; off="$STATE/live.off"   # the switch outlives house down
     alive_streamer() { [ -s "$pidf" ] && ps -p "$(cat "$pidf")" -o args= 2>/dev/null | grep -q streamer.py; }   # ps: Linux and macOS

@@ -43,6 +43,7 @@ sys.path.insert(0, str(HERE.parent))
 sys.path.insert(0, str(HERE))
 from admission import NAME, RESERVED, write_atomic  # noqa: E402
 import seal as keys  # noqa: E402
+import panelspec  # noqa: E402
 
 BUNDLE_FILES = {"ca.crt", "host.crt", "config.yml", "join.env"}   # always there
 OPTIONAL_FILES = {"kubeconfig"}                                      # the player's own kubeconfig (issue #9), when the host made one
@@ -311,6 +312,18 @@ class Puller:
         observed_at = self.a.now if self.a.now is not None else int(time.time())
         write_atomic(self.dir / "last-report.json", {"at": observed_at, "reported_closed": closed, "page_open": opened})
 
+    def panel(self) -> dict | None:
+        """The panel (#119) for the report, when poc/panel.yaml says publish: yes. Counts and states only, checked against the same
+        allowlist the page uses; anything wrong leaves it out, and never stops the intake."""
+        try:
+            r = self.mesh("panel", "--json", "--if-published", timeout=60)   # panel.py's own budget is 45 s
+            p = json.loads(r.stdout) if r.returncode == 0 else None
+        except (OSError, ValueError, subprocess.TimeoutExpired, Fail):
+            return None
+        if not isinstance(p, dict) or p.get("publish") is not True or p.get("profile") not in ("public", "self-hosted"):
+            return None
+        return p["fields"] if panelspec.valid(p.get("fields")) else None
+
     def run(self) -> int:
         st = self.status()
         if st["panic"]:
@@ -323,7 +336,11 @@ class Puller:
         st = self.status()
         more, after = self.follow(st)
         updates += more
-        res = self.call("/api/v1/puller/report", {"closed": False, "status": self.numbers(st), "updates": updates})
+        body = {"closed": False, "status": self.numbers(st), "updates": updates}
+        pan = self.panel()
+        if pan is not None:
+            body["panel"] = pan
+        res = self.call("/api/v1/puller/report", body)
         for iid, s in after.items():
             self.mine["intakes"][iid]["state"] = s
             if s == "done":   # the visitor's keys are not needed any more

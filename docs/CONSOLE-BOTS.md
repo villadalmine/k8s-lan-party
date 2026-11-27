@@ -32,6 +32,7 @@ B=http://127.0.0.1:8090/api/v1            # through the tunnel; on the host, the
 H="Authorization: Bearer $CONSOLE_TOKEN"  # from the bot's secret store
 curl -fsS -H "$H" "$B/health"             # {"ok": true, "role": "console", "version": ...}
 curl -fsS -H "$H" "$B/live"               # {"switch": "on", "streaming": true}
+curl -fsS -H "$H" "$B/panel"              # {"up": true, "fields": {"nodes_total": 3, ...}}: counts only (PANEL.md)
 curl -fsS -H "$H" "$B/status"             # places, waiting, auto, panic
 curl -fsS -H "$H" "$B/page"               # the public page as the puller last saw it
 curl -fsS -H "$H" "$B/verbs"              # every verb, whether this role may run it, and why not

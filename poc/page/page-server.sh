@@ -97,7 +97,7 @@ install_page() {
   [ -n "$SITE" ] || { echo "install needs --site"; exit 2; }; site_ok
   local t; t=$(mktemp -d)
   mkdir -p "$t/opt/static"
-  cp "$PAGE/page.py" "$PAGE/news.py" "$PAGE/seal.py" "$PAGE/live.py" "$POC/pool.py" "$POC/admission.py" "$PAGE/page.yaml" "$t/opt/"
+  cp "$PAGE/page.py" "$PAGE/news.py" "$PAGE/seal.py" "$PAGE/live.py" "$PAGE/panelspec.py" "$POC/pool.py" "$POC/admission.py" "$PAGE/page.yaml" "$t/opt/"
   cp "$PAGE"/static/*.js "$PAGE"/static/*.css "$t/opt/static/"
   # What's new: each release's JSON and its recordings (never the sources under rec/)
   ( cd "$PAGE" && find whatsnew -maxdepth 2 \( -name 'v*.json' -o -name 'learn.json' -o -name '*.cast' -o -name '*.gif' \) -print0 | tar cf - --null -T - ) | tar xf - -C "$t/opt"

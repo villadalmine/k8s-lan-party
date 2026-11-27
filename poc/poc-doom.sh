@@ -10,7 +10,7 @@
 # Needs a Linux host with Incus. PASS/FAIL per step; identical across runs. CNI=cilium by default (the demo's CNI); CNI=flannel also runs.
 # D6 (#101, DM24 on): the host's watcher needs an `own` machine that is not the control plane: hostpc, issued by the host like n1 (never through
 # `mesh host invite`, which refuses own), joins after the match.
-# POOL_LEASE (default 4500 s) must cover DM03-DM37 (DM38 needs no lease; romero's lease while the host watches; petersen's while she plays the house match). KEEP=1 leaves the VMs. SHOWCASE=<dir> also writes the player's and the host's screens there.
+# POOL_LEASE (default 4500 s) must cover DM03-DM37 (DM38 and DM39 need no lease; romero's lease while the host watches; petersen's while she plays the house match). KEEP=1 leaves the VMs. SHOWCASE=<dir> also writes the player's and the host's screens there.
 # UNTIL=DMxx stops after that step and keeps the VMs (poc/doom/week.sh: UNTIL=DM27 leaves a match and the host's spectator running).
 # OWN_CERT_DURATION (default 2h): the certificate of the host's own machine hostpc.
 set -u
@@ -516,6 +516,36 @@ except urllib.error.HTTPError as e:
     print(e.code, e.read().decode()); sys.exit(1)
 PY
 }
+
+panel_real() { # #119: the panel's numbers come from the running cluster, counts and states only; a profile's `off` only takes fields away
+  local out cfg="$STATE/panel-test.yaml"
+  say host "the panel: what the proofs of concept under the game are doing now, read from the cluster (docs/PANEL.md)"
+  out=$("$MESH" host panel --json) || { echo "mesh host panel failed: $out"; return 1; }
+  CNI="$CNI" python3 - "$out" "$POC/page" <<'PY' || return 1
+import json, os, sys
+sys.path.insert(0, sys.argv[2])
+import panelspec
+p = json.loads(sys.argv[1])
+f = p["fields"]
+assert p["up"] is True and p["publish"] is False, p   # the repository's config publishes nothing
+assert set(f) <= set(panelspec.FIELDS) and panelspec.valid(f), f
+assert all(isinstance(v, (int, bool)) for v in f.values()), "numbers and yes/no only: no string can carry a name"
+assert f["nodes_total"] >= 2 and 1 <= f["nodes_ready"] <= f["nodes_total"], f
+assert 0 < f["cpu_used_millicores"] <= f["cpu_total_millicores"] and 0 < f["memory_used_mib"] <= f["memory_total_mib"], f   # the kubelets' own measure
+assert f["house_open"] is False, f   # DM38 took the house down
+if os.environ["CNI"] == "cilium":
+    assert f["wireguard"] is True, f   # poc/cilium.sh turns WireGuard on
+print("panel: " + ", ".join(f"{k} {v}" for k, v in sorted(f.items())))
+PY
+  ! printf '%s' "$out" | grep -qiE 'romero|carmack|petersen|hostpc|10\.[0-9]+\.' || { echo "a name or an address in the panel"; return 1; }
+  printf 'profile: self-hosted\noff: [cpu_used_millicores, memory_used_mib]\npublish: no\n' >"$cfg"
+  out=$(PANEL_CONFIG="$cfg" "$MESH" host panel --json) && ! printf '%s' "$out" | grep -q '"cpu_used_millicores"' &&
+    printf '%s' "$out" | grep -q '"profile": "self-hosted"' || { echo "off did not narrow: $out"; return 1; }
+  printf 'profile: public\noff: [player_names]\n' >"$cfg"
+  ! PANEL_CONFIG="$cfg" "$MESH" host panel --json >/dev/null 2>&1 || { echo "a field that does not exist was accepted"; return 1; }
+  rm -f "$cfg"
+  echo "panel: real numbers from the cluster, no name; a profile narrows it and an unknown field is refused"
+}
 live_auto() { # #119: on the air whenever the cluster is up, nobody starting it; the host's bots switch it through the console's API
   local web="127.0.0.1:${DOOM_WEB_PORT:-18093}" tf="$STATE/house/web.token" pid out id i
   say host "the live page on its own: live auto keeps the house match on the air whenever the cluster is up, with nobody starting it"
@@ -591,6 +621,7 @@ step DM35 "L3-L5: a page server and the streamer: the page shows the house's cha
 step DM36 "L8, LV09: the open house offers a party to every player and opens nothing; petersen accepts, plays in the house match from her node, and the page counts her" dumped house_offer
 step DM37 "LV06: house close withdraws the offers and closes her party; panic takes the page offline and clearing it brings it back" dumped house_close
 step DM38 "#119: live auto puts the house match on the air with nobody starting it, starts again a missing robot and a dead streamer; the console API's live-off keeps it off the air while the match runs, live-on (plan, confirm) brings it back; house down removes it all" dumped live_auto
+step DM39 "#119: the panel reads the running cluster (nodes, the kubelets CPU and memory, WireGuard, the house) as counts and states only, no name or address; a profile off list only narrows it, an unknown field is refused" panel_real
 
 [ -z "$SC" ] || [ "$FAILS" -ne 0 ] || { cp "$OUTD/match.gif" "$SC/match.gif"; for s in player host; do   # only a run that passed becomes a recording (the GIF first: down removes the state)
   python3 "$SCP" redact "$SC/$s.raw" "$SC/$s.tsv" --strip "$STATE/" --strip "$POC/" --strip "${POC%/*}/" || FAILS=$((FAILS+1)); done; }

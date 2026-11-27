@@ -1,0 +1,6 @@
+# The panel (#119, poc/panel.py): what the host's proofs of concept are doing right now, counts and states only.
+# profile: public | self-hosted | host. Each is an allowlist of fields (poc/page/panelspec.py); `off` can only take fields away.
+# publish: yes sends it to the public page with the puller's report (never for the host profile). An unknown key or field is refused.
+profile: public
+off: []
+publish: no

@@ -1,4 +1,111 @@
 {
+ "features": {
+  "admission-auto": {
+   "analogy": "A locker with a timer: you get a key, and it stops working when the hour is over.",
+   "concept": "Automated admission with leases: a rule approves and the access expires by itself, so nobody keeps standing access.",
+   "real_world": "Edge nodes, partners and ephemeral CI runners that get access just in time and lose it with no one to remember."
+  },
+  "admission-manual": {
+   "analogy": "A venue with a fixed number of seats, a door person and a waiting list.",
+   "concept": "Admission control for a limited pool: people request, the host approves within a quota, leases end, the next in line enters.",
+   "real_world": "Scarce shared capacity such as GPU nodes or partner access, handed out in turn."
+  },
+  "cilium-guard": {
+   "analogy": "A player's badge opens his own seat; it cannot rewrite the seating chart.",
+   "concept": "Least privilege for a node's own credentials: a node agent's token must not be able to forge another node's identity.",
+   "real_world": "Edge or rented nodes you do not fully control, where each agent's token is scoped to what that agent needs."
+  },
+  "doom": {
+   "analogy": "romero hosts the server; carmack and petersen each cable into his machine, never into each other's.",
+   "concept": "Pairwise, non-transitive access: a party between A and B, and another between A and C, opens nothing between B and C.",
+   "real_world": "A shared service, such as a database or an inference endpoint, that each consumer reaches without reaching the other consumers."
+  },
+  "encrypted-pod-network": {
+   "analogy": "Passing notes in a code, inside a tunnel the others cannot see into.",
+   "concept": "Encryption in transit between pods: Cilium with WireGuard on top of the Nebula mesh, so pod traffic is never in clear text on the mesh interface.",
+   "real_world": "Pod traffic that crosses sites, clouds or networks you do not own."
+  },
+  "host-console": {
+   "analogy": "One reception desk for the whole building: whichever door you come in by, you sign the same book and get the same answers.",
+   "concept": "One control API in front of the tools: every client (a terminal, a web page, a bot) goes through the same checks, the same lock and the same audit log.",
+   "real_world": "The Kubernetes API server in front of etcd, or a cloud provider's API under its console, its CLI and its SDKs."
+  },
+  "host-your-own": {
+   "analogy": "You host a game server, hand out invites that run out, and the server is not on the public internet.",
+   "concept": "A self-hosted control plane with bounded invitations: an invite expires, and the API listens on the mesh address only.",
+   "real_world": "A platform team opening a cluster to contractors or partner teams, by invitation and for a limited time."
+  },
+  "join": {
+   "analogy": "You plug your PC into the host's LAN with one cable and one password, from wherever you are.",
+   "concept": "Overlay mesh (Nebula) and remote node join: a machine on any network becomes a Kubernetes node over an encrypted tunnel.",
+   "real_world": "Branch offices, rented GPUs and hybrid home and cloud nodes that join a cluster even behind NAT."
+  },
+  "live-page": {
+   "analogy": "A shop window that shows the house band playing: the band chose the window, and the street sees through the glass but cannot walk in.",
+   "concept": "Broadcast only what everyone in it agreed to, and push it out from the inside: the public side never connects in and keeps nothing.",
+   "real_world": "A public status page or live demo fed by an outbound push from a private network, never by a port opened to it."
+  },
+  "mutual-auth": {
+   "analogy": "Both people show an ID at the door, not only the visitor; no ID, no entry, even from inside the building.",
+   "concept": "Mutual authentication between workloads: each side proves a cryptographic identity (SPIFFE, issued by SPIRE) before Cilium lets the traffic through, by policy.",
+   "real_world": "Zero-trust service meshes, where being on the network is not enough to talk to a service."
+  },
+  "node-guard": {
+   "analogy": "A ticket with your name on it: a photocopy shown at another door is refused.",
+   "concept": "Node identity binding: a join bundle and its node password only work for the machine and the name they were issued for.",
+   "real_world": "Stopping a copied or stolen bootstrap credential from enrolling a second machine in a cluster."
+  },
+  "panel": {
+   "analogy": "A stadium scoreboard: everyone sees the score and the clock, nobody sees the players' phone numbers, and a blank board means it is off, not 0-0.",
+   "concept": "Observability as a product: show what the platform is doing from real reads only, as aggregates that name nobody, and say 'not live' rather than guess.",
+   "real_world": "Public status pages and usage dashboards that expose counts and health from inside a private system through an outbound feed, with an allowlist of what may leave."
+  },
+  "participants": {
+   "analogy": "You sign the guest book with your own pen, and the host sends the key sealed for you alone.",
+   "concept": "Join by signed pull request: the request is a reviewed change, the signature proves who made it, and delivery is encrypted.",
+   "real_world": "GitOps-style onboarding, where access is a signed and reviewed change in a repository."
+  },
+  "party": {
+   "analogy": "Two friends at a LAN party agree to plug a cable between their machines; either one can pull it.",
+   "concept": "Mutual consent: a declarative NetworkPolicy opens only after both sides say yes, which is zero trust between tenants.",
+   "real_world": "Two teams or companies sharing one service for a limited time, with no ticket to the platform team."
+  },
+  "placement": {
+   "analogy": "Your diary stays in your own bag; only what you mark as shareable goes to a friend's table.",
+   "concept": "Placement by trust: labels, taints and an admission policy decide which pods may run on which nodes.",
+   "real_world": "Sensitive workloads that never leave the on-prem nodes, while shareable ones use rented or partner capacity."
+  },
+  "player-console": {
+   "analogy": "A key opens your room and the shared doors your friends agreed to; the host's office stays locked.",
+   "concept": "Least privilege: a player's local UI uses only the namespace credential already issued to that player, and the API still enforces its RBAC boundary.",
+   "real_world": "A namespace-scoped Kubernetes dashboard or developer portal that uses a user's own short-lived credential."
+  },
+  "pool": {
+   "analogy": "Every player gets a room with a lock: free to rearrange it, forbidden to open the others.",
+   "concept": "Multi-tenancy: one namespace per player with RBAC, Pod Security, quota and NetworkPolicy; outside it the answer is 403.",
+   "real_world": "An internal platform where many teams share one cluster without seeing each other."
+  },
+  "public-page": {
+   "analogy": "A reception desk that takes your name but has no keys; the envelope with the key comes from the back office.",
+   "concept": "A public front door that holds no credential: a visitor asks, waits and collects a sealed bundle from the host's own tick.",
+   "real_world": "Self-service onboarding for outside users or partners without giving the web tier any secret."
+  },
+  "revoke": {
+   "analogy": "Banning a player at the server's door and at the lighthouse, not just crossing the name off the scoreboard.",
+   "concept": "Real revocation: access is cut at the mesh on every host, not only by deleting the Node object.",
+   "real_world": "Cutting a contractor's or a lost laptop's access now, not when its credential would have expired."
+  },
+  "spire-scope": {
+   "analogy": "The doorman may check the guest list, but he gets no key to the offices.",
+   "concept": "Scoped RBAC for a node agent: the SPIRE agent's token may get nodes and pods and nothing more.",
+   "real_world": "Any agent that runs on a node you do not fully trust: give it the exact verbs it needs, and nothing cluster-wide."
+  },
+  "study-lab": {
+   "analogy": "A practice room where the exam question is a real machine that is really broken.",
+   "concept": "Practice on real nodes: a lab breaks, is verified and is fixed on the joined machines, never on the control plane.",
+   "real_world": "Certification drills and onboarding exercises on disposable nodes instead of a shared production cluster."
+  }
+ },
  "releases": {
   "v0.2.0-poc": [
    {

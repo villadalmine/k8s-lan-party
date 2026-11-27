@@ -116,6 +116,9 @@ console's API (CONSOLE.md) they are `live-off` (no confirmation: going off the a
 confirmation, because players in the house are broadcast), and `GET /api/v1/live` reads the switch and whether the streamer runs. The
 host's own bots use exactly these calls ([CONSOLE-BOTS.md](CONSOLE-BOTS.md)). Lab: `poc-doom` DM38; unit tests `poc/test_autolive.py`.
 
+**Under the match, the platform.** The same page shows what the proofs of concept under the game are doing now (nodes on the mesh,
+encryption, namespaces, parties, admission), each next to its idea: [PANEL.md](PANEL.md).
+
 ## Threats and their tests
 
 | # | Threat | Answer | Test |
