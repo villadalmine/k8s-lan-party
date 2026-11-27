@@ -17,8 +17,8 @@ UMask=0077
 Environment=EMESH_STATE=<the clone>/poc/.state
 ExecStart=<the clone>/poc/mesh host live auto --url https://page.example.org
 Restart=on-failure
-# 2: no stream token or bad arguments; 4: the page refused the token. Both need the operator: restarting would only knock again
-RestartPreventExitStatus=2 4
+# 2: bad arguments; 3: no stream token (mesh); 4: the page refused the token. All need the operator: restarting would only knock again
+RestartPreventExitStatus=2 3 4
 RestartSec=60
 KillMode=mixed
 TimeoutStopSec=30

@@ -65,7 +65,7 @@
 #   mesh host console rotate-token         a new web token, never printed: the old link dies
 #   While it runs, the registry verbs typed here (request, approve, kick, reap, burn...) go through it: the same output and exit code,
 #   one audit line each (<state>/console/audit.jsonl), 75 when it is busy. EMESH_DIRECT=1 runs them here instead; the tick and `panic`
-#   always run here. Every mutating verb takes the engine's lock (<state>/mesh.lock), so two never run at once. Through the daemon a
+#   always run here (`live-off` skips the lock and the console's queue too). Every mutating verb takes the engine's lock (<state>/mesh.lock), so two never run at once. Through the daemon a
 #   verb runs with the daemon's environment (its unit), not this shell's: POOL_CONFIG, TOKEN_TTL and the like set here need EMESH_DIRECT=1.
 # The CA key lives in .state/ca/ca.key: back it up; if you lose it you must re-issue every player.
 set -eu
