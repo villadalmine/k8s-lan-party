@@ -128,7 +128,9 @@ dvm_up() { # the docker VM: Ubuntu, Docker, kind, kubectl and helm (poc/vm/docke
   dvm ./poc/vm/docker-vm.sh && dvm ./poc/vm/docker-vm.sh   # the second run must change nothing (idempotent)
 }
 pool_ok() { # pool_ok: the storage pool under POOL_MAX %
-  local pct; pct=$(incus query "/1.0/storage-pools/$POOL/resources" 2>/dev/null | "$PY" -c 'import json,sys; s=json.load(sys.stdin)["space"]; print(s["used"]*100//s["total"])') || return 1
+  local pct; pct=$(incus query "/1.0/storage-pools/$POOL/resources" 2>/dev/null | "$PY" -c 'import json,sys; s=json.load(sys.stdin)["space"]; print(s["used"]*100//s["total"] if "used" in s else -1)') || return 1
+  # an NFS pool (the NAS) reports no use: its own quota guards it, and this host's disk is not spent
+  [ "$pct" -ge 0 ] || { echo "pool $POOL: use not reported (NFS), not checked" >>"$REG/regression.log"; return 0; }
   echo "pool $POOL at $pct %" >>"$REG/regression.log"; [ "$pct" -lt "$POOL_MAX" ]
 }
 
