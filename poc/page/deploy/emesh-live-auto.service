@@ -1,0 +1,25 @@
+# The live page on its own (#119): on the HOST that runs `mesh`, never on the public server. Whenever the cluster's API server answers it
+# keeps the house match running (only what is missing of a house you made with `mesh host house init`; it never makes or opens one) and
+# the streamer pushing its frames to the page, outbound only; when the cluster is down the page goes offline by itself. `mesh host live
+# off` (or the console's live-off) keeps it off the air while the match and the demo keep running; `live on` lets it back.
+# Copy to /etc/systemd/system/, replace <your user>, <the clone>, the state directory and the page's address; then enable --now.
+# It replaces emesh-live-streamer.service (it starts the streamer itself): run one or the other, not both.
+[Unit]
+Description=k8s-lan-party: the house match on the public page whenever the cluster is up
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=<your user>
+WorkingDirectory=<the clone>/poc
+UMask=0077
+Environment=EMESH_STATE=<the clone>/poc/.state
+ExecStart=<the clone>/poc/mesh host live auto --url https://page.example.org
+Restart=on-failure
+RestartSec=60
+KillMode=mixed
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

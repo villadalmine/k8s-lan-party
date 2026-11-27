@@ -140,7 +140,9 @@ flowchart LR
     p_poc_poc_doom_sh["poc/poc-doom.sh"]
     p_poc_page_live_py["poc/page/live.py"]
     p_poc_page_streamer_py["poc/page/streamer.py"]
+    p_poc_page_autolive_py["poc/page/autolive.py"]
     p_poc_page_static_live_js["poc/page/static/live.js"]
+    p_poc_page_deploy_emesh_live___service["poc/page/deploy/emesh-live-*.service"]
     p_poc_page__["poc/page/*"]
     p_poc_poc_page_sh["poc/poc-page.sh"]
     p_poc_lighthouse_vps_sh["poc/lighthouse-vps.sh"]
@@ -256,7 +258,7 @@ flowchart LR
   f_admission_auto -.-> p_poc_pool_yaml
   f_admission_auto -.-> p_poc_mesh
   s_poc_console -->|"K01, K02, K10-K26"| f_host_console
-  s_poc_doom -->|"DM27, DM33"| f_host_console
+  s_poc_doom -->|"DM27, DM33, DM38"| f_host_console
   f_host_console --> c_admission
   f_host_console -.-> p_poc_mesh
   f_host_console -.-> p_poc_lib_sh
@@ -307,7 +309,7 @@ flowchart LR
   f_doom --> c_Python_stdlib
   f_doom -.-> p_poc_doom__
   f_doom -.-> p_poc_poc_doom_sh
-  s_poc_doom -->|"DM34-DM37"| f_live_page
+  s_poc_doom -->|"DM34-DM38"| f_live_page
   f_live_page --> c_Odamex
   f_live_page --> c_FreeDM
   f_live_page --> c_ffmpeg
@@ -315,7 +317,9 @@ flowchart LR
   f_live_page --> c_Python_stdlib
   f_live_page -.-> p_poc_page_live_py
   f_live_page -.-> p_poc_page_streamer_py
+  f_live_page -.-> p_poc_page_autolive_py
   f_live_page -.-> p_poc_page_static_live_js
+  f_live_page -.-> p_poc_page_deploy_emesh_live___service
   s_poc_page -->|"G01-G26, G09c, G25b"| f_public_page
   f_public_page --> c_page
   f_public_page --> c_Caddy

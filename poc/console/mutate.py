@@ -119,6 +119,9 @@ def plan(verb: str, args: dict, reads) -> list[str]:
     if verb == "watch-invite":
         return [f"ask {args['owner']} to let the host watch: the host's half of a party (watch-host)",
                 f"nothing opens until {args['owner']} runs: edge-mesh party accept watch-host"]
+    if verb == "live-on":
+        return ["the house match goes back on the public page (within the live auto check, or at the next live start)",
+                "players in the house's parties are broadcast, as their accept told them"]
     if verb == "party-end":
         return [f"end the party of {args['a']} and {args['b']}: both consents and the NetworkPolicies removed"]
     return [f"{verb} {json.dumps(args, sort_keys=True)}"]

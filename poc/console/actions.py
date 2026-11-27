@@ -79,6 +79,11 @@ REGISTRY: dict[str, Action] = {a.verb: a for a in (
            summary="a Doom server in the owner's namespace, on the owner's node"),
     Action("game-stop", "mesh host game stop {owner}", {"owner": NAME}, ("owner",), "type:name", timeout_seconds=120,
            summary="stop the owner's game server: everyone in that game is out"),
+    # the live page's switch (#119): off takes the house match off the public page and keeps it off; the match and the demo keep running
+    Action("live-on", "mesh host live on", {}, confirm="click", timeout_seconds=60,
+           summary="let the house match stream to the public page again (players in the house are broadcast)"),
+    Action("live-off", "mesh host live off", {}, timeout_seconds=60,
+           summary="take the house match off the public page and keep it off; the match and the demo keep running"),
     Action("invite", "mesh host invite {name} --ttl {ttl} --trust {trust}",
            {"name": NAME, "ttl": {"type": "string", "pattern": "^([0-9]+[hms]){1,3}$", "default": "2h"},
             "trust": {"enum": ["friends", "public"], "default": "friends"}}, ("name",), roles=LOCAL, timeout_seconds=300,

@@ -236,10 +236,10 @@ features:
       seen_in: "v0.4.0-poc: the host approves carol and then presses panic from the web console; each is a job of the console daemon with a plan, a confirmation and one audit line."
     proven_by:
       - {suite: poc-console, steps: [K01, K02, K10-K26]}
-      - {suite: poc-doom, steps: [DM27, DM33]}
+      - {suite: poc-doom, steps: [DM27, DM33, DM38]}
     paths: [poc/mesh, poc/lib.sh, poc/meshlock.py, poc/console/actions.py, poc/console/client.py, poc/console/mutate.py, poc/console/server.py, poc/console/check-browser.cjs, poc/console/static/*, poc/admission.py]
     components: [admission]
-    docs: [docs/CONSOLE.md, docs/HOST-YOUR-OWN.md]
+    docs: [docs/CONSOLE.md, docs/HOST-YOUR-OWN.md, docs/CONSOLE-BOTS.md]
 
   - id: player-console
     description: the player's local console on loopback; owns only the player's namespace kubeconfig, shows lease/countdown, local Nebula and namespace API connectivity, own events/parties/joinable games and allows only their party consents; watches a game and plays it in the tab (#101, #102) through the player's own pods on their own node, by Pod IP behind a per-pod secret, keys only into the pod's own display
@@ -318,10 +318,10 @@ features:
       real_world: "A public status page or live demo fed by an outbound push from a private network, never by a port opened to it."
       seen_in: "v0.7.0-poc: petersen accepts the house's party and plays in the match the public page shows."
     proven_by:
-      - {suite: poc-doom, steps: [DM34-DM37]}
-    paths: [poc/page/live.py, poc/page/streamer.py, poc/page/static/live.js]
+      - {suite: poc-doom, steps: [DM34-DM38]}
+    paths: [poc/page/live.py, poc/page/streamer.py, poc/page/autolive.py, poc/page/static/live.js, poc/page/deploy/emesh-live-*.service]
     components: [Odamex, FreeDM, ffmpeg, Caddy, Python stdlib]
-    docs: [docs/LIVE-PAGE.md, docs/PUBLIC-PAGE.md]
+    docs: [docs/LIVE-PAGE.md, docs/PUBLIC-PAGE.md, docs/CONSOLE-BOTS.md]
 
   - id: public-page
     description: the public page (phase B2) on a server that holds no credential; a visitor asks, waits, collects a sealed bundle, joins, is expelled; panic closes it; What's new tells each release with recordings of real runs (make showcase)

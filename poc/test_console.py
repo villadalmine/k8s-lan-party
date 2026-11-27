@@ -60,6 +60,8 @@ elif key == "host party list":
 elif key == "host watch status":
     print(json.dumps({"watcher": True, "parties": [{"owner": "ana", "status": "active: ports 10666/UDP"}],
                       "spectators": [{"owner": "ana", "node": "own1", "phase": "Running", "ready": True, "restarts": 0, "following": "ana"}]}))
+elif key == "host live status":
+    print(json.dumps({"switch": "on", "streaming": True}))
 elif key == "host admission-metrics --read-only":
     print("emesh_admission_waiting 1\n# " + plant)
 elif a[:2] == ["host", "activity"]:

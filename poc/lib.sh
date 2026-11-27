@@ -139,7 +139,8 @@ verb_class() {
       invite) echo "registry watch-invite" ;; leave) echo "registry watch-leave" ;; start) echo "registry watch-start" ;; stop) echo "registry watch-stop" ;;
       frame) echo "read -" ;; status) case "$rest" in *" --read-only "*) echo "read -" ;; *) echo "mutate -" ;; esac ;; *) echo "mutate -" ;; esac ;;
     "host house") case "${3:-status}" in frame|status) echo "read -" ;; *) echo "mutate -" ;; esac ;;   # the house (docs/LIVE-PAGE.md): it writes the cluster
-    "host live") echo "free -" ;;   # the streamer: a local process of the host, nothing in the cluster
+    "host live") case "${3:-status}" in   # the streamer: a local process of the host, nothing in the cluster; its switch is the registry's (#119)
+      on) echo "registry live-on" ;; off) echo "registry live-off" ;; *) echo "free -" ;; esac ;;   # auto runs for days: never under the lock
     "host init"|"host down"|"host console"|"party "*|"play "*) echo "free -" ;;
     *) echo "read -" ;;
   esac

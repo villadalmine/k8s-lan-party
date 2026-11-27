@@ -46,8 +46,11 @@
 #                                          on the live page: `house` (like watch-host: own node, never the control plane), its server, two
 #                                          robots and its spectator; open = it offers a party to every player (each accepts or not); close
 #                                          withdraws the offers (and closes their parties); frame = one JPEG of its spectator
-#   mesh host live start --url <page> [--cacert F] | stop | status   the streamer (poc/page/streamer.py): the house's frames to the page,
-#                                          outbound only, with the stream token (page-server.sh stream-token makes it)
+#   mesh host live start --url <page> [--cacert F] | stop | status [--json]   the streamer (poc/page/streamer.py): the house's frames to
+#                                          the page, outbound only, with the stream token (page-server.sh stream-token makes it)
+#   mesh host live on|off                  the live switch (#119): off stops the streamer (the page says offline) and keeps it stopped, also
+#                                          under `live auto`; the house match and the demo keep running. on lets it stream again
+#   mesh host live auto --url <page> [--cacert F]   (foreground, the unit emesh-live-auto) on the air whenever the cluster is up
 #   mesh host game start <owner>           a Doom server (pod doom-server, UDP Service doom on 10666) in <owner>'s namespace, on their node (#102)
 #   mesh host game stop <owner>            remove it: everyone in that game is out
 #   mesh party invite|accept <peer> [--ports P/UDP,...] --as <player>   (local simulation, like play) the player's own
@@ -349,14 +352,16 @@ case "$1 ${2:-}" in
       *) usage ;;
     esac ;;
   "host live")
-    sub="${3:-status}"; shift 3 2>/dev/null || shift $#; LD="$STATE/house"; pidf="$LD/streamer.pid"
+    sub="${3:-status}"; shift 3 2>/dev/null || shift $#; LD="$STATE/house"; pidf="$LD/streamer.pid"; off="$LD/live.off"
     alive_streamer() { [ -s "$pidf" ] && ps -p "$(cat "$pidf")" -o args= 2>/dev/null | grep -q streamer.py; }   # ps: Linux and macOS
+    page_args() { url=""; cacert=""
+      while [ $# -gt 0 ]; do case "$1" in --url) url="${2:-}"; shift 2 ;; --cacert) cacert="${2:-}"; shift 2 ;; *) usage ;; esac; done
+      [ -n "$url" ] || { echo "usage: mesh host live $sub --url https://<the public page> [--cacert FILE]"; exit 2; }
+      [ -s "$STATE/page/stream.token" ] || { echo "no stream token: poc/page/page-server.sh stream-token --ssh ... makes it (and sends its hash to the page)"; exit 3; }; }
     case "$sub" in
       start)
-        url=""; cacert=""
-        while [ $# -gt 0 ]; do case "$1" in --url) url="${2:-}"; shift 2 ;; --cacert) cacert="${2:-}"; shift 2 ;; *) usage ;; esac; done
-        [ -n "$url" ] || { echo "usage: mesh host live start --url https://<the public page> [--cacert FILE]"; exit 2; }
-        [ -s "$STATE/page/stream.token" ] || { echo "no stream token: poc/page/page-server.sh stream-token --ssh ... makes it (and sends its hash to the page)"; exit 3; }
+        page_args "$@"
+        [ ! -e "$off" ] || { echo "live: switched off (mesh host live on first)"; exit 3; }
         alive_streamer && { echo "live: the streamer runs already"; exit 0; }
         mkdir -p "$LD"; chmod 700 "$LD"
         setsid nohup python3 "$POC/page/streamer.py" run --url "$url" --token-file "$STATE/page/stream.token" ${cacert:+--cacert "$cacert"} \
@@ -367,8 +372,24 @@ case "$1 ${2:-}" in
       stop)
         if alive_streamer; then kill "$(cat "$pidf")"; echo "live: the streamer stopped (the page shows offline)"; else echo "live: no streamer"; fi
         rm -f "$pidf" ;;
+      off)
+        mkdir -p "$LD"; chmod 700 "$LD"; : >"$off"
+        if alive_streamer; then kill "$(cat "$pidf")"; fi; rm -f "$pidf"
+        echo "live: off - the page says offline; the house match and the demo keep running (mesh host live on to stream again)" ;;
+      on)
+        rm -f "$off"
+        echo "live: on - streaming again within ${LIVE_AUTO_CHECK:-30} s under live auto (without it: mesh host live start --url ...)" ;;
+      auto)
+        page_args "$@"
+        mkdir -p "$LD"; chmod 700 "$LD"
+        exec python3 "$POC/page/autolive.py" run --url "$url" ${cacert:+--cacert "$cacert"} --mesh "$POC/mesh" --state "$STATE" \
+          --check "${LIVE_AUTO_CHECK:-30}" ;;
       status)
-        if alive_streamer; then echo "live: streaming"; tail -n 3 "$LD/streamer.log" 2>/dev/null | sed 's/^/  /'; else echo "live: not streaming"; fi ;;
+        sw=on; [ ! -e "$off" ] || sw=off; run=no; ! alive_streamer || run=yes
+        if [ "${1:-}" = --json ]; then
+          printf '{"switch": "%s", "streaming": %s}\n' "$sw" "$( [ "$run" = yes ] && echo true || echo false)"
+        elif [ "$run" = yes ]; then echo "live: streaming (switch $sw)"; tail -n 3 "$LD/streamer.log" 2>/dev/null | sed 's/^/  /'
+        else echo "live: not streaming (switch $sw)"; fi ;;
       *) usage ;;
     esac ;;
   "party invite"|"party accept"|"party leave"|"party list")
