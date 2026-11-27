@@ -1,0 +1,118 @@
+0.000	note	three friends ask for a place; one tick of the host admits all three
+0.058	cmd	mesh host auto --once
+2.181	out	burned 0
+7.999	out	issued romero
+7.999	out	bundle: bundles/romero  (send it privately; it holds the player's key and a join token that works until the node registers or 8 min pass)
+7.999	out	namespace: play-romero  (the bundle's kubeconfig works there only, until 4500s from now)
+12.889	out	issued carmack
+12.889	out	bundle: bundles/carmack  (send it privately; it holds the player's key and a join token that works until the node registers or 8 min pass)
+12.889	out	namespace: play-carmack  (the bundle's kubeconfig works there only, until 4500s from now)
+17.737	out	issued petersen
+17.737	out	bundle: bundles/petersen  (send it privately; it holds the player's key and a join token that works until the node registers or 8 min pass)
+17.737	out	namespace: play-petersen  (the bundle's kubeconfig works there only, until 4500s from now)
+17.813	out	tick: auto on | expelled 0 | approved 3 | slots 3/3 used | 0 in the list (0 eligible now)
+365.034	note	the host's tick: both consents, both namespaces live, so it opens the party
+365.516	cmd	mesh host auto --once
+369.521	out	burned 0
+369.537	out	tick: auto on | expelled 0 | approved 0 | slots 3/3 used | 0 in the list (0 eligible now)
+374.194	out	party: carmack -> romero: active: ports 10666/UDP
+374.194	out	party: romero -> carmack: active: ports 10666/UDP
+374.553	cmd	mesh host party
+376.233	out	PLAYER               PEER                 STATUS
+376.233	out	carmack              romero               active: ports 10666/UDP
+376.233	out	romero               carmack              active: ports 10666/UDP
+476.403	note	a second party, romero and petersen: another pair, another policy
+477.336	cmd	mesh host auto --once
+481.485	out	burned 0
+481.500	out	tick: auto on | expelled 0 | approved 0 | slots 3/3 used | 0 in the list (0 eligible now)
+485.505	out	party: petersen -> romero: active: ports 10666/UDP
+485.505	out	party: romero -> petersen: active: ports 10666/UDP
+485.605	cmd	mesh host party
+487.518	out	PLAYER               PEER                 STATUS
+487.518	out	carmack              romero               active: ports 10666/UDP
+487.518	out	petersen             romero               active: ports 10666/UDP
+487.518	out	romero               carmack              active: ports 10666/UDP
+487.518	out	romero               petersen             active: ports 10666/UDP
+635.335	note	romero's server is the witness: who connected, joined and left, and when, with frags and deaths
+635.390	cmd	kubectl exec -n play-romero doom-server -- grep -E 'Masters|MAP15|connected|joined|disconnected' /tmp/server.log
+635.770	out	[17:18:19] Masters will not be contacted because sv_usemasters is 0
+635.770	out	[17:18:19] --- MAP15: "Shallow Complex" ---
+635.770	out	[17:20:42] romero has connected.
+635.770	out	[17:20:45] romero joined the game.
+635.770	out	[17:20:52] carmack has connected.
+635.770	out	[17:20:54] carmack joined the game.
+635.770	out	[17:21:05] watch-carmack has connected.
+635.770	out	[17:22:30] petersen has connected.
+635.770	out	[17:22:33] petersen joined the game.
+635.770	out	[17:23:17] petersen disconnected. (0 FRAGS, 1 DEATHS)
+635.770	out	[17:23:29] carmack disconnected. (1 FRAGS, 0 DEATHS)
+635.770	out	[17:24:21] romero disconnected. (0 FRAGS, 0 DEATHS)
+638.662	cmd	mesh host auto --once
+642.968	out	burned 0
+643.054	out	tick: auto on | expelled 0 | approved 0 | slots 3/3 used | 0 in the list (0 eligible now)
+646.579	out	party: romero -> carmack: closed: carmack left the party
+673.116	cmd	mesh host party reconcile
+674.876	out	party: unchanged
+777.376	note	the host's own machine joins (trust own, not the control plane): the host can now have a watcher, watch-host
+777.431	cmd	mesh host watch init
+778.607	out	watcher: namespace watch-host ready; its pods run on: hostpc
+818.784	note	the host asks romero to let it watch: its half of a party, like any player's invite
+818.835	cmd	mesh host watch invite romero
+819.755	out	watcher: asked romero; the party opens when romero runs: edge-mesh party accept watch-host
+822.054	out	party: watch-host -> romero: waiting for romero to accept
+828.916	cmd	mesh host auto --once
+833.901	out	burned 1
+833.926	out	tick: auto on | expelled 0 | approved 0 | slots 3/3 used | 0 in the list (0 eligible now)
+837.806	out	party: romero -> watch-host: active: ports 10666/UDP
+837.806	out	party: watch-host -> romero: active: ports 10666/UDP
+865.571	cmd	mesh host watch start romero
+868.537	out	watcher: spectator of romero's game, following romero (pod doom-watch-romero in watch-host; frames: mesh host watch frame romero)
+877.416	note	romero's server names the host's spectator: nobody is watched without a line saying who came in
+877.477	cmd	kubectl exec -n play-romero doom-server -- grep 'watch-host has connected' /tmp/server.log
+877.890	out	[17:28:22] watch-host has connected.
+891.162	note	the host's frames come through the API server to its own pod: nothing new listens, the mesh carries no frame for the host
+923.678	note	the host's views have a cap: watch-host's quota. Lowered to what runs now, one more spectator is refused by the API server
+988.712	cmd	mesh host watch leave romero
+989.504	out	watcher: left romero
+993.243	out	party: romero -> watch-host: closed: watch-host left the party
+993.445	cmd	mesh host watch stop romero
+993.901	out	watcher: stopped the spectator of romero
+1084.360	cmd	kubectl exec -n play-romero doom-server -- grep 'petersen joined the game' /tmp/server.log
+1084.857	out	[17:22:33] petersen joined the game.
+1084.857	out	[17:31:51] petersen joined the game.
+1107.922	cmd	mesh host game stop romero
+1108.911	out	game: romero's server stopped
+1140.477	cmd	mesh host game start romero
+1142.628	out	game: romero's server starting (pod doom-server, Service doom 10666/UDP in play-romero; the image must be on romero's node)
+1145.834	note	the house match: the host's own Doom game on its own machine, two robots in it, and its spectator. This is what the live page shows
+1145.887	cmd	mesh host house init
+1147.264	out	house: namespace house ready (closed: nobody is offered a party yet); its pods run on: hostpc
+1148.200	cmd	mesh host house start
+1151.993	out	house: the match runs (server, robots robot-a and robot-b, the spectator doom-watch-house following robot-a; frames: mesh host house frame)
+1166.962	cmd	mesh host house status
+1167.498	out	house: closed
+1167.786	out	  doom-bot-a Running hostpc
+1167.786	out	  doom-bot-b Running hostpc
+1167.786	out	  doom-server Running hostpc
+1167.786	out	  doom-watch-house Running hostpc
+1169.488	out	PLAYER               PEER                 STATUS
+1170.889	note	the streamer pushes the house's frames to the public page; the page keeps the last one, in memory, and anyone can watch
+1170.942	cmd	mesh host live start --url https://<the public page>
+1173.014	out	live: the streamer started (log house/streamer.log)
+1178.102	note	the host opens the house: every player is offered a party with it, and told it is broadcast
+1178.155	cmd	mesh host house open
+1181.286	out	party: house -> carmack: offered (the house match is broadcast; carmack accepts with: edge-mesh party accept house)
+1181.286	out	party: house -> petersen: offered (the house match is broadcast; petersen accepts with: edge-mesh party accept house)
+1181.286	out	party: house -> romero: offered (the house match is broadcast; romero accepts with: edge-mesh party accept house)
+1181.312	out	house: open - every player is offered a party with the house (broadcast on the live page); each accepts with: edge-mesh party accept house
+1223.632	cmd	kubectl exec -n house doom-server -- grep 'joined the game' /tmp/server.log
+1224.121	out	[17:33:06] robot-a joined the game.
+1224.121	out	[17:33:07] robot-b joined the game.
+1224.121	out	[17:34:10] petersen joined the game.
+1224.201	cmd	mesh host house close
+1229.517	out	party: house -> carmack: closed: the house match is closed
+1229.517	out	party: house -> petersen: closed: the house match is closed
+1229.517	out	party: house -> romero: closed: the house match is closed
+1229.517	out	party: petersen -> house: closed: the house match is closed; accept again to play when it reopens
+1229.545	out	house: closed - the offers are withdrawn and the parties with the house closed
+1235.789	note	panic: the house's broadcast stops at once with everything else

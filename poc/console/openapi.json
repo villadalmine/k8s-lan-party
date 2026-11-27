@@ -2169,7 +2169,7 @@
       "required": true,
       "schema": {
        "type": "string",
-       "pattern": "^(?!(?:lh|cp|n1|n2|host|watch-host)$)[a-z][a-z0-9-]{1,19}$"
+       "pattern": "^(?!(?:lh|cp|n1|n2|host|watch-host|house)$)[a-z][a-z0-9-]{1,19}$"
       }
      }
     ]
@@ -2772,7 +2772,7 @@
    "params": {
     "name": {
      "type": "string",
-     "pattern": "^(?!(?:lh|cp|n1|n2|host|watch-host)$)[a-z][a-z0-9-]{1,19}$"
+     "pattern": "^(?!(?:lh|cp|n1|n2|host|watch-host|house)$)[a-z][a-z0-9-]{1,19}$"
     },
     "ip": {
      "type": "string",
@@ -2802,7 +2802,7 @@
    "params": {
     "name": {
      "type": "string",
-     "pattern": "^(?!(?:lh|cp|n1|n2|host|watch-host)$)[a-z][a-z0-9-]{1,19}$"
+     "pattern": "^(?!(?:lh|cp|n1|n2|host|watch-host|house)$)[a-z][a-z0-9-]{1,19}$"
     },
     "reason": {
      "type": "string",
@@ -2827,7 +2827,7 @@
    "params": {
     "name": {
      "type": "string",
-     "pattern": "^(?!(?:lh|cp|n1|n2|host|watch-host)$)[a-z][a-z0-9-]{1,19}$"
+     "pattern": "^(?!(?:lh|cp|n1|n2|host|watch-host|house)$)[a-z][a-z0-9-]{1,19}$"
     },
     "trust": {
      "enum": [
@@ -2971,7 +2971,7 @@
    "params": {
     "name": {
      "type": "string",
-     "pattern": "^(?!(?:lh|cp|n1|n2|host|watch-host)$)[a-z][a-z0-9-]{1,19}$"
+     "pattern": "^(?!(?:lh|cp|n1|n2|host|watch-host|house)$)[a-z][a-z0-9-]{1,19}$"
     }
    },
    "required": [
@@ -2992,7 +2992,7 @@
    "params": {
     "name": {
      "type": "string",
-     "pattern": "^(?!(?:lh|cp|n1|n2|host|watch-host)$)[a-z][a-z0-9-]{1,19}$"
+     "pattern": "^(?!(?:lh|cp|n1|n2|host|watch-host|house)$)[a-z][a-z0-9-]{1,19}$"
     }
    },
    "required": [
@@ -3013,7 +3013,7 @@
    "params": {
     "name": {
      "type": "string",
-     "pattern": "^(?!(?:lh|cp|n1|n2|host|watch-host)$)[a-z][a-z0-9-]{1,19}$"
+     "pattern": "^(?!(?:lh|cp|n1|n2|host|watch-host|house)$)[a-z][a-z0-9-]{1,19}$"
     }
    },
    "required": [
@@ -3048,11 +3048,11 @@
    "params": {
     "a": {
      "type": "string",
-     "pattern": "^(?!(?:lh|cp|n1|n2|host|watch-host)$)[a-z][a-z0-9-]{1,19}$"
+     "pattern": "^(?!(?:lh|cp|n1|n2|host|watch-host|house)$)[a-z][a-z0-9-]{1,19}$"
     },
     "b": {
      "type": "string",
-     "pattern": "^(?!(?:lh|cp|n1|n2|host|watch-host)$)[a-z][a-z0-9-]{1,19}$"
+     "pattern": "^(?!(?:lh|cp|n1|n2|host|watch-host|house)$)[a-z][a-z0-9-]{1,19}$"
     }
    },
    "required": [
@@ -3074,7 +3074,7 @@
    "params": {
     "owner": {
      "type": "string",
-     "pattern": "^(?!(?:lh|cp|n1|n2|host|watch-host)$)[a-z][a-z0-9-]{1,19}$"
+     "pattern": "^(?!(?:lh|cp|n1|n2|host|watch-host|house)$)[a-z][a-z0-9-]{1,19}$"
     }
    },
    "required": [
@@ -3095,7 +3095,7 @@
    "params": {
     "owner": {
      "type": "string",
-     "pattern": "^(?!(?:lh|cp|n1|n2|host|watch-host)$)[a-z][a-z0-9-]{1,19}$"
+     "pattern": "^(?!(?:lh|cp|n1|n2|host|watch-host|house)$)[a-z][a-z0-9-]{1,19}$"
     }
    },
    "required": [
@@ -3116,11 +3116,11 @@
    "params": {
     "owner": {
      "type": "string",
-     "pattern": "^(?!(?:lh|cp|n1|n2|host|watch-host)$)[a-z][a-z0-9-]{1,19}$"
+     "pattern": "^(?!(?:lh|cp|n1|n2|host|watch-host|house)$)[a-z][a-z0-9-]{1,19}$"
     },
     "follow": {
      "type": "string",
-     "pattern": "^(?!(?:lh|cp|n1|n2|host|watch-host)$)[a-z][a-z0-9-]{1,19}$"
+     "pattern": "^(?!(?:lh|cp|n1|n2|host|watch-host|house)$)[a-z][a-z0-9-]{1,19}$"
     }
    },
    "required": [
@@ -3141,7 +3141,7 @@
    "params": {
     "owner": {
      "type": "string",
-     "pattern": "^(?!(?:lh|cp|n1|n2|host|watch-host)$)[a-z][a-z0-9-]{1,19}$"
+     "pattern": "^(?!(?:lh|cp|n1|n2|host|watch-host|house)$)[a-z][a-z0-9-]{1,19}$"
     }
    },
    "required": [
@@ -3162,7 +3162,7 @@
    "params": {
     "owner": {
      "type": "string",
-     "pattern": "^(?!(?:lh|cp|n1|n2|host|watch-host)$)[a-z][a-z0-9-]{1,19}$"
+     "pattern": "^(?!(?:lh|cp|n1|n2|host|watch-host|house)$)[a-z][a-z0-9-]{1,19}$"
     }
    },
    "required": [
@@ -3183,7 +3183,7 @@
    "params": {
     "owner": {
      "type": "string",
-     "pattern": "^(?!(?:lh|cp|n1|n2|host|watch-host)$)[a-z][a-z0-9-]{1,19}$"
+     "pattern": "^(?!(?:lh|cp|n1|n2|host|watch-host|house)$)[a-z][a-z0-9-]{1,19}$"
     }
    },
    "required": [
@@ -3204,7 +3204,7 @@
    "params": {
     "name": {
      "type": "string",
-     "pattern": "^(?!(?:lh|cp|n1|n2|host|watch-host)$)[a-z][a-z0-9-]{1,19}$"
+     "pattern": "^(?!(?:lh|cp|n1|n2|host|watch-host|house)$)[a-z][a-z0-9-]{1,19}$"
     },
     "ttl": {
      "type": "string",
@@ -3256,7 +3256,7 @@
    "params": {
     "name": {
      "type": "string",
-     "pattern": "^(?!(?:lh|cp|n1|n2|host|watch-host)$)[a-z][a-z0-9-]{1,19}$"
+     "pattern": "^(?!(?:lh|cp|n1|n2|host|watch-host|house)$)[a-z][a-z0-9-]{1,19}$"
     }
    },
    "required": [

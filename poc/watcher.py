@@ -43,7 +43,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import participant  # noqa: E402
-from party import WATCHER, WATCHER_LABEL  # noqa: E402
+from party import HOUSE_LABEL, WATCHER, WATCHER_LABEL  # noqa: E402
 from pool import load_config  # noqa: E402
 
 TRUST = "node-restriction.kubernetes.io/trust"
@@ -57,12 +57,22 @@ def affinity() -> dict:
         {"key": CONTROL_PLANE, "operator": "DoesNotExist"}]}]}}
 
 
-def manifests(cfg: dict) -> dict:
-    """A player's namespace objects without the player: no ServiceAccount, Role or binding; the watcher's own quota numbers."""
+# the house (docs/LIVE-PAGE.md): its server, two robots and its spectator (1500m and 1280 MiB of limits); a ConfigMap per player it offers
+HOUSE_QUOTA = {"cpu_millis": 2000, "pods": 8, "memory_mib": 1536, "storage_mib": 3072, "configmaps": 60}   # room for a restart's overlap
+
+
+def manifests(cfg: dict, house: bool = False) -> dict:
+    """A player's namespace objects without the player: no ServiceAccount, Role or binding; the watcher's own quota numbers. With
+    house: the house match's namespace (docs/LIVE-PAGE.md L1), `house`, labelled edge-mesh/house=host and, for the same guard (own node,
+    never the control plane: poc/watcher-policy.yaml), edge-mesh/watcher=host; its quota is house_quota_* of pool.yaml."""
     q = dict(cfg)
-    for key in ("cpu_millis", "pods"):
-        if f"watch_quota_{key}" in cfg:
-            q[f"quota_{key}"] = cfg[f"watch_quota_{key}"]
+    prefix = "house_quota_" if house else "watch_quota_"
+    for key in (tuple(HOUSE_QUOTA) if house else ("cpu_millis", "pods")):
+        if f"{prefix}{key}" in cfg:
+            q[f"quota_{key}"] = cfg[f"{prefix}{key}"]
+        elif house:
+            q[f"quota_{key}"] = HOUSE_QUOTA[key]
+    name, labels = ("house", {WATCHER_LABEL: "host", HOUSE_LABEL: "host"}) if house else (WATCHER, {WATCHER_LABEL: "host"})
     keep = {"Namespace", "ResourceQuota", "NetworkPolicy", "LimitRange"}
     items = []
     for obj in participant.manifests("watcher", q)["items"]:
@@ -71,12 +81,12 @@ def manifests(cfg: dict) -> dict:
         obj = json.loads(json.dumps(obj))
         md = obj["metadata"]
         if obj["kind"] == "Namespace":
-            md["name"] = WATCHER
+            md["name"] = name
             md["labels"].pop("edge-mesh/participant")
-            md["labels"][WATCHER_LABEL] = "host"
+            md["labels"].update(labels)
         else:
-            md["namespace"] = WATCHER
-            md["labels"] = {WATCHER_LABEL: "host"}
+            md["namespace"] = name
+            md["labels"] = dict(labels)
         items.append(obj)
     return {"apiVersion": "v1", "kind": "List", "items": items}
 
@@ -106,7 +116,8 @@ def status(kc: str, parties: list) -> dict:
         if r.returncode != 0:
             raise RuntimeError((r.stderr or r.stdout).strip()[:200])
         return json.loads(r.stdout)
-    ns = get("get", "namespaces", "-l", f"{WATCHER_LABEL}=host", "-o", "json").get("items", [])
+    ns = [n for n in get("get", "namespaces", "-l", f"{WATCHER_LABEL}=host", "-o", "json").get("items", [])
+          if n.get("metadata", {}).get("name") == WATCHER]   # the house carries the label for the guard; it is not the watcher
     rows = [{"owner": p["peer"], "status": p["status"]} for p in parties if p.get("player") == WATCHER]
     if not ns:
         return {"watcher": False, "parties": rows, "spectators": []}
@@ -147,16 +158,18 @@ class Tap:
     opened anywhere (a port-forward's local port would sit wherever kubectl runs: in the control plane's VM, out of the console's reach).
     fetch() returns one JPEG."""
 
-    def __init__(self, kc: str, pod: str, token_file: Path):
+    def __init__(self, kc: str, pod: str, token_file: Path, namespace: str = WATCHER):
         if not POD.fullmatch(pod):
             raise ValueError("not a spectator pod name")
-        self.kc, self.pod, self.token_file = kc, pod, Path(token_file)
+        if namespace not in (WATCHER, "house"):   # the host's own namespaces only (D6; the house of docs/LIVE-PAGE.md)
+            raise ValueError("not a namespace of the host")
+        self.kc, self.pod, self.token_file, self.namespace = kc, pod, Path(token_file), namespace
         self.proc: subprocess.Popen | None = None
         self.lock = threading.Lock()
 
     def _start(self, token: str) -> None:
         self.close()
-        self.proc = subprocess.Popen([self.kc, "exec", "-i", "-n", WATCHER, self.pod, "--", "python3", "-c", TAP, "17777"],
+        self.proc = subprocess.Popen([self.kc, "exec", "-i", "-n", self.namespace, self.pod, "--", "python3", "-c", TAP, "17777"],
                                      stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                                      start_new_session=True)   # kc is a script: close() ends its whole group
         self.proc.stdin.write(token.encode() + b"\n")
@@ -239,6 +252,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--parties", default="[]", help="status: party.py list --read-only --json")
     ap.add_argument("--pod", default="")
     ap.add_argument("--token-file", default="")
+    ap.add_argument("--house", action="store_true", help="manifests: the house match's namespace (docs/LIVE-PAGE.md) instead of watch-host")
+    ap.add_argument("--namespace", default=WATCHER, help="frame: watch-host (default) or house")
     a = ap.parse_args(argv)
     if a.cmd == "status":
         try:
@@ -247,7 +262,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"watcher: {e}", file=sys.stderr); return 3
         return 0
     if a.cmd == "frame":
-        f = Tap(a.kc, a.pod, Path(a.token_file))
+        f = Tap(a.kc, a.pod, Path(a.token_file), a.namespace)
         try:
             sys.stdout.buffer.write(f.fetch())
         except (RuntimeError, ValueError, OSError) as e:
@@ -256,7 +271,7 @@ def main(argv: list[str] | None = None) -> int:
             f.close()
         return 0
     if a.cmd == "manifests":
-        print(json.dumps(manifests(load_config(a.config)), indent=1, sort_keys=True))
+        print(json.dumps(manifests(load_config(a.config), a.house), indent=1, sort_keys=True))
         return 0
     if a.cmd == "affinity":
         print(json.dumps(affinity(), sort_keys=True))

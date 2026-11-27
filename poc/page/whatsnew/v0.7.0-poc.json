@@ -1,0 +1,88 @@
+{
+  "version": "v0.7.0-poc",
+  "date": "2026-11-27",
+  "title": "the live page: the house match on the public site, and join to play",
+  "release": "https://github.com/villadalmine/k8s-lan-party/releases/tag/v0.7.0-poc",
+  "summary": "v0.6.0-poc put the game in the player's tab. v0.7.0-poc puts a match on the public page, for anyone, without joining: /live. What it shows is the house match, a Doom game the host runs on its own machine with two robots, and with the players who chose to play in it after being told it is broadcast. A player's own game never reaches the page. A streamer on the host reads the house's spectator and pushes its frames out to the page with a token of its own; the page never connects in, keeps only the last picture in memory and limits its viewers; panic takes it offline. Join and play is the same path as always: ask on the page, join with your own machine, open your console, accept the house's party, press Play. Below, a real poc-doom run, from the robots' match to petersen playing in the broadcast match.",
+  "issues": [
+    113
+  ],
+  "story": {
+    "player": {
+      "title": "The players: petersen plays in the match the public page shows",
+      "steps": [
+        "Anyone opens /live on the public page and watches the house match, about two pictures a second, without joining anything.",
+        "The host's house offers a party to every player; nothing opens until a player accepts it, and the accept says the match is broadcast.",
+        "petersen accepts and plays from her own machine; the page counts one player in the match. When the host closes the house her party closes too, and she must accept again before playing when it reopens."
+      ]
+    },
+    "host": {
+      "title": "The host: a house match, a streamer, and an off switch",
+      "steps": [
+        "mesh host house init and start: the house's server, two robots and its spectator run on the host's own machine, never the control plane, with no credential in the namespace.",
+        "mesh host live start: the streamer pushes the spectator's frames out to the page with the stream token; the page keeps only its hash and the last picture.",
+        "house close withdraws every offer and closes the parties; panic takes the page offline, and clearing it brings the match back."
+      ]
+    }
+  },
+  "casts": [
+    {
+      "file": "player.cast",
+      "side": "player",
+      "title": "The players' screens",
+      "caption": "a real poc-doom run, recorded the way make showcase-doom does in Incus VMs."
+    },
+    {
+      "file": "host.cast",
+      "side": "host",
+      "title": "The host's screen",
+      "caption": "the same run from the host's machine: the house match, the streamer, the offer and the off switches."
+    }
+  ],
+  "media": [
+    {
+      "file": "match.gif",
+      "title": "carmack's screen during the match",
+      "alt": "A first-person view of a small FreeDM deathmatch map: a marine among corridors, with Doom's health, ammo and frags bar at the bottom.",
+      "caption": "captured by carmack's robot under a virtual screen (Xvfb + ffmpeg) in this run's match: 320x200. The live page shows the same kind of picture, from the house's spectator."
+    }
+  ],
+  "features": [
+    {
+      "name": "The live page",
+      "what": "/live on the public page: the house match's last picture, about two a second, for anyone; the page keeps it in memory only, limits viewers per address and in total, and takes no input from visitors.",
+      "why": "A match anyone can watch, without a new way into the host's lab.",
+      "command": "https://<the public page>/live",
+      "issues": [
+        113
+      ]
+    },
+    {
+      "name": "The house match",
+      "what": "The host's own Doom game in its namespace house, on its own machine: a server, two robots and a spectator. Open, it offers a party to every player; only the player's accept opens it, and the accept says it is broadcast.",
+      "why": "Only people who chose to be shown are shown; a player's own game never is.",
+      "command": "mesh host house init\nmesh host house start\nmesh host house open",
+      "issues": [
+        113
+      ]
+    },
+    {
+      "name": "The streamer",
+      "what": "On the host, outbound only: it reads the house's spectator and pushes its frames to the page with its own token (the page keeps its SHA-256); panic, or stopping it, tells the page offline.",
+      "why": "The public server holds no credential of the cluster and never connects in.",
+      "command": "page-server.sh stream-token --ssh \"...\"\nmesh host live start --url https://<the public page>",
+      "issues": [
+        113
+      ]
+    },
+    {
+      "name": "Join and play",
+      "what": "The live page's steps: ask on the public page, join with your own machine, open edge-mesh console, Join the house match (broadcast), then Play.",
+      "why": "Playing in the broadcast match is the same consented path as any other game.",
+      "command": "edge-mesh party accept house\nedge-mesh console   # Play",
+      "issues": [
+        113
+      ]
+    }
+  ]
+}

@@ -41,6 +41,7 @@ flowchart LR
     f_pool["pool"]
     f_party["party"]
     f_doom["doom"]
+    f_live_page["live-page"]
     f_public_page["public-page"]
     f_lighthouse_external["lighthouse-external"]
     f_revoke["revoke"]
@@ -77,8 +78,8 @@ flowchart LR
     c_FreeDM["FreeDM"]
     c_ffmpeg["ffmpeg"]
     c_Python_stdlib["Python stdlib"]
-    c_page["page"]
     c_Caddy["Caddy"]
+    c_page["page"]
     c_lighthouse["lighthouse"]
     c_CA["CA"]
     c_golden_suite["golden suite"]
@@ -137,6 +138,9 @@ flowchart LR
     p_poc_test_watcher_py["poc/test_watcher.py"]
     p_poc_doom__["poc/doom/*"]
     p_poc_poc_doom_sh["poc/poc-doom.sh"]
+    p_poc_page_live_py["poc/page/live.py"]
+    p_poc_page_streamer_py["poc/page/streamer.py"]
+    p_poc_page_static_live_js["poc/page/static/live.js"]
     p_poc_page__["poc/page/*"]
     p_poc_poc_page_sh["poc/poc-page.sh"]
     p_poc_lighthouse_vps_sh["poc/lighthouse-vps.sh"]
@@ -303,6 +307,15 @@ flowchart LR
   f_doom --> c_Python_stdlib
   f_doom -.-> p_poc_doom__
   f_doom -.-> p_poc_poc_doom_sh
+  s_poc_doom -->|"DM34-DM37"| f_live_page
+  f_live_page --> c_Odamex
+  f_live_page --> c_FreeDM
+  f_live_page --> c_ffmpeg
+  f_live_page --> c_Caddy
+  f_live_page --> c_Python_stdlib
+  f_live_page -.-> p_poc_page_live_py
+  f_live_page -.-> p_poc_page_streamer_py
+  f_live_page -.-> p_poc_page_static_live_js
   s_poc_page -->|"G01-G26, G09c, G25b"| f_public_page
   f_public_page --> c_page
   f_public_page --> c_Caddy

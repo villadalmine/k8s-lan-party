@@ -9,6 +9,8 @@
 #        https://<ip> with --tls internal. --with-caddy: also install Caddy (pinned, sha512 checked) when the server has none.
 #   page-server.sh puller-token --ssh "<ssh command>" [--token-file FILE]
 #        make the puller's token HERE (default <state>/page/puller.token, 0600) and send only its SHA-256 to the server
+#   page-server.sh stream-token --ssh "<ssh command>" [--token-file FILE]
+#        the same for the live page's streamer (docs/LIVE-PAGE.md): its own token (default <state>/page/stream.token), only its SHA-256 sent
 #   page-server.sh verify --ssh "<ssh command>" --site <address> [--token-file FILE] [--cacert FILE | --tls internal]   services, loopback-only
 #        listener, the API through Caddy, no key on disk; and, FROM HERE, the puller's token accepted (200) on /api/v1/puller/intake over HTTPS, the way the
 #        real puller calls (the token is never sent to the server's shell). --cacert: the page's CA; --tls internal: take Caddy's internal root from the server
@@ -20,10 +22,11 @@
 # The server's firewall is yours: open TCP 443 (and 80 for ACME). Nothing of the mesh lives on the server but the lighthouse (lighthouse-vps.sh).
 set -eu
 . "$(dirname "$0")/../lib.sh"
-usage() { sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
+usage() { sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
 [ $# -ge 1 ] || usage
 cmd="$1"; shift
-RSH=""; SITE=""; TLS=""; CACERT=""; WITH_CADDY=0; TOKEN_FILE="$STATE/page/puller.token"
+RSH=""; SITE=""; TLS=""; CACERT=""; WITH_CADDY=0; TOKEN_FILE="$STATE/page/puller.token"; WHO=puller
+[ "$cmd" != stream-token ] || { TOKEN_FILE="$STATE/page/stream.token"; WHO=stream; }
 while [ $# -gt 0 ]; do
   case "$1" in
     --ssh) RSH="$2"; shift 2 ;; --site) SITE="$2"; shift 2 ;; --tls) TLS="$2"; shift 2 ;; --with-caddy) WITH_CADDY=1; shift ;;
@@ -94,7 +97,7 @@ install_page() {
   [ -n "$SITE" ] || { echo "install needs --site"; exit 2; }; site_ok
   local t; t=$(mktemp -d)
   mkdir -p "$t/opt/static"
-  cp "$PAGE/page.py" "$PAGE/news.py" "$PAGE/seal.py" "$POC/pool.py" "$POC/admission.py" "$PAGE/page.yaml" "$t/opt/"
+  cp "$PAGE/page.py" "$PAGE/news.py" "$PAGE/seal.py" "$PAGE/live.py" "$POC/pool.py" "$POC/admission.py" "$PAGE/page.yaml" "$t/opt/"
   cp "$PAGE"/static/*.js "$PAGE"/static/*.css "$t/opt/static/"
   # What's new: each release's JSON and its recordings (never the sources under rec/)
   ( cd "$PAGE" && find whatsnew -maxdepth 2 \( -name 'v*.json' -o -name 'learn.json' -o -name '*.cast' -o -name '*.gif' \) -print0 | tar cf - --null -T - ) | tar xf - -C "$t/opt"
@@ -145,7 +148,7 @@ atomic_write() { # atomic_write <file> <content>: a temp file in the same direct
 puller_token() {
   if [ ! -s "$TOKEN_FILE" ]; then
     mkdir -p "$(dirname "$TOKEN_FILE")"; atomic_write "$TOKEN_FILE" "$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
-    echo "changed: puller token made in $TOKEN_FILE (it stays here)"
+    echo "changed: $WHO token made in $TOKEN_FILE (it stays here)"
   fi
   chmod 600 "$TOKEN_FILE"
   local v; v=$(token_value)
@@ -157,9 +160,9 @@ puller_token() {
   r <<EOF
 set -eu
 install -d -m 755 /etc/k8s-lan-party-page
-if [ "\$(cat /etc/k8s-lan-party-page/puller.sha256 2>/dev/null)" != "$h" ]; then
-  printf '%s' "$h" | python3 -I /opt/k8s-lan-party-page/page.py set-puller-hash --state /var/lib/k8s-lan-party-page --control /etc/k8s-lan-party-page >/dev/null
-  echo "changed: puller hash set (the server never sees the token)"
+if [ "\$(cat /etc/k8s-lan-party-page/$WHO.sha256 2>/dev/null)" != "$h" ]; then
+  printf '%s' "$h" | python3 -I /opt/k8s-lan-party-page/page.py set-$WHO-hash --state /var/lib/k8s-lan-party-page --control /etc/k8s-lan-party-page >/dev/null
+  echo "changed: $WHO hash set (the server never sees the token)"
 fi
 EOF
 }
@@ -258,7 +261,7 @@ EOF
 
 case "$cmd" in
   install) [ "$WITH_CADDY" = 1 ] && install_caddy; install_page ;;
-  puller-token) puller_token ;;
+  puller-token|stream-token) puller_token ;;
   verify) verify ;;
   close) echo 'python3 -I /opt/k8s-lan-party-page/page.py close --state /var/lib/k8s-lan-party-page --control /etc/k8s-lan-party-page' | r ;;
   open) echo 'python3 -I /opt/k8s-lan-party-page/page.py open --state /var/lib/k8s-lan-party-page --control /etc/k8s-lan-party-page' | r ;;

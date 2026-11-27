@@ -52,7 +52,7 @@ function draw(rows) {
     if (!Array.isArray(rows) || !rows.length) return box.appendChild(el("p", "nothing here", "muted"));
     rows.forEach((game) => {
       const card = el("article", null, "game");
-      card.appendChild(el("h3", game.own ? "Your own game" : `Game with ${game.peer}`));
+      card.appendChild(el("h3", game.own ? "Your own game" : game.peer === "house" ? "The house match (broadcast on the public page)" : `Game with ${game.peer}`));
       card.appendChild(el("p", `${game.status} · ${game.ports || "no ports listed"}`, "muted"));
       const image = el("input"); image.type = "text"; image.placeholder = "localhost/emesh-doom:12.3.0-<12 hex>";
       image.setAttribute("aria-label", `Local Doom image for ${game.peer}`);
@@ -206,5 +206,7 @@ document.addEventListener("DOMContentLoaded", () => {
   $("accept").addEventListener("click", () => action("party-accept", $("peer").value.trim(), $("ports").value.trim()));
   $("leave").addEventListener("click", () => action("party-leave", $("peer").value.trim()));
   $("leaveall").addEventListener("click", () => action("party-leave", ""));
+  $("housejoin").addEventListener("click", () => action("party-accept", "house"));   // the house's offer: docs/LIVE-PAGE.md L8
+  $("houseleave").addEventListener("click", () => action("party-leave", "house"));
   showHostVerbs(); poll();
 });

@@ -51,7 +51,7 @@ git clone -q https://github.com/villadalmine/k8s-lan-party.git                  
 install -m 755 k8s-lan-party/poc/edge-mesh /usr/local/bin/edge-mesh
 install -d -m 755 /usr/local/lib/edge-mesh/poc/console /usr/local/lib/edge-mesh/poc/page /usr/local/lib/edge-mesh/poc/doom
 cp -a k8s-lan-party/poc/console/. /usr/local/lib/edge-mesh/poc/console/ # includes the player console and its static page
-install -m 644 k8s-lan-party/poc/page/page.py k8s-lan-party/poc/page/seal.py k8s-lan-party/poc/page/news.py /usr/local/lib/edge-mesh/poc/page/
+install -m 644 k8s-lan-party/poc/page/page.py k8s-lan-party/poc/page/seal.py k8s-lan-party/poc/page/news.py k8s-lan-party/poc/page/live.py /usr/local/lib/edge-mesh/poc/page/
 (cd k8s-lan-party/poc && install -m 644 admission.py pool.py meshlock.py participant.py party.py watcher.py /usr/local/lib/edge-mesh/poc/)
 install -m 755 k8s-lan-party/poc/doom/pod.sh /usr/local/lib/edge-mesh/poc/doom/      # the console's Watch and Play render their pods with it
 /opt/nebula/nebula -version && k3s --version | head -1                               # 1.11.2 and v1.37.1+k3s1
@@ -234,7 +234,7 @@ sudo edge-mesh kubectl exec doom-server -- grep -E 'connected|joined|disconnecte
 ```
 
 Before the party (or after `edge-mesh party leave`) the robot prints `no server answered` and the log has no line for it: that is the party working,
-not a failure. It is a deathmatch: romero's own robot (`poc/doom/pod.sh client "$IMAGE" doom-bot`, in his namespace) plays too. The whole run is `poc/poc-doom.sh` (DM01-DM33, with the spectators of carmack and of the host, and petersen playing from her browser's path); `make poc-doom` does it on Incus VMs.
+not a failure. It is a deathmatch: romero's own robot (`poc/doom/pod.sh client "$IMAGE" doom-bot`, in his namespace) plays too. The whole run is `poc/poc-doom.sh` (DM01-DM37, with the spectators of carmack and of the host, petersen playing from her browser's path, and the house match on the live page); `make poc-doom` does it on Incus VMs.
 
 **Playing from your browser (#102).** `edge-mesh console` (on your machine, as yourself) shows each game you have an active party with:
 type the image tag `poc/doom/build.sh` printed, press **Play**, click the picture and play (arrows, Control fires, space opens, 1-7 weapons;

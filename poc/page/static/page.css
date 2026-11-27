@@ -28,3 +28,6 @@ figcaption { color: var(--muted); font-size: .9rem; margin-top: .3rem; }
 table { border-collapse: collapse; width: 100%; display: block; overflow-x: auto; }
 th, td { text-align: left; padding: .3rem .6rem .3rem 0; border-bottom: 1px solid var(--line); vertical-align: top; }
 .card pre { word-break: normal; overflow-wrap: anywhere; }
+/* the live page (#113) */
+.onair{font-weight:600}.onair.on::before{content:"\25CF  ";color:#c62828}
+figure.live{margin:1em 0}figure.live img{display:block;width:min(100%,640px);height:auto;aspect-ratio:8/5;image-rendering:pixelated;background:#000;border:1px solid #888}

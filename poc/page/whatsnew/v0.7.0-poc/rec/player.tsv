@@ -1,0 +1,77 @@
+0.000	note	romero: a Doom deathmatch server (Odamex, FreeDM) in his namespace, on a UDP Service
+0.045	cmd	sudo edge-mesh kubectl get pods,svc
+0.266	out	NAME              READY   STATUS    RESTARTS   AGE
+0.266	out	pod/doom-server   1/1     Running   0          4s
+0.266	out	
+0.266	out	NAME           TYPE        CLUSTER-IP    EXTERNAL-IP   PORT(S)     AGE
+0.266	out	service/doom   ClusterIP   10.43.74.28   <none>        10666/UDP   3s
+18.758	note	carmack and petersen: a robot pod each in their own namespace (a virtual screen, a recorder, a script that plays); romero's is beside his server
+18.808	cmd	sudo edge-mesh kubectl get pods
+19.075	out	NAME          READY   STATUS    RESTARTS   AGE
+19.075	out	doom-client   1/1     Running   0          17s
+19.075	out	doom-probe    1/1     Running   0          16s
+19.141	note	romero runs the server in his namespace; his friends' robots try it. Nobody has agreed to anything yet
+26.196	cmd	sudo edge-mesh kubectl exec doom-client -- client.sh doom.play-romero.svc.cluster.local 10666 10 carmack
+26.548	out	client carmack: connecting to doom.play-romero.svc.cluster.local:10666
+43.717	out	client carmack: no server answered at doom.play-romero.svc.cluster.local:10666 in 15 s
+43.763	out	command terminated with exit code 3
+44.251	cmd	sudo edge-mesh kubectl exec doom-client -- client.sh doom.play-romero.svc.cluster.local 10666 10 petersen
+44.598	out	client petersen: connecting to doom.play-romero.svc.cluster.local:10666
+61.748	out	client petersen: no server answered at doom.play-romero.svc.cluster.local:10666 in 15 s
+61.811	out	command terminated with exit code 3
+62.349	note	romero invites carmack: his consent alone opens nothing
+62.399	cmd	sudo edge-mesh party invite carmack
+62.725	out	party with carmack: your consent is recorded; it opens once carmack agrees too (the host's next tick); see: edge-mesh party list
+69.869	cmd	sudo edge-mesh party list
+70.077	out	PEER      PORTS   STATUS
+70.077	out	carmack           waiting for carmack to accept
+73.628	cmd	sudo edge-mesh kubectl exec doom-client -- client.sh doom.play-romero.svc.cluster.local 10666 10 carmack
+74.043	out	client carmack: connecting to doom.play-romero.svc.cluster.local:10666
+91.248	out	client carmack: no server answered at doom.play-romero.svc.cluster.local:10666 in 15 s
+91.353	out	command terminated with exit code 3
+92.189	note	carmack accepts: now both agreed
+92.290	cmd	sudo edge-mesh party accept romero
+92.645	out	party with romero: your consent is recorded; it opens once romero agrees too (the host's next tick); see: edge-mesh party list
+101.481	cmd	sudo edge-mesh party list
+101.700	out	PEER     PORTS   STATUS
+101.700	out	romero           active: ports 10666/UDP
+136.861	note	romero's robot joins his own server first (it is in his namespace: no party needed)
+174.807	note	carmack is playing. petersen's robot tries the same server: carmack's party with romero is nothing to her
+178.385	cmd	sudo edge-mesh kubectl exec doom-client -- client.sh doom.play-romero.svc.cluster.local 10666 10 petersen
+178.787	out	client petersen: connecting to doom.play-romero.svc.cluster.local:10666
+195.953	out	client petersen: no server answered at doom.play-romero.svc.cluster.local:10666 in 15 s
+195.994	out	command terminated with exit code 3
+203.557	note	romero invites petersen; petersen accepts
+203.677	cmd	sudo edge-mesh party invite petersen
+204.026	out	party with petersen: your consent is recorded; it opens once petersen agrees too (the host's next tick); see: edge-mesh party list
+204.094	cmd	sudo edge-mesh party accept romero
+204.478	out	party with romero: your consent is recorded; it opens once romero agrees too (the host's next tick); see: edge-mesh party list
+246.096	cmd	sudo edge-mesh kubectl exec doom-client -- client.sh doom.play-romero.svc.cluster.local 10666 40 petersen
+246.502	out	client petersen: connecting to doom.play-romero.svc.cluster.local:10666
+250.575	out	client petersen: server: k8s-lan-party doom
+250.575	out	client petersen: map MAP15 "Shallow Complex"
+254.737	out	client petersen: in the game, playing 40 s
+297.708	out	client petersen: left the game after 40 s
+361.038	note	carmack's session (played in the background while the others joined; the robot's own output)
+361.092	cmd	sudo edge-mesh kubectl exec doom-client -- client.sh doom.play-romero.svc.cluster.local 10666 150 carmack
+361.092	out	client carmack: connecting to doom.play-romero.svc.cluster.local:10666
+361.092	out	client carmack: server: k8s-lan-party doom
+361.092	out	client carmack: map MAP15 "Shallow Complex"
+361.092	out	client carmack: in the game, playing 150 s
+361.092	out	client carmack: left the game after 150 s
+361.092	out	client carmack: match.gif 3389917 bytes
+365.443	note	carmack leaves the party: the same robot, the same server, and nobody answers again; petersen's party stays
+365.499	cmd	sudo edge-mesh party leave
+365.803	out	left: the host closes the party at its next tick
+380.776	cmd	sudo edge-mesh kubectl exec doom-client -- client.sh doom.play-romero.svc.cluster.local 10666 10 carmack
+381.206	out	client carmack: connecting to doom.play-romero.svc.cluster.local:10666
+398.318	out	client carmack: no server answered at doom.play-romero.svc.cluster.local:10666 in 15 s
+398.408	out	command terminated with exit code 3
+555.676	note	romero accepts the host as a spectator of his server: the same consent as a player's
+555.734	cmd	sudo edge-mesh party accept watch-host
+556.067	out	party with watch-host: your consent is recorded; it opens once watch-host agrees too (the host's next tick); see: edge-mesh party list
+770.380	note	petersen plays from her browser: her own game client runs on her machine, and only the picture and her keys cross to her tab
+918.511	note	petersen chooses to play in the house match (broadcast): she accepts the house's party
+918.558	cmd	sudo edge-mesh party accept house
+918.940	out	party with house: your consent is recorded; it opens once house agrees too (the host's next tick); see: edge-mesh party list
+918.940	out	the house match is BROADCAST on the public page (/live): anyone can watch it, you in it. Leave it with: edge-mesh party leave house
