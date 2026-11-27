@@ -20,7 +20,7 @@ GOOD = {"nodes_total": 3, "nodes_ready": 3, "wireguard": True, "house_open": Fal
 
 
 def node(name, ready=True, participant=False, cpu="4", mem="8Gi"):
-    return {"metadata": {"name": name, "labels": {"edge-mesh/participant": "yes"} if participant else {}},
+    return {"metadata": {"name": name, "labels": {} if participant else {"node-restriction.kubernetes.io/trust": "own"}},
             "status": {"conditions": [{"type": "Ready", "status": "True" if ready else "False"}],
                        "allocatable": {"cpu": cpu, "memory": mem}}}
 

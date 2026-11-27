@@ -10,7 +10,7 @@ from __future__ import annotations
 FIELDS: dict[str, tuple[str, type]] = {
     "nodes_total": ("join", int),                    # machines in the cluster, every one joined over the Nebula mesh
     "nodes_ready": ("join", int),
-    "player_nodes": ("pool", int),                   # machines of players with a lease (edge-mesh/participant)
+    "player_nodes": ("pool", int),                   # players' machines: every node without node-restriction trust=own
     "player_namespaces": ("pool", int),              # play-<name>: one per player, quota and NetworkPolicy
     "pods_running": ("placement", int),
     "player_pods_running": ("placement", int),       # in the players' namespaces, on their own machines

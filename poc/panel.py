@@ -149,7 +149,10 @@ def snapshot(r: Reader) -> dict:
     f["nodes_total"] = len(items)
     ready = [n for n in items if any(c.get("type") == "Ready" and c.get("status") == "True" for c in n.get("status", {}).get("conditions", []))]
     f["nodes_ready"] = len(ready)
-    f["player_nodes"] = sum(1 for n in items if n.get("metadata", {}).get("labels", {}).get("edge-mesh/participant"))
+    # a player's machine: every node but the host's own, which carry node-restriction trust=own (lib.sh labels the control plane and the
+    # host's nodes; a player's kubelet cannot set that label on itself, the NodeRestriction admission refuses it)
+    f["player_nodes"] = sum(1 for n in items
+                            if (n.get("metadata", {}).get("labels") or {}).get("node-restriction.kubernetes.io/trust") != "own")
     # the machines that are up: the totals and the use are both over the Ready nodes (the kubelet's working set includes its system)
     cpu_total = [cpu_millicores(n.get("status", {}).get("allocatable", {}).get("cpu", "")) for n in ready]
     mem_total = [mib(n.get("status", {}).get("allocatable", {}).get("memory", "")) for n in ready]
