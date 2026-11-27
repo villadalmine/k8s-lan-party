@@ -10,7 +10,7 @@
 # Needs a Linux host with Incus. PASS/FAIL per step; identical across runs. CNI=cilium by default (the demo's CNI); CNI=flannel also runs.
 # D6 (#101, DM24 on): the host's watcher needs an `own` machine that is not the control plane: hostpc, issued by the host like n1 (never through
 # `mesh host invite`, which refuses own), joins after the match.
-# POOL_LEASE (default 4500 s) must cover DM03-DM37 (romero's lease while the host watches; petersen's while she plays the house match). KEEP=1 leaves the VMs. SHOWCASE=<dir> also writes the player's and the host's screens there.
+# POOL_LEASE (default 4500 s) must cover DM03-DM37 (DM38 needs no lease; romero's lease while the host watches; petersen's while she plays the house match). KEEP=1 leaves the VMs. SHOWCASE=<dir> also writes the player's and the host's screens there.
 # UNTIL=DMxx stops after that step and keeps the VMs (poc/doom/week.sh: UNTIL=DM27 leaves a match and the host's spectator running).
 # OWN_CERT_DURATION (default 2h): the certificate of the host's own machine hostpc.
 set -u
@@ -455,7 +455,7 @@ house_up() { # LV08: house is the host's like watch-host (own node, never the co
   echo "house frames: $(wc -c <"$OUTD/house1.jpg") and $(wc -c <"$OUTD/house2.jpg") bytes"
   ! cmp -s "$OUTD/house1.jpg" "$OUTD/house2.jpg" && show host "mesh host house status" "$MESH" host house status; }
 LIVE_PORT=18094; LIVE="http://127.0.0.1:$LIVE_PORT"; LIVE_PID=""
-live_cleanup() { "$MESH" host live stop >/dev/null 2>&1; [ -z "$LIVE_PID" ] || { kill "$LIVE_PID" 2>/dev/null; wait "$LIVE_PID" 2>/dev/null; }; LIVE_PID=""; }
+live_cleanup() { "$MESH" host live on >/dev/null 2>&1; [ -z "${AUTO_PID:-}" ] || { kill "$AUTO_PID" 2>/dev/null; wait "$AUTO_PID" 2>/dev/null; AUTO_PID=""; }; "$MESH" host live stop >/dev/null 2>&1; [ -z "$LIVE_PID" ] || { kill "$LIVE_PID" 2>/dev/null; wait "$LIVE_PID" 2>/dev/null; }; LIVE_PID=""; }
 live_get() { python3 -c 'import sys,urllib.request,urllib.error
 try: r=urllib.request.urlopen(sys.argv[1],timeout=5); sys.stdout.buffer.write(r.read())
 except urllib.error.HTTPError as e: sys.exit(e.code % 256 or 1)
@@ -499,9 +499,53 @@ house_close() { # close withdraws the offers and closes the parties; panic takes
   say host "panic: the house's broadcast stops at once with everything else"
   "$MESH" host panic >/dev/null && wait_for 40 live_is off && ! live_get /api/v1/live/frame >/dev/null && echo "panic: the page says offline" &&
   "$MESH" host panic --clear >/dev/null && wait_for 40 live_is on && echo "panic cleared: on the air again" || return 1
+  # panic expelled every player, and an expelled player's VM is deleted (lib.sh): her game client may be gone with it already
+  K petersen delete pod doom-play-house --ignore-not-found --wait=false >/dev/null 2>&1 || true; }
+
+console_api() { # console_api <address> <token file> <METHOD> <path> [json body]: one call to the console daemon's web API, as a bot makes it
+  python3 - "$@" <<'PY'
+import sys, urllib.request, urllib.error
+web, tf, method, path = sys.argv[1:5]
+body = sys.argv[5].encode() if len(sys.argv) > 5 and sys.argv[5] else None
+req = urllib.request.Request(f"http://{web}/api/v1/{path}", data=body, method=method,
+                             headers={"Authorization": "Bearer " + open(tf).read().strip(), "Content-Type": "application/json"})
+try:
+    with urllib.request.urlopen(req, timeout=60) as r:
+        print(r.status, r.read().decode())
+except urllib.error.HTTPError as e:
+    print(e.code, e.read().decode()); sys.exit(1)
+PY
+}
+live_auto() { # #119: on the air whenever the cluster is up, nobody starting it; the host's bots switch it through the console's API
+  local web="127.0.0.1:${DOOM_WEB_PORT:-18093}" tf="$STATE/house/web.token" pid out id i
+  say host "the live page on its own: live auto keeps the house match on the air whenever the cluster is up, with nobody starting it"
   out_has "live: the streamer stopped" "$MESH" host live stop && wait_for 20 live_is off || return 1
+  LIVE_AUTO_CHECK=5 setsid "$MESH" host live auto --url "$LIVE" >>"$STATE/house/auto.log" 2>&1 </dev/null & AUTO_PID=$!
+  wait_for 90 live_is on && echo "live auto: on the air, the streamer started by it" || return 1
+  bot_back() { [ "$(HouseK get pod doom-bot-b -o jsonpath='{.status.phase}' 2>/dev/null)" = Running ]; }
+  HouseK delete pod doom-bot-b --wait=true --timeout=90s >/dev/null && wait_for 180 bot_back &&
+    echo "a robot's pod was removed: live auto started what was missing of the house" || return 1
+  kill "$(cat "$STATE/house/streamer.pid")" && wait_for 30 live_is off && wait_for 90 live_is on &&
+    echo "the streamer died: live auto started it again" || return 1
+  say host "the host's bot switches the live page through the console's API: off is off the air, not down"
+  "$MESH" host console --web "$web" >>"$LOG" 2>&1 & pid=$!
+  wait_for 30 python3 -c "import socket; socket.create_connection(('${web%:*}', ${web##*:}), 2)" &&
+    (umask 077; "$MESH" host console url --web "$web" | grep -o '#t=[A-Za-z0-9_-]*' | cut -c4- >"$tf") && [ -s "$tf" ] || { kill "$pid"; wait "$pid" 2>/dev/null; return 1; }
+  out=$(console_api "$web" "$tf" POST actions/live-off '{"args": {}}') && id=$(echo "$out" | sed -n 's/.*"id": "\([0-9a-f]\{16\}\)".*/\1/p') &&
+    for i in $(seq 30); do out=$(console_api "$web" "$tf" GET "jobs/$id" "") && case "$out" in *'"state": "done"'*) break ;; esac; sleep 1; done &&
+    case "$out" in *'"state": "done"'*) ;; *) echo "live-off: $out"; false ;; esac && wait_for 30 live_is off &&
+    console_api "$web" "$tf" GET live "" | sed '1s/^[0-9]* //' | python3 -c 'import json, sys; sys.exit(json.load(sys.stdin) != {"switch": "off", "streaming": False})' && sleep 15 && ! live_is on &&
+    HouseK get pod doom-server doom-bot-a doom-bot-b doom-watch-house >/dev/null &&
+    echo "live-off through the API: the page is offline and stays so; the house match keeps running" || { kill "$pid"; wait "$pid" 2>/dev/null; return 1; }
+  out=$(console_api "$web" "$tf" POST actions/live-on '{"args": {}}') && case "$out" in 200*'"will"'*) ;; *) echo "live-on: $out"; false ;; esac &&
+    tok=$(echo "$out" | sed -n 's/.*"confirm": "\([^"]*\)".*/\1/p') &&
+    console_api "$web" "$tf" POST actions/live-on "{\"args\": {}, \"confirm\": \"$tok\"}" | grep -q '^202' && wait_for 90 live_is on &&
+    console_api "$web" "$tf" GET audit "" | grep -q 'live-on' &&
+    echo "live-on through the API: a plan, a confirmation, on the air again; both in the audit log" || { kill "$pid"; wait "$pid" 2>/dev/null; return 1; }
+  kill "$pid"; wait "$pid" 2>/dev/null; rm -f "$tf"
+  kill "$AUTO_PID" && wait "$AUTO_PID" 2>/dev/null; AUTO_PID=""
+  wait_for 30 live_is off && echo "live auto stopped: the page says offline" || return 1
   live_cleanup
-  K petersen delete pod doom-play-house --ignore-not-found --wait=false >/dev/null
   out_has "house: removed" "$MESH" host house down && [ -z "$(k get namespace house --ignore-not-found -o name)" ]; }
 
 if [ -n "${UNTIL:-}" ]; then   # stop after that step, the VMs kept: what runs then is left running
@@ -545,7 +589,8 @@ step DM33 "#102: the host stops romero's game server (game stop) and starts it a
 step DM34 "LV08: the house match (#113): house is the host's (own node, no credential); its server, two robots and its spectator run on hostpc; its frames change" dumped house_up
 step DM35 "L3-L5: a page server and the streamer: the page shows the house's changing frames and the broadcast notice; only the house's spectator is read, nothing is on the page's disk" dumped live_on
 step DM36 "L8, LV09: the open house offers a party to every player and opens nothing; petersen accepts, plays in the house match from her node, and the page counts her" dumped house_offer
-step DM37 "LV06: house close withdraws the offers and closes her party; panic takes the page offline and clearing it brings it back; live stop and house down remove it all" dumped house_close
+step DM37 "LV06: house close withdraws the offers and closes her party; panic takes the page offline and clearing it brings it back" dumped house_close
+step DM38 "#119: live auto puts the house match on the air with nobody starting it, starts again a missing robot and a dead streamer; the console API's live-off keeps it off the air while the match runs, live-on (plan, confirm) brings it back; house down removes it all" dumped live_auto
 
 [ -z "$SC" ] || [ "$FAILS" -ne 0 ] || { cp "$OUTD/match.gif" "$SC/match.gif"; for s in player host; do   # only a run that passed becomes a recording (the GIF first: down removes the state)
   python3 "$SCP" redact "$SC/$s.raw" "$SC/$s.tsv" --strip "$STATE/" --strip "$POC/" --strip "${POC%/*}/" || FAILS=$((FAILS+1)); done; }

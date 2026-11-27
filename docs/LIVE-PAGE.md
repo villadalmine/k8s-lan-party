@@ -91,6 +91,31 @@ the player's own consent then reads `waiting: the host has no house match yet`, 
 `active`, and once active the game is in *Games I can join* with **Play**. The rule of every party holds: nothing opens without the
 player's own consent. `house` is a reserved name (admission, `mesh host invite`, the consoles), like `watch-host`.
 
+## On its own, and its switch (#119)
+
+The live page should not need anyone to start it. **`mesh host live auto --url <page>`** (in the foreground: the unit
+`poc/page/deploy/emesh-live-auto.service`, which replaces `emesh-live-streamer.service`) checks every 30 s (`LIVE_AUTO_CHECK`):
+
+- **The cluster answers** (`kc get --raw /readyz`): if one of the house's four pods is missing it runs `mesh host house start`, which
+  creates only what is missing. It **never makes or opens a house**: `house init` (once) and `house open` stay the operator's choice, and
+  each player's accept stays theirs. With no house it says so and shows nothing.
+- **The streamer** runs as its child. It looks at it at each check: a dead one starts again at the next check after a pause of 5 s,
+  doubling up to 5 min (short again once one has lived a minute), so within 30 s to 60 s at first. A streamer the page refused (a wrong
+  stream token, exit 4) is not started again, and the unit does not restart on it: that needs `page-server.sh stream-token`.
+- **It undoes a hand stop.** Under `live auto`, `mesh host live stop` or `mesh host house stop` lasts one check: auto starts them again.
+  To keep the match off the air use the switch (below); to keep the house down, stop `live auto` first.
+- **The cluster does not answer:** nothing is touched. The streamer gets no frames and the page goes offline by itself after 15 s; when the
+  cluster comes back the frames do too.
+
+**The switch.** `mesh host live off` takes the house match off the air and keeps it off, also under `live auto`. It is a file,
+`$EMESH_STATE/live.off`, that every streamer reads before each check, whoever started it (a unit, `live start`, `live auto`), so no
+streamer stays on the air; it outlives `house down`, and it takes neither the engine's lock nor a place in the console's queue: a long
+reap never keeps the match on the air. The page says offline,
+while **the match, the players and the demo keep running**: off the air is not down. `mesh host live on` lets it back. In the host
+console's API (CONSOLE.md) they are `live-off` (no confirmation: going off the air is always safe) and `live-on` (a plan, then a
+confirmation, because players in the house are broadcast), and `GET /api/v1/live` reads the switch and whether the streamer runs. The
+host's own bots use exactly these calls ([CONSOLE-BOTS.md](CONSOLE-BOTS.md)). Lab: `poc-doom` DM38; unit tests `poc/test_autolive.py`.
+
 ## Threats and their tests
 
 | # | Threat | Answer | Test |

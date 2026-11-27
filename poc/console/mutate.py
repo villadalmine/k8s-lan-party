@@ -5,7 +5,8 @@ reads) and a token valid 60 seconds, once, bound to the verb, its arguments, the
 with that token (and the typed name or `all` for type:*), starts a job. The plan is computed again when the job starts: if the state
 changed meanwhile the job does not run (`plan-changed`, exit 75).
 
-Jobs run one at a time, in order, with at most 4 waiting (a fifth caller: 409 busy). `panic` skips the queue and has no timeout. A job
+Jobs run one at a time, in order, with at most 4 waiting (a fifth caller: 409 busy). `panic` skips the queue and has no timeout;
+`live-off` skips it too (#119: going off the air must not wait behind a reap), with its timeout. A job
 is the engine started as an argument list (never a shell) in its own process group, with EMESH_DIRECT=1 and EMESH_AUDITED=1; at its
 timeout the group gets SIGTERM, then SIGKILL 30 s later, and the job ends with exit 124. Its stdout and stderr are kept apart and together
 (`output`, in the order they came; 64 KiB each at most); a `console` caller sees them redacted, a `local` caller (the host's own user, the
@@ -119,9 +120,15 @@ def plan(verb: str, args: dict, reads) -> list[str]:
     if verb == "watch-invite":
         return [f"ask {args['owner']} to let the host watch: the host's half of a party (watch-host)",
                 f"nothing opens until {args['owner']} runs: edge-mesh party accept watch-host"]
+    if verb == "live-on":
+        return ["the house match goes back on the public page (within the live auto check, or at the next live start)",
+                "players in the house's parties are broadcast, as their accept told them"]
     if verb == "party-end":
         return [f"end the party of {args['a']} and {args['b']}: both consents and the NetworkPolicies removed"]
     return [f"{verb} {json.dumps(args, sort_keys=True)}"]
+
+
+OWN_LANE = ("panic", "live-off")   # never behind the queue: each writes a switch that makes things safer, and nothing else
 
 
 class Job:
@@ -148,7 +155,7 @@ class Job:
 
 
 class Runner:
-    """One job at a time, in order; panic in a lane of its own."""
+    """One job at a time, in order; panic and live-off each in a lane of its own."""
 
     def __init__(self, state: Path, mesh: Path, redact, notify=None, kill_grace: int = KILL_GRACE):
         self.state, self.mesh, self.redact, self.kill_grace = state, mesh, redact, kill_grace
@@ -174,8 +181,8 @@ class Runner:
         with self.lock:
             cutoff = time.time() - JOB_KEEP_SECONDS
             self.jobs = {k: j for k, j in self.jobs.items() if j.ended is None or j.ended > cutoff}
-            if job.verb == "panic":   # its own lane, one at a time: a second press while one runs gets that same job
-                running = next((j for j in self.jobs.values() if j.verb == "panic" and j.ended is None), None)
+            if job.verb in OWN_LANE:   # its own lane, one at a time: a second press while one runs gets that same job
+                running = next((j for j in self.jobs.values() if j.verb == job.verb and j.ended is None), None)
                 if running is not None:
                     return running
                 self.jobs[job.id] = job

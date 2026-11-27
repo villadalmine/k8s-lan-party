@@ -2052,6 +2052,128 @@
     }
    }
   },
+  "/api/v1/live": {
+   "get": {
+    "operationId": "live",
+    "summary": "the live page's switch and whether the streamer runs (host live status --json; #119)",
+    "tags": [
+     "read"
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "switch": {
+           "enum": [
+            "on",
+            "off"
+           ]
+          },
+          "streaming": {
+           "type": "boolean"
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "description": "a bad name, id or query",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "no or wrong credential",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "404": {
+      "description": "no such route, or no such job",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "405": {
+      "description": "another method",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "429": {
+      "description": "too many bad tokens",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "500": {
+      "description": "the console could not answer",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "502": {
+      "description": "the engine's read failed or was not JSON",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "503": {
+      "description": "too many connections at once",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "504": {
+      "description": "the engine did not answer in time",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/v1/watch/{owner}/frame": {
    "get": {
     "operationId": "watchFrame",
@@ -2475,7 +2597,9 @@
      "game-stop",
      "invite",
      "refresh",
-     "bundle"
+     "bundle",
+     "live-on",
+     "live-off"
     ]
    },
    "ActionInfo": {
@@ -3197,6 +3321,34 @@
    "arg_roles": {},
    "timeout_seconds": 120,
    "summary": "stop the owner's game server: everyone in that game is out"
+  },
+  {
+   "verb": "live-on",
+   "engine": "mesh host live on",
+   "params": {},
+   "required": [],
+   "confirm": "click",
+   "roles": [
+    "local",
+    "console"
+   ],
+   "arg_roles": {},
+   "timeout_seconds": 60,
+   "summary": "let the house match stream to the public page again (players in the house are broadcast)"
+  },
+  {
+   "verb": "live-off",
+   "engine": "mesh host live off",
+   "params": {},
+   "required": [],
+   "confirm": "none",
+   "roles": [
+    "local",
+    "console"
+   ],
+   "arg_roles": {},
+   "timeout_seconds": 60,
+   "summary": "take the house match off the public page and keep it off; the match and the demo keep running"
   },
   {
    "verb": "invite",

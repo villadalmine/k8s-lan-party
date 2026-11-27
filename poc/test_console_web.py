@@ -373,8 +373,8 @@ class WebTest(DaemonCase):
         status, verbs = self.j("GET", "/api/v1/verbs")
         self.assertEqual(status, 200)
         closed = {v["verb"] for v in verbs if not v["allowed"]}
-        self.assertEqual(closed, {"invite", "bundle", "refresh", "init", "down", "watch-init", "watch-down"})
-        expected = {"invite": 403, "bundle": 403, "refresh": 403, "init": 404, "down": 404, "watch-init": 404, "watch-down": 404}   # 403 not this role's; 404 not in the registry
+        self.assertEqual(closed, {"invite", "bundle", "refresh", "init", "down", "watch-init", "watch-down", "house-init", "house-down"})
+        expected = {"invite": 403, "bundle": 403, "refresh": 403, "init": 404, "down": 404, "watch-init": 404, "watch-down": 404, "house-init": 404, "house-down": 404}   # 403 not this role's; 404 not in the registry
         for verb in sorted(closed):
             status, body = self.j("POST", f"/api/v1/actions/{verb}", {"args": {"name": "ana"}})
             self.assertEqual(status, expected[verb], verb)

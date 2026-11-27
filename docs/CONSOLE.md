@@ -205,6 +205,9 @@ simulation of a player's machine, not host actions.
 | `host watch leave <owner>` | mutates: that party closes | none: leaving is always safe | `watch-leave` | none | local, console |
 | `host watch start <owner> [--follow <player>]` | mutates: a spectator pod in watch-host, on an own machine; needs the open party | low: only what the owner accepted | `watch-start` | none | local, console |
 | `host watch stop <owner>` | mutates: removes that spectator | none | `watch-stop` | none | local, console |
+| `host live on` | mutates: the house match may stream to the public page again | low: players in the house are broadcast, as their accept told them | `live-on` | click | local, console |
+| `host live off` | mutates: the page says offline and stays so; the match and the demo keep running | none: going off the air is always safe | `live-off` | none | local, console |
+| `host live status --json` | read: the switch and whether the streamer runs | | `GET /live` | | local, console |
 | `host game start <owner>` | mutates: a Doom server (pod and UDP Service) in the owner's namespace, on the owner's node (#102) | medium: a new workload on a player's machine | `game-start` | click | local, console |
 | `host game stop <owner>` | mutates: removes it; everyone in that game is out | high | `game-stop` | type the name | local, console |
 | `host watch init`, `host watch down` | create or remove the watcher's namespace (down closes its parties and removes every spectator) | | **never**: typed on the host (`GET /verbs` shows them disabled) | | |
@@ -231,12 +234,13 @@ the socket and on the loopback; only the role differs.
 | `GET /api/v1/health` | the daemon answers, its version and the caller's role; calls no engine |
 | `GET /api/v1/status` | places used and total, waiting, eligible now, next to end, auto, panic, last tick |
 | `GET /api/v1/requests`, `/leases`, `/players`, `/players/{name}/activity`, `/parties` | the lists, from pure reads |
-| `GET /api/v1/verbs` | every registry verb, plus `init`, `down`, `watch-init` and `watch-down`, with `allowed` for the caller's role; for the others `why`, and the `command` to type on the host (`invite`, `bundle`, `refresh`, and those four, which no role runs). A description for a client to draw disabled buttons: the refusal is each POST's (#103) |
+| `GET /api/v1/verbs` | every registry verb, plus `init`, `down`, `watch-init`, `watch-down`, `house-init` and `house-down`, with `allowed` for the caller's role; for the others `why`, and the `command` to type on the host (`invite`, `bundle`, `refresh`, and those six, which no role runs). A description for a client to draw disabled buttons: the refusal is each POST's (#103) |
 | `GET /api/v1/events?since=&limit=`, `GET /api/v1/audit?limit=` | the last lines of each log (at most 500) |
 | `GET /api/v1/pool` | capacity and admission switches, active leases and the queue, grouped from existing pure reads; sampled in sequence, so a tick may occur between them |
 | `GET /api/v1/page` | the puller's last local observation: `state` (open/closed/unknown), `reported_at`, `age_seconds`, `admission_closed`; no network call or page control |
 | `GET /api/v1/metrics` | the admission metrics, Prometheus text, no identities |
 | `GET /api/v1/watch`, `GET /api/v1/watch/{owner}/frame` | the host's watcher (D6): its parties and spectators, from a pure read; one JPEG of the host's spectator of that game, through the API server to the host's own pod, at most 4 a second (429 beyond); 404 when none runs. The page draws them as the Watch view (CONSOLE-MODES.md) |
+| `GET /api/v1/live` | the live page's switch (`on`/`off`) and whether the streamer runs (`streaming`), from a file and a pid on the host (#119); `live-off` and `live-on` change it. Driving these from a bot: [CONSOLE-BOTS.md](CONSOLE-BOTS.md) |
 | `GET /api/v1/actions` | the registry entries the caller's role may run: verb, params, confirmation, timeout |
 | `POST /api/v1/actions/{verb}` | `{"args": {...}}`: starts a job (202), or answers with a plan to confirm (200) |
 | `GET /api/v1/jobs/{id}` | a job: running, done, failed or timeout; the engine's exit code; its output, redacted |
@@ -310,7 +314,7 @@ exactly as today: the person who typed the command already confirmed it.
   `poc/meshlock.py hold` takes the `flock`, prints `locked`, and keeps it while the `mesh` it serves runs (it polls every 0.1 s; a zombie
   counts as gone); it is in the caller's process group, so the daemon's SIGKILL at a timeout frees it too. Python's `fcntl.flock` exists on
   macOS as well, so there is no second mechanism for systems without `flock(1)`. The node guard's own lock stays, nested inside this one.
-  `panic` is the one verb `mesh` does not lock: admission.py takes the same lock itself right after writing the switch
+  `panic` and `live-off` are the verbs `mesh` does not lock (`live-off` touches only a file and the host's own streamer): admission.py takes the same lock itself right after writing the switch
   (`--engine-lock`), so the switch never waits and the expulsions do.
   Whatever runs directly marks its whole process tree direct (`EMESH_DIRECT=1`): a nested `mesh` sent to the daemon would queue behind
   its own parent's lock.
