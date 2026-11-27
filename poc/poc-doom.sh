@@ -499,7 +499,8 @@ house_close() { # close withdraws the offers and closes the parties; panic takes
   say host "panic: the house's broadcast stops at once with everything else"
   "$MESH" host panic >/dev/null && wait_for 40 live_is off && ! live_get /api/v1/live/frame >/dev/null && echo "panic: the page says offline" &&
   "$MESH" host panic --clear >/dev/null && wait_for 40 live_is on && echo "panic cleared: on the air again" || return 1
-  K petersen delete pod doom-play-house --ignore-not-found --wait=false >/dev/null; }
+  # panic expelled every player, and an expelled player's VM is deleted (lib.sh): her game client may be gone with it already
+  K petersen delete pod doom-play-house --ignore-not-found --wait=false >/dev/null 2>&1 || true; }
 
 console_api() { # console_api <address> <token file> <METHOD> <path> [json body]: one call to the console daemon's web API, as a bot makes it
   python3 - "$@" <<'PY'
